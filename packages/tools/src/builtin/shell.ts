@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import type { Tool, ToolResult, ToolExecutionContext } from "@agentclaw/types";
@@ -207,6 +207,61 @@ function validateCommand(command: string): string | null {
   return null;
 }
 
+/**
+ * Progress line detection patterns.
+ * Each pattern extracts a human-readable summary from long-running commands.
+ */
+const PROGRESS_PATTERNS: { test: RegExp; extract: (line: string) => string | null }[] = [
+  // yt-dlp: [download]  45.3% of 150.00MiB at 12.5MiB/s ETA 00:08
+  {
+    test: /\[download\]\s+[\d.]+%/,
+    extract: (line) => {
+      const m = line.match(
+        /\[download\]\s+([\d.]+%)\s+of\s+~?([\d.]+\S+)(?:\s+at\s+([\d.]+\S+))?(?:\s+ETA\s+(\S+))?/,
+      );
+      if (!m) return null;
+      const parts = [`下载中: ${m[1]} / ${m[2]}`];
+      if (m[3]) parts.push(m[3]);
+      if (m[4]) parts.push(`ETA ${m[4]}`);
+      return parts.join(" | ");
+    },
+  },
+  // yt-dlp: [download] Destination: filename
+  {
+    test: /\[download\]\s+Destination:/,
+    extract: (line) => {
+      const name = line.replace(/.*Destination:\s*/, "").trim();
+      const short = name.length > 50 ? `...${name.slice(-47)}` : name;
+      return `开始下载: ${short}`;
+    },
+  },
+  // yt-dlp: [Merger] Merging formats into ...
+  {
+    test: /\[Merger\]/,
+    extract: () => "合并音视频中...",
+  },
+  // ffmpeg: frame=  123 fps= 30 ... time=00:00:04.10
+  {
+    test: /frame=\s*\d+.*time=/,
+    extract: (line) => {
+      const t = line.match(/time=(\S+)/);
+      const s = line.match(/speed=\s*(\S+)/);
+      const parts = ["编码中"];
+      if (t) parts.push(t[1]);
+      if (s) parts.push(`${s[1]}x`);
+      return parts.join(" | ");
+    },
+  },
+];
+
+/** Try to extract a progress message from a raw output line */
+function extractProgress(line: string): string | null {
+  for (const p of PROGRESS_PATTERNS) {
+    if (p.test.test(line)) return p.extract(line);
+  }
+  return null;
+}
+
 /** Execute the shell command and return a ToolResult */
 function runShell(
   command: string,
@@ -214,6 +269,7 @@ function runShell(
   shellChoice?: string,
   abortSignal?: AbortSignal,
   extraEnv?: Record<string, string>,
+  onProgress?: (message: string) => void,
 ): Promise<ToolResult> {
   const useShell =
     shellChoice === "powershell" && process.platform === "win32"
@@ -221,6 +277,111 @@ function runShell(
       : detectedShell;
   const { shell, args } = useShell;
 
+  // ── Streaming mode (with progress callback) ──
+  if (onProgress) {
+    return new Promise<ToolResult>((resolve) => {
+      let aborted = false;
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      let lastProgressAt = 0;
+      const THROTTLE_MS = 3000;
+      let timedOut = false;
+
+      const child = spawn(shell, args(command), {
+        windowsHide: true,
+        env: {
+          ...process.env,
+          PYTHONIOENCODING: "utf-8",
+          PYTHONUTF8: "1",
+          ...extraEnv,
+        },
+      });
+
+      // Timeout handling
+      const timer = setTimeout(() => {
+        timedOut = true;
+        if (process.platform === "win32" && child.pid) {
+          execFile("taskkill", ["/F", "/T", "/PID", String(child.pid)], { windowsHide: true }, () => {});
+        } else {
+          child.kill();
+        }
+      }, timeout);
+
+      const handleData = (chunk: Buffer, isStderr: boolean) => {
+        if (isStderr) stderrChunks.push(chunk);
+        else stdoutChunks.push(chunk);
+
+        // Try to extract progress from the latest chunk
+        const now = Date.now();
+        if (now - lastProgressAt < THROTTLE_MS) return;
+
+        const text = decodeOutput(chunk);
+        // Split by \r or \n to get the latest "line"
+        const lines = text.split(/[\r\n]+/).filter(Boolean);
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const msg = extractProgress(lines[i]);
+          if (msg) {
+            lastProgressAt = now;
+            onProgress(msg);
+            return;
+          }
+        }
+      };
+
+      child.stdout?.on("data", (chunk: Buffer) => handleData(chunk, false));
+      child.stderr?.on("data", (chunk: Buffer) => handleData(chunk, true));
+
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        if (aborted) {
+          resolve({ content: "Command aborted by user.", isError: true, metadata: { exitCode: null, aborted: true } });
+          return;
+        }
+        const stdoutStr = stdoutChunks.length ? decodeOutput(Buffer.concat(stdoutChunks)) : "";
+        const stderrStr = stderrChunks.length ? decodeOutput(Buffer.concat(stderrChunks)) : "";
+        const output = [stdoutStr, stderrStr].filter(Boolean).join("\n");
+
+        if (timedOut) {
+          resolve({ content: `Command timed out after ${timeout}ms\n${output}`, isError: true, metadata: { exitCode: null, timedOut: true } });
+          return;
+        }
+
+        const exitCode = code ?? 0;
+        const hasOutput = stdoutStr.trim().length > 0;
+        resolve({
+          content: output,
+          isError: exitCode !== 0 && !hasOutput,
+          metadata: { exitCode },
+        });
+      });
+
+      child.on("error", (err) => {
+        clearTimeout(timer);
+        resolve({ content: err.message, isError: true, metadata: { exitCode: 1 } });
+      });
+
+      // Abort signal
+      if (abortSignal) {
+        const killChild = () => {
+          aborted = true;
+          clearTimeout(timer);
+          if (process.platform === "win32" && child.pid) {
+            execFile("taskkill", ["/F", "/T", "/PID", String(child.pid)], { windowsHide: true }, () => {});
+          } else {
+            child.kill();
+          }
+        };
+        if (abortSignal.aborted) {
+          killChild();
+        } else {
+          abortSignal.addEventListener("abort", killChild, { once: true });
+          child.on("close", () => abortSignal.removeEventListener("abort", killChild));
+        }
+      }
+    });
+  }
+
+  // ── Buffered mode (original behavior, no progress) ──
   return new Promise<ToolResult>((resolve) => {
     let aborted = false;
     const child = execFile(
@@ -429,7 +590,13 @@ export const shellTool: Tool = {
       };
     }
 
-    const result = await runShell(effectiveCommand, timeout, effectiveShell, context?.abortSignal, extraEnv);
+    // Enable streaming progress for long-running commands (yt-dlp, ffmpeg, etc.)
+    const progressFn =
+      context?.notifyUser && /\b(yt-dlp|youtube-dl|ffmpeg|ffprobe)\b/.test(effectiveCommand)
+        ? (msg: string) => { context.notifyUser!(msg).catch(() => {}); }
+        : undefined;
+
+    const result = await runShell(effectiveCommand, timeout, effectiveShell, context?.abortSignal, extraEnv, progressFn);
 
     const MAX_CONTENT = 12_000;
     if (result.content.length > MAX_CONTENT) {
