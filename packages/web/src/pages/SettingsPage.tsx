@@ -673,9 +673,6 @@ function ProviderConfigForm({
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
             />
-            <span className="config-hint">
-              {t("settings.configBaseUrlHint")}
-            </span>
           </div>
         )}
 
@@ -879,7 +876,7 @@ function SettingsAbout() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                github.com/vorojar/AgentClaw
+                https://github.com/vorojar/AgentClaw
               </a>
             </td>
           </tr>
