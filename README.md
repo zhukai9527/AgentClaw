@@ -136,6 +136,9 @@ npm run cli          # 终端交互模式
 ### 多 Agent 人格
 支持创建多个 Agent，每个 Agent 拥有独立的 Soul（人格/行为指令）、可选的 Model、Temperature、Max Iterations、Tools 过滤。5 个预设 Agent：AgentClaw（默认通用助理）、Coder（编程专家）、Writer（写作助手）、Analyst（数据分析师）、Researcher（研究员）。配置存储在 `data/agents/<id>/`，创建会话时可指定 Agent。
 
+### Agent Handoff（代理交接）
+对话中 Agent 可通过 `handoff` 工具将对话交给更合适的专家 Agent 继续处理。例如通用助理遇到编程任务时自动交接给 Coder，遇到数据分析时交接给 Analyst。交接后保留完整对话历史，目标 Agent 使用自己的人格、模型和工具集继续响应。最多 3 次连续交接防止循环，前端显示交接通知气泡。
+
 ### 子代理编排
 `subagent` 工具可派生独立子 agent 并行执行任务，拥有独立 agent-loop 和会话上下文。支持 spawn/spawn_and_wait/result/kill/list 操作，`mode: "explore"` 只读模式仅加载搜索/阅读工具子集。安全机制：工具黑名单（6 个危险工具始终禁止）、IterationBudget 父子共享迭代预算池防止无限消耗。
 
@@ -205,6 +208,7 @@ Session 内冻结系统提示词中的动态上下文（记忆 + 技能目录）
 | 条件 | `subagent` | 子代理编排（spawn/result/kill/list） |
 | 条件 | `browser_cdp` | 浏览器 CDP 自动化（Playwright） |
 | 条件 | `social_post` | 一键发帖到 X/小红书/即刻 |
+| 条件 | `handoff` | 将对话交接给更合适的专家 Agent |
 | 条件 | `claude_code` | 委托 Claude Code CLI 执行编码任务 |
 
 ## 技能系统
