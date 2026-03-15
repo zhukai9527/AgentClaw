@@ -9,7 +9,7 @@ import {
   deleteScheduledTask,
   type ScheduledTaskInfo,
 } from "../api/client";
-import { IconEdit, IconPlay, IconTrash } from "../components/Icons";
+import { IconEdit, IconPlay, IconTrash, IconClock } from "../components/Icons";
 import "./TasksPage.css";
 
 type Frequency = "daily" | "weekdays" | "weekly" | "monthly" | "custom";
@@ -205,15 +205,13 @@ export function AutomationsPage() {
   const [runningId, setRunningId] = useState<string | null>(null);
 
   const handleRunNow = async (auto: ScheduledTaskInfo) => {
-    if (runningId) return; // prevent double-click
+    if (runningId) return;
     setRunningId(auto.id);
     try {
       const updated = await runScheduledTask(auto.id);
       setAutomations((prev) =>
         prev.map((a) => (a.id === auto.id ? updated : a)),
       );
-      // Keep spinning for a few seconds to indicate task is running in background
-      await new Promise((r) => setTimeout(r, 3000));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to run");
     } finally {
@@ -453,12 +451,18 @@ export function AutomationsPage() {
                               <IconEdit size={15} />
                             </button>
                             <button
-                              className={`btn-icon auto-icon-btn-play${runningId === auto.id ? " auto-running" : ""}`}
+                              className={`btn-icon auto-icon-btn-play`}
                               onClick={() => handleRunNow(auto)}
                               disabled={!!runningId}
                               title={t("tasks.runNow")}
                             >
-                              <IconPlay size={15} />
+                              {runningId === auto.id ? (
+                                <span className="spinning">
+                                  <IconClock size={15} />
+                                </span>
+                              ) : (
+                                <IconPlay size={15} />
+                              )}
                             </button>
                             <button
                               className="btn-icon auto-icon-btn-danger"

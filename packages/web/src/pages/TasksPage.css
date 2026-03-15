@@ -808,18 +808,10 @@
   color: var(--accent);
 }
 
-.auto-running {
+.auto-icon-btn-play .spinning {
+  display: inline-flex;
+  animation: spin 1.2s linear infinite;
   color: var(--accent);
-  animation: auto-spin 1s linear infinite;
-}
-
-@keyframes auto-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .auto-icon-btn-danger:hover:not(:disabled) {

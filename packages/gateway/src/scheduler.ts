@@ -127,7 +127,7 @@ export class TaskScheduler {
     return this.toPublic(task);
   }
 
-  runNow(id: string): ScheduledTask | undefined {
+  async runNow(id: string): Promise<ScheduledTask | undefined> {
     const task = this.tasks.get(id);
     if (!task) return undefined;
 
@@ -137,9 +137,8 @@ export class TaskScheduler {
     );
     this.store?.updateScheduledTaskLastRun(task.id, task.lastRunAt);
 
-    // Fire in background — don't block the HTTP response
     if (this.onTaskFire) {
-      this.onTaskFire(this.toPublic(task));
+      await this.onTaskFire(this.toPublic(task));
     }
 
     return this.toPublic(task);
