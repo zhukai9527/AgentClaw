@@ -689,17 +689,6 @@ function ProviderConfigForm({
           />
         </div>
 
-        {/* Provider Type (read-only info) */}
-        <div className="channels-detail-field">
-          <label className="channels-detail-label">SDK Type</label>
-          <code
-            className="model-name"
-            style={{ display: "inline-block", padding: "6px 10px" }}
-          >
-            {inst.type}
-          </code>
-        </div>
-
         {/* Actions */}
         <div className="channels-detail-actions">
           <button
