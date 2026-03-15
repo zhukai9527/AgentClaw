@@ -137,6 +137,22 @@ export function registerConfigRoutes(
 
       // 1. 先保存到 config.json（去除 dailyBriefTime，它存在 DB 里）
       const { dailyBriefTime: _dbt, ...configUpdates } = updates;
+
+      // 保护脱敏 apiKey：如果前端提交的 apiKey 是 "****" 格式，用 config.json 中的原值替换
+      if (configUpdates.providers && Array.isArray(configUpdates.providers)) {
+        const existingCfg = loadConfig();
+        const existingProviders = existingCfg.providers || [];
+        configUpdates.providers = (
+          configUpdates.providers as ProviderInstance[]
+        ).map((p) => {
+          if (p.apiKey && p.apiKey.startsWith("****")) {
+            const existing = existingProviders.find((ep) => ep.id === p.id);
+            return { ...p, apiKey: existing?.apiKey || "" };
+          }
+          return p;
+        });
+      }
+
       if (Object.keys(configUpdates).length > 0) {
         saveConfig(configUpdates as Partial<AppConfig>);
       }

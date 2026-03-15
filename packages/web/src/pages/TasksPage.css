@@ -808,6 +808,20 @@
   color: var(--accent);
 }
 
+.auto-running {
+  color: var(--accent);
+  animation: auto-spin 1s linear infinite;
+}
+
+@keyframes auto-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .auto-icon-btn-danger:hover:not(:disabled) {
   color: var(--error);
 }
