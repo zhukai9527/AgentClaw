@@ -1,6 +1,11 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { loadConfig } from "./config.js";
 
-const API_KEY = process.env.API_KEY;
+/** 获取当前有效的 API key（支持热更新：config.json 优先，env 兜底） */
+function getApiKey(): string | undefined {
+  const cfg = loadConfig();
+  return cfg.apiKey || process.env.API_KEY;
+}
 
 /**
  * Extract credential from request:
@@ -18,22 +23,27 @@ function extractCredential(req: FastifyRequest): string | undefined {
 
 /**
  * Register API key authentication on a Fastify instance.
- * If API_KEY env var is not set, no auth is enforced.
+ * If API_KEY is not set anywhere, no auth is enforced at startup.
+ * Auth is re-evaluated on each request to support hot config updates.
  */
 export function registerAuth(app: FastifyInstance): void {
-  if (!API_KEY) {
-    console.log("[auth] API_KEY not set — authentication disabled");
-    return;
+  const initialKey = getApiKey();
+  if (!initialKey) {
+    console.log(
+      "[auth] API_KEY not set — authentication disabled (will re-check on config update)",
+    );
+  } else {
+    console.log("[auth] API_KEY set — authentication enabled");
   }
-
-  console.log("[auth] API_KEY set — authentication enabled");
 
   // Verify endpoint — allows frontend to check if a key is valid
   app.get(
     "/api/auth/verify",
     async (req: FastifyRequest, reply: FastifyReply) => {
+      const apiKey = getApiKey();
+      if (!apiKey) return reply.send({ ok: true });
       const credential = extractCredential(req);
-      if (credential === API_KEY) {
+      if (credential === apiKey) {
         return reply.send({ ok: true });
       }
       return reply.status(401).send({ error: "Invalid API key" });
@@ -64,8 +74,10 @@ export function registerAuth(app: FastifyInstance): void {
 
     // Protect /api/*, /ws*
     if (url.startsWith("/api/") || url.startsWith("/ws")) {
+      const apiKey = getApiKey();
+      if (!apiKey) return; // no key configured = no auth
       const credential = extractCredential(req);
-      if (credential !== API_KEY) {
+      if (credential !== apiKey) {
         return reply.status(401).send({ error: "Unauthorized" });
       }
     }

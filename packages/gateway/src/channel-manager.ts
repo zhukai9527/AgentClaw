@@ -70,13 +70,42 @@ function isChannelConfigured(cfg: AppConfig, id: string): boolean {
   }
 }
 
+/** 比较渠道相关配置是否变更 */
+function hasChannelConfigChanged(
+  oldCfg: AppConfig,
+  newCfg: AppConfig,
+  id: string,
+): boolean {
+  const serialize = (v: unknown) => JSON.stringify(v ?? null);
+  switch (id) {
+    case "telegram":
+      return serialize(oldCfg.telegram) !== serialize(newCfg.telegram);
+    case "dingtalk":
+      return serialize(oldCfg.dingtalk) !== serialize(newCfg.dingtalk);
+    case "feishu":
+      return serialize(oldCfg.feishu) !== serialize(newCfg.feishu);
+    case "qqbot":
+      return serialize(oldCfg.qqBot) !== serialize(newCfg.qqBot);
+    case "wecom":
+      return serialize(oldCfg.wecom) !== serialize(newCfg.wecom);
+    case "whatsapp":
+      return serialize(oldCfg.whatsapp) !== serialize(newCfg.whatsapp);
+    case "email":
+      return serialize(oldCfg.email) !== serialize(newCfg.email);
+    default:
+      return false;
+  }
+}
+
 export class ChannelManager {
   private channels = new Map<string, ChannelState>();
   private ctx: AppContext;
+  private lastConfig: AppConfig;
 
   constructor(ctx: AppContext) {
     this.ctx = ctx;
     const cfg = loadConfig();
+    this.lastConfig = cfg;
 
     // 注册所有已知渠道
     this.channels.set("telegram", {
@@ -206,16 +235,27 @@ export class ChannelManager {
     }
   }
 
-  /** 重新加载配置并重启变更的渠道 */
+  /** 重新加载配置并只重启配置实际变更的渠道 */
   async refreshConfig(): Promise<void> {
-    const cfg = loadConfig();
+    const oldCfg = this.lastConfig;
+    const newCfg = loadConfig();
+    this.lastConfig = newCfg;
+
     for (const [id, ch] of this.channels) {
       if (id === "websocket") continue;
-      const nowConfigured = isChannelConfigured(cfg, id);
+      const nowConfigured = isChannelConfigured(newCfg, id);
       const wasConfigured = ch.configured;
       ch.configured = nowConfigured;
 
-      // 配置变更：先停后启
+      // 检查该渠道的配置值是否真的变更
+      const configChanged = hasChannelConfigChanged(oldCfg, newCfg, id);
+
+      if (!configChanged && wasConfigured === nowConfigured && ch.handle) {
+        // 配置没变且渠道正在运行，跳过
+        continue;
+      }
+
+      // 配置变更或状态变更：先停
       if (ch.handle) {
         try {
           ch.handle.stop();
@@ -225,6 +265,7 @@ export class ChannelManager {
         console.log(`[channel-manager] Stopped ${ch.name} for config refresh`);
       }
 
+      // 再启
       if (nowConfigured) {
         try {
           ch.handle = await this.startBot(id);

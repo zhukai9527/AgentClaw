@@ -23,6 +23,9 @@
 - **ChatPage wsRef stale closure**：`wsRef.current` 被错误放入 useCallback 依赖数组，WS 重连后回调使用旧连接
 - **SettingsPage 无限重渲染**：`fetchAll` 和 `selectedId` 构成循环依赖，改用 ref 打破循环
 - **API client headers 被丢弃**：`request()` 函数丢弃调用方自定义 headers，改为合并默认与自定义 headers
+- **saveConfig 浅合并丢失嵌套字段**：`{ ...existing, ...config }` 整体替换嵌套渠道对象，改为 `deepMerge` 递归合并
+- **refreshConfig 无条件重启所有渠道**：改为比较新旧配置，只重启实际变更的渠道，避免无关渠道短暂中断
+- **auth.ts API_KEY 模块加载固化**：改为每次请求动态读取 config.json + env，支持通过 Web UI 热更新 API key
 
 ## [1.4.1] - 2026-03-15
 

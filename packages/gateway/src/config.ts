@@ -289,8 +289,38 @@ function migrateToProviders(cfg: AppConfig): ProviderInstance[] {
 }
 
 /**
+ * 深度合并两个对象。数组直接替换（不 concat），纯对象递归合并。
+ */
+function deepMerge(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    const srcVal = source[key];
+    const tgtVal = target[key];
+    if (
+      srcVal !== null &&
+      typeof srcVal === "object" &&
+      !Array.isArray(srcVal) &&
+      tgtVal !== null &&
+      typeof tgtVal === "object" &&
+      !Array.isArray(tgtVal)
+    ) {
+      result[key] = deepMerge(
+        tgtVal as Record<string, unknown>,
+        srcVal as Record<string, unknown>,
+      );
+    } else {
+      result[key] = srcVal;
+    }
+  }
+  return result;
+}
+
+/**
  * 保存配置到 config.json（合并写入，不是全量覆盖）。
- * 只写入传入的字段，不影响已有字段。
+ * 只写入传入的字段，不影响已有字段。嵌套对象递归合并。
  */
 export function saveConfig(
   config: Partial<AppConfig>,
@@ -308,8 +338,8 @@ export function saveConfig(
     }
   }
 
-  // 合并新配置
-  const updated = { ...existing, ...config };
+  // 深度合并新配置（嵌套对象合并而非整体替换）
+  const updated = deepMerge(existing, config as Record<string, unknown>);
 
   // 确保目录存在
   mkdirSync(dirname(path), { recursive: true });
