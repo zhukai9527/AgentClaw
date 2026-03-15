@@ -374,18 +374,26 @@ export class SimpleOrchestrator implements Orchestrator {
   }
 
   async closeSession(sessionId: string): Promise<void> {
+    // Grab conversationId before deleting (tmp dir uses conversationId, not sessionId)
+    const session =
+      this.sessions.get(sessionId) ??
+      (await this.memoryStore.getSessionById(sessionId));
+    const convId = session?.conversationId;
+
     // Stop any running agent loop first (kills child processes like claude_code)
     this.stopSession(sessionId);
     this.sessions.delete(sessionId);
     await this.memoryStore.deleteSession(sessionId);
 
-    // Clean up per-session temp directory (data/tmp/{sessionId}/)
-    const tmpDir = join(process.cwd(), "data", "tmp", sessionId);
-    if (existsSync(tmpDir)) {
-      try {
-        rmSync(tmpDir, { recursive: true, force: true });
-      } catch (e) {
-        console.error(`[orchestrator] Failed to clean up ${tmpDir}:`, e);
+    // Clean up per-session temp directory (data/tmp/{conversationId}/)
+    if (convId) {
+      const tmpDir = join(process.cwd(), "data", "tmp", convId);
+      if (existsSync(tmpDir)) {
+        try {
+          rmSync(tmpDir, { recursive: true, force: true });
+        } catch (e) {
+          console.error(`[orchestrator] Failed to clean up ${tmpDir}:`, e);
+        }
       }
     }
   }
