@@ -6,7 +6,6 @@ import { useTheme } from "./ThemeProvider";
 import { useSession } from "./SessionContext";
 import { updateSession, renameSession } from "../api/client";
 import {
-  IconChat,
   IconSettings,
   IconSearch,
   IconPanelLeft,
@@ -201,13 +200,6 @@ export function Layout() {
 
         {/* Navigation */}
         <nav className="sidebar-nav">
-          <NavLink
-            to="/chat"
-            className={() => (isChat ? "active" : "")}
-            onClick={closeSidebarOnMobile}
-          >
-            <IconChat size={16} /> {t("nav.chat")}
-          </NavLink>
           <NavLink
             to="/tasks"
             className={({ isActive }) => (isActive ? "active" : "")}
