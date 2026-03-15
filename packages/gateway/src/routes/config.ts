@@ -101,6 +101,9 @@ export function registerConfigRoutes(
       const cfg = loadConfig();
       const dailyBriefTime =
         (ctx.memoryStore as any).getSetting?.("daily_brief_time") || "09:00";
+      const dailyBriefEnabled =
+        (ctx.memoryStore as any).getSetting?.("daily_brief_enabled") !==
+        "false";
       const masked = maskConfig(cfg);
       return reply.send({
         ...masked,
@@ -110,6 +113,7 @@ export function registerConfigRoutes(
         databasePath: ctx.config.databasePath,
         skillsDir: ctx.config.skillsDir,
         dailyBriefTime,
+        dailyBriefEnabled,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -119,7 +123,10 @@ export function registerConfigRoutes(
 
   // PUT /api/config - 写入 config.json（合并写入）
   app.put<{
-    Body: Partial<AppConfig> & { dailyBriefTime?: string };
+    Body: Partial<AppConfig> & {
+      dailyBriefTime?: string;
+      dailyBriefEnabled?: boolean;
+    };
   }>("/api/config", async (req, reply) => {
     try {
       const updates = req.body;
@@ -130,13 +137,32 @@ export function registerConfigRoutes(
           "daily_brief_time",
           updates.dailyBriefTime,
         );
+      }
+
+      // 处理 dailyBriefEnabled（存到 memory store setting）
+      if (updates.dailyBriefEnabled !== undefined) {
+        (ctx.memoryStore as any).setSetting(
+          "daily_brief_enabled",
+          String(updates.dailyBriefEnabled),
+        );
+      }
+
+      // 时间或开关变更后重启 cron job
+      if (
+        updates.dailyBriefTime !== undefined ||
+        updates.dailyBriefEnabled !== undefined
+      ) {
         const restart = (ctx as unknown as Record<string, unknown>)
           .restartDailyBrief as (() => void) | undefined;
         if (restart) restart();
       }
 
-      // 1. 先保存到 config.json（去除 dailyBriefTime，它存在 DB 里）
-      const { dailyBriefTime: _dbt, ...configUpdates } = updates;
+      // 1. 先保存到 config.json（去除 dailyBrief 相关字段，它们存在 DB 里）
+      const {
+        dailyBriefTime: _dbt,
+        dailyBriefEnabled: _dbe,
+        ...configUpdates
+      } = updates;
 
       // 保护脱敏 apiKey：如果前端提交的 apiKey 是 "****" 格式，用 config.json 中的原值替换
       if (configUpdates.providers && Array.isArray(configUpdates.providers)) {
@@ -208,6 +234,9 @@ export function registerConfigRoutes(
 
       const dailyBriefTime =
         (ctx.memoryStore as any).getSetting?.("daily_brief_time") || "09:00";
+      const dailyBriefEnabled =
+        (ctx.memoryStore as any).getSetting?.("daily_brief_enabled") !==
+        "false";
       const masked = maskConfig(cfg);
       return reply.send({
         ...masked,
@@ -216,6 +245,7 @@ export function registerConfigRoutes(
         databasePath: ctx.config.databasePath,
         skillsDir: ctx.config.skillsDir,
         dailyBriefTime,
+        dailyBriefEnabled,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

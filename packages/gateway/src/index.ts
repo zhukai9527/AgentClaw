@@ -162,11 +162,18 @@ async function main(): Promise<void> {
   function startDailyBriefJob() {
     if (dailyBriefJob) dailyBriefJob.stop();
     const store = ctx.memoryStore as any;
+    const enabled = store.getSetting?.("daily_brief_enabled") !== "false"; // 默认启用
     const time = store.getSetting?.("daily_brief_time") || "09:00";
     const [hour, minute] = time.split(":").map(Number);
     const hh = isNaN(hour) ? 9 : hour;
     const mm = isNaN(minute) ? 0 : minute;
     const cronExpr = `${mm} ${hh} * * *`;
+
+    if (!enabled) {
+      dailyBriefJob = null;
+      console.log(`[daily-brief] Disabled`);
+      return;
+    }
 
     dailyBriefJob = new Cron(cronExpr, async () => {
       try {

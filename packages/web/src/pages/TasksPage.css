@@ -1116,6 +1116,20 @@
 
 /* ── Daily Brief Settings ─────────────────────── */
 
+.tm-brief-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.tm-brief-header .tasks-section-title {
+  margin-bottom: 0;
+}
+.tm-brief-label.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 .tm-brief-settings {
   display: flex;
   align-items: center;

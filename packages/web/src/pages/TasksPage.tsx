@@ -546,8 +546,10 @@ function TaskRunnerStatsCard() {
 
 function DailyBriefSettings() {
   const { t } = useTranslation();
+  const [enabled, setEnabled] = useState(true);
   const [time, setTime] = useState("09:00");
   const [originalTime, setOriginalTime] = useState("09:00");
+  const [originalEnabled, setOriginalEnabled] = useState(true);
   const [saved, setSaved] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -558,6 +560,9 @@ function DailyBriefSettings() {
           setTime(cfg.dailyBriefTime);
           setOriginalTime(cfg.dailyBriefTime);
         }
+        const en = cfg.dailyBriefEnabled !== false;
+        setEnabled(en);
+        setOriginalEnabled(en);
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
@@ -565,12 +570,17 @@ function DailyBriefSettings() {
 
   if (!loaded) return null;
 
-  const dirty = time !== originalTime && !saved;
+  const dirty =
+    (time !== originalTime || enabled !== originalEnabled) && !saved;
 
   const handleSave = async () => {
     try {
-      await updateConfig({ dailyBriefTime: time });
+      await updateConfig({
+        dailyBriefTime: time,
+        dailyBriefEnabled: enabled,
+      } as Record<string, unknown>);
       setOriginalTime(time);
+      setOriginalEnabled(enabled);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
@@ -580,9 +590,21 @@ function DailyBriefSettings() {
 
   return (
     <div className="tm-runner-section">
-      <h3 className="tasks-section-title">{t("tasks.dailyBrief")}</h3>
+      <div className="tm-brief-header">
+        <h3 className="tasks-section-title">{t("tasks.dailyBrief")}</h3>
+        <div
+          className={`auto-toggle ${enabled ? "enabled" : ""}`}
+          title={enabled ? t("tasks.enabled") : t("tasks.disabled")}
+          onClick={() => {
+            setEnabled(!enabled);
+            setSaved(false);
+          }}
+        >
+          <div className="auto-toggle-knob" />
+        </div>
+      </div>
       <div className="tm-brief-settings">
-        <label className="tm-brief-label">
+        <label className={`tm-brief-label ${!enabled ? "disabled" : ""}`}>
           {t("tasks.sendTime")}
           <input
             type="time"
@@ -592,6 +614,7 @@ function DailyBriefSettings() {
               setSaved(false);
             }}
             className="tm-brief-input"
+            disabled={!enabled}
           />
         </label>
         {(dirty || saved) && (
