@@ -63,7 +63,7 @@
   },
   "chat": {
     "welcomeTitle": "你想搞定什么？",
-    "welcomeSubtitle": "交代任务，全程自动执行",
+    "welcomeSubtitle": "说出来就好，我去做",
     "askPlaceholder": "描述你想完成的任务...",
     "replyPlaceholder": "回复 AgentClaw...",
     "listeningPlaceholder": "正在听...",
