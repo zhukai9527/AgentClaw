@@ -206,6 +206,18 @@ function historyToDisplayMessages(history: ChatMessage[]): DisplayMessage[] {
 
     result.push(chatMessageToDisplay(m));
   }
+
+  // Mark orphaned tool calls (no tool_result in history = session was stopped mid-execution)
+  const last = result[result.length - 1];
+  if (last && last.role === "assistant") {
+    for (const tc of last.toolCalls) {
+      if (tc.toolResult === undefined) {
+        tc.toolResult = "(stopped)";
+        tc.isError = true;
+      }
+    }
+  }
+
   return result;
 }
 
@@ -1459,7 +1471,7 @@ export function ChatPage() {
           : undefined;
         setMessages((prev) => {
           const last = prev[prev.length - 1];
-          if (last && last.role === "assistant" && last.streaming) {
+          if (last && last.role === "assistant") {
             let content = last.content;
             const seen = new Set<string>();
             content = content.replace(
