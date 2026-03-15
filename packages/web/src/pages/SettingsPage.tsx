@@ -319,7 +319,13 @@ function SettingsModel() {
           {providers.map((inst) => {
             const selected = selectedId === inst.id;
             const toggling = togglingId === inst.id;
-            const isPrimary = config?.activeProvider === inst.id;
+            const hasKey =
+              !!inst.apiKey && !isMaskedValue(inst.apiKey)
+                ? true
+                : !!inst.apiKey;
+            const isPrimary =
+              config?.activeProvider === inst.id && hasKey && inst.enabled;
+            const canToggle = hasKey;
             return (
               <div
                 key={inst.id}
@@ -335,10 +341,10 @@ function SettingsModel() {
                   )}
                 </div>
                 <div
-                  className={`channels-toggle${inst.enabled ? " on" : ""}${toggling ? " loading" : ""}`}
+                  className={`channels-toggle${inst.enabled ? " on" : ""}${toggling ? " loading" : ""}${!canToggle ? " disabled" : ""}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleToggle(inst);
+                    if (canToggle) handleToggle(inst);
                   }}
                 >
                   <div className="channels-toggle-knob" />
