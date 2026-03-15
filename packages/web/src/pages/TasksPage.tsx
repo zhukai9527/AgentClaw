@@ -83,16 +83,21 @@ function StatsBar({ stats }: { stats: TaskStats }) {
 
 // ── Quick Add ────────────────────────────────────────
 
-function QuickAdd({ onAdd }: { onAdd: (text: string) => Promise<void> }) {
+function QuickAdd({
+  onAdd,
+}: {
+  onAdd: (text: string, assignee: string) => Promise<void>;
+}) {
   const { t } = useTranslation();
   const [text, setText] = useState("");
+  const [assignee, setAssignee] = useState<"human" | "agent">("human");
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async () => {
     if (!text.trim() || saving) return;
     setSaving(true);
     try {
-      await onAdd(text.trim());
+      await onAdd(text.trim(), assignee);
       setText("");
     } finally {
       setSaving(false);
@@ -101,6 +106,15 @@ function QuickAdd({ onAdd }: { onAdd: (text: string) => Promise<void> }) {
 
   return (
     <div className="tm-quick-add">
+      <button
+        className={`tm-assignee-toggle ${assignee}`}
+        onClick={() => setAssignee((v) => (v === "human" ? "agent" : "human"))}
+        title={
+          assignee === "human" ? t("tasks.assignHuman") : t("tasks.assignAgent")
+        }
+      >
+        {assignee === "human" ? "\u{1F464}" : "\u{1F916}"}
+      </button>
       <input
         type="text"
         className="tm-quick-input"
@@ -1132,9 +1146,11 @@ export function TasksPage() {
     }
   };
 
-  const handleAdd = async (text: string) => {
+  const handleAdd = async (text: string, assignee: string) => {
     try {
-      const created = await createManagedTask({ text });
+      const created = await createManagedTask({
+        task: { title: text, executor: assignee },
+      });
       setTasks((prev) => [created, ...prev]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Create failed");

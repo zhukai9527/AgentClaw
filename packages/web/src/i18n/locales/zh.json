@@ -104,6 +104,8 @@
     "title": "任务",
     "loadingTasks": "加载任务中...",
     "addPlaceholder": "添加待办...",
+    "assignHuman": "指派给我",
+    "assignAgent": "指派给 AI",
     "today": "今天",
     "allTasks": "全部任务",
     "calendar": "日历",

@@ -104,6 +104,8 @@
     "title": "Tasks",
     "loadingTasks": "Loading tasks...",
     "addPlaceholder": "Add to do...",
+    "assignHuman": "Assign to me",
+    "assignAgent": "Assign to AI",
     "today": "Today",
     "allTasks": "All Tasks",
     "calendar": "Calendar",
