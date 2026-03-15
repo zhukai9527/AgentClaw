@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../bootstrap.js";
+import type { ChannelManager } from "../channel-manager.js";
 import {
   loadConfig,
   saveConfig,
@@ -70,6 +71,7 @@ function rebuildProvider(cfg: AppConfig): {
 export function registerConfigRoutes(
   app: FastifyInstance,
   ctx: AppContext,
+  channelManager?: ChannelManager,
 ): void {
   // GET /api/stats - Usage stats
   app.get("/api/stats", async (_req, reply) => {
@@ -174,6 +176,19 @@ export function registerConfigRoutes(
         // 仅改了 defaultModel 但没改 provider 相关字段
         ctx.config.model = configUpdates.defaultModel as string;
         (ctx.orchestrator as any).setModel(configUpdates.defaultModel);
+      }
+
+      // 4. 渠道配置变更时热重启渠道
+      const channelFields = [
+        "telegram",
+        "dingtalk",
+        "feishu",
+        "qqBot",
+        "wecom",
+        "whatsapp",
+      ];
+      if (channelManager && channelFields.some((f) => f in configUpdates)) {
+        await channelManager.refreshConfig();
       }
 
       const dailyBriefTime =

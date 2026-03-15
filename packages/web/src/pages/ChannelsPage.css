@@ -1,4 +1,4 @@
-/* ChannelsPage styles */
+/* ChannelsPage styles — left-right split layout */
 
 .channels-loading {
   display: flex;
@@ -31,143 +31,81 @@
   font-size: 14px;
 }
 
-.channels-empty {
-  text-align: center;
-  color: var(--text-muted);
-  padding: 48px 0;
-  font-size: 16px;
-}
-
-/* Card grid — 2 columns, 1 on mobile */
-.channels-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-@media (max-width: 640px) {
-  .channels-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Card */
-.channels-card {
+/* ── Split layout ── */
+.channels-split {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px;
-  background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  transition: border-color 0.15s;
+  overflow: hidden;
+  min-height: 400px;
+  background: var(--bg-secondary);
 }
 
-.channels-card:hover {
-  border-color: var(--accent);
+/* ── Left: channel list ── */
+.channels-list {
+  width: 240px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  gap: 2px;
+  overflow-y: auto;
 }
 
-.channels-card-dimmed {
-  opacity: 0.5;
-}
-
-.channels-card-dimmed:hover {
-  border-color: var(--border);
-}
-
-/* Left section: icon + name */
-.channels-card-left {
+.channels-list-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-shrink: 0;
-  min-width: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+  color: var(--text-secondary);
 }
 
-.channels-icon {
+.channels-list-item:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.channels-list-item.active {
+  background: var(--accent-subtle-bg);
+  color: var(--accent);
+}
+
+.channels-list-item.disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.channels-list-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
 }
 
-.channels-icon svg {
-  width: 20px;
-  height: 20px;
+.channels-list-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
-.channels-name {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-}
-
-/* Middle section: status info */
-.channels-card-middle {
+.channels-list-name {
+  font-size: 14px;
+  font-weight: 500;
   flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 
-.channels-status-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.channels-status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.channels-status-text {
-  font-size: 13px;
-  color: var(--text-secondary);
-  text-transform: capitalize;
-}
-
-.channels-status-notconfigured {
-  text-decoration: line-through;
-  text-transform: none;
-}
-
-.channels-connected-time {
-  font-size: 12px;
-  color: var(--text-muted);
-  padding-left: 14px;
-}
-
-.channels-error-msg {
-  font-size: 12px;
-  color: var(--error);
-  padding-left: 14px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Right section: toggle */
-.channels-card-right {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-}
-
-/* Toggle switch — pill shape */
+/* ── Toggle switch ── */
 .channels-toggle {
-  width: 40px;
-  height: 20px;
-  border-radius: 10px;
+  width: 36px;
+  height: 18px;
+  border-radius: 9px;
   background: var(--text-secondary);
   position: relative;
   cursor: pointer;
@@ -176,14 +114,14 @@
 }
 
 .channels-toggle.on {
-  background: var(--success);
+  background: var(--success, var(--accent));
 }
 
 .channels-toggle .channels-toggle-knob {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: var(--text-primary);
+  background: white;
   position: absolute;
   top: 2px;
   left: 2px;
@@ -191,7 +129,7 @@
 }
 
 .channels-toggle.on .channels-toggle-knob {
-  left: 22px;
+  left: 20px;
 }
 
 .channels-toggle.disabled {
@@ -210,5 +148,146 @@
   }
   50% {
     opacity: 0.5;
+  }
+}
+
+/* ── Right: detail panel ── */
+.channels-detail {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.channels-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.channels-detail-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.channels-detail-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.channels-detail-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  flex: 1;
+}
+
+.channels-detail-status {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+.channels-detail-status.connected {
+  background: var(--success-subtle-bg, var(--accent-subtle-bg));
+  color: var(--success, var(--accent));
+}
+
+.channels-detail-status.disconnected {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.channels-detail-status.not_configured {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.channels-detail-status.error {
+  background: var(--error-subtle-bg);
+  color: var(--error);
+}
+
+.channels-detail-connected {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.channels-detail-error {
+  font-size: 13px;
+  color: var(--error);
+  background: var(--error-subtle-bg);
+  border: 1px solid var(--error-subtle-border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 16px;
+}
+
+/* ── Form ── */
+.channels-detail-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.channels-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.channels-detail-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.channels-detail-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding-top: 8px;
+}
+
+.channels-detail-empty {
+  font-size: 14px;
+  color: var(--text-muted);
+  padding: 20px 0;
+}
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  .channels-split {
+    flex-direction: column;
+    min-height: auto;
+  }
+
+  .channels-list {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 6px;
+  }
+
+  .channels-list-item {
+    white-space: nowrap;
+    padding: 8px 10px;
+  }
+
+  .channels-detail {
+    padding: 16px;
   }
 }

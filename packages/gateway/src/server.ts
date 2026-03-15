@@ -84,7 +84,7 @@ export async function createServer(
   registerProjectRoutes(app, ctx);
   registerMemoryRoutes(app, ctx);
   registerToolRoutes(app, ctx);
-  registerConfigRoutes(app, ctx);
+  registerConfigRoutes(app, ctx, options.channelManager);
   registerTokenLogRoutes(app, ctx);
   registerTraceRoutes(app, ctx);
   registerTaskRoutes(app, ctx, scheduler);

@@ -6,7 +6,10 @@ import {
   listChannels,
   startChannel,
   stopChannel,
+  getConfig,
+  updateAppConfig,
   type ChannelInfo,
+  type AppConfigInfo,
 } from "../api/client";
 import "./ChannelsPage.css";
 
@@ -58,6 +61,29 @@ function FeishuIcon() {
   );
 }
 
+function QQBotIcon() {
+  return (
+    <svg {...svgProps}>
+      <circle cx="12" cy="10" r="7" />
+      <path d="M8.5 9.5a1 1 0 011-1h1a1 1 0 010 2h-1a1 1 0 01-1-1z" />
+      <path d="M13.5 9.5a1 1 0 011-1h1a1 1 0 010 2h-1a1 1 0 01-1-1z" />
+      <path d="M9 13c1 1 4 1 5 0" />
+      <path d="M7 17c1 2 3 3 5 3s4-1 5-3" />
+    </svg>
+  );
+}
+
+function WeComIcon() {
+  return (
+    <svg {...svgProps}>
+      <path d="M17 3H7a4 4 0 00-4 4v6a4 4 0 004 4h1l3 4 3-4h3a4 4 0 004-4V7a4 4 0 00-4-4z" />
+      <path d="M9 9h0" />
+      <path d="M15 9h0" />
+      <path d="M9 13c1 1 4 1 5 0" />
+    </svg>
+  );
+}
+
 function WebSocketIcon() {
   return (
     <svg {...svgProps}>
@@ -76,19 +102,81 @@ const CHANNEL_ICONS: Record<string, () => React.ReactElement> = {
   whatsapp: WhatsAppIcon,
   dingtalk: DingTalkIcon,
   feishu: FeishuIcon,
+  qqbot: QQBotIcon,
+  wecom: WeComIcon,
   websocket: WebSocketIcon,
 };
 
 function getChannelIcon(id: string) {
-  const normalized = id.toLowerCase();
-  for (const [key, Icon] of Object.entries(CHANNEL_ICONS)) {
-    if (normalized.includes(key)) return <Icon />;
-  }
-  // Fallback: generic plug icon
-  return <WebSocketIcon />;
+  const Icon = CHANNEL_ICONS[id];
+  return Icon ? <Icon /> : <WebSocketIcon />;
 }
 
-/** Relative time display, e.g. "2h ago" */
+/** 渠道配置字段定义 */
+interface ChannelFieldDef {
+  id: string;
+  name: string;
+  configKey: string; // AppConfigInfo 中的 key
+  fields: { key: string; label: string; type: "text" | "password" }[];
+}
+
+const CHANNEL_DEFS: ChannelFieldDef[] = [
+  {
+    id: "telegram",
+    name: "Telegram",
+    configKey: "telegram",
+    fields: [{ key: "botToken", label: "Bot Token", type: "password" }],
+  },
+  {
+    id: "dingtalk",
+    name: "DingTalk",
+    configKey: "dingtalk",
+    fields: [
+      { key: "appKey", label: "App Key", type: "text" },
+      { key: "appSecret", label: "App Secret", type: "password" },
+    ],
+  },
+  {
+    id: "feishu",
+    name: "Feishu",
+    configKey: "feishu",
+    fields: [
+      { key: "appId", label: "App ID", type: "text" },
+      { key: "appSecret", label: "App Secret", type: "password" },
+    ],
+  },
+  {
+    id: "qqbot",
+    name: "QQ Bot",
+    configKey: "qqBot",
+    fields: [
+      { key: "appId", label: "App ID", type: "text" },
+      { key: "appSecret", label: "App Secret", type: "password" },
+    ],
+  },
+  {
+    id: "wecom",
+    name: "WeCom",
+    configKey: "wecom",
+    fields: [
+      { key: "botId", label: "Bot ID", type: "text" },
+      { key: "botSecret", label: "Bot Secret", type: "password" },
+    ],
+  },
+  {
+    id: "whatsapp",
+    name: "WhatsApp",
+    configKey: "whatsapp",
+    fields: [], // 仅 enabled 开关
+  },
+];
+
+/** 判断脱敏值 */
+function isMaskedValue(value: string | undefined): boolean {
+  return !!value && value.startsWith("****");
+}
+
+/** Relative time display */
 function relativeTime(
   iso: string,
   t: (key: string, opts?: Record<string, unknown>) => string,
@@ -105,72 +193,124 @@ function relativeTime(
   return t("time.daysAgo", { count: diffDay });
 }
 
-const STATUS_COLORS: Record<ChannelInfo["status"], string> = {
-  connected: "var(--success)",
-  disconnected: "var(--text-secondary)",
-  error: "var(--error)",
-  not_configured: "var(--text-secondary)",
-};
-
 export function ChannelsPage() {
   const { t } = useTranslation();
   const [channels, setChannels] = useState<ChannelInfo[]>([]);
+  const [config, setConfig] = useState<AppConfigInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string>("telegram");
   const [togglingIds, setTogglingIds] = useState<Set<string>>(new Set());
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchChannels = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     try {
-      const data = await listChannels();
-      setChannels(data);
+      const [channelsData, configData] = await Promise.all([
+        listChannels(),
+        getConfig(),
+      ]);
+      setChannels(channelsData);
+      setConfig(configData);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load channels");
+      setError(err instanceof Error ? err.message : "Failed to load");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchChannels();
-    intervalRef.current = setInterval(fetchChannels, 5000);
+    fetchAll();
+    intervalRef.current = setInterval(async () => {
+      try {
+        const data = await listChannels();
+        setChannels(data);
+      } catch {}
+    }, 5000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [fetchChannels]);
+  }, [fetchAll]);
 
-  const handleToggle = async (channel: ChannelInfo) => {
-    // Cannot toggle not_configured or websocket channels
-    if (channel.status === "not_configured") return;
-    if (channel.id.toLowerCase().includes("websocket")) return;
+  // 切换选中渠道时重置表单
+  useEffect(() => {
+    setFormValues({});
+    setSaveMsg(null);
+  }, [selectedId]);
 
-    const action = channel.status === "connected" ? stopChannel : startChannel;
-    setTogglingIds((prev) => new Set(prev).add(channel.id));
+  const getChannelStatus = (id: string) =>
+    channels.find((c) => c.id === id);
+
+  const handleToggle = async (ch: ChannelInfo) => {
+    if (ch.status === "not_configured") return;
+    if (ch.id === "websocket") return;
+
+    const action = ch.status === "connected" ? stopChannel : startChannel;
+    setTogglingIds((prev) => new Set(prev).add(ch.id));
 
     try {
-      const updated = await action(channel.id);
+      const updated = await action(ch.id);
       setChannels((prev) =>
-        prev.map((c) => (c.id === channel.id ? updated : c)),
+        prev.map((c) => (c.id === ch.id ? updated : c)),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to toggle channel");
     } finally {
       setTogglingIds((prev) => {
         const next = new Set(prev);
-        next.delete(channel.id);
+        next.delete(ch.id);
         return next;
       });
     }
   };
 
-  const isWebSocket = (ch: ChannelInfo) =>
-    ch.id.toLowerCase().includes("websocket");
+  const handleSave = async () => {
+    const def = CHANNEL_DEFS.find((d) => d.id === selectedId);
+    if (!def) return;
 
-  const isToggleDisabled = (ch: ChannelInfo) =>
-    ch.status === "not_configured" || isWebSocket(ch) || togglingIds.has(ch.id);
+    setSaving(true);
+    setSaveMsg(null);
 
-  const isToggleOn = (ch: ChannelInfo) => ch.status === "connected";
+    try {
+      // 构建渠道配置对象
+      const channelConfig: Record<string, unknown> = {};
+      let hasRealChange = false;
+
+      for (const field of def.fields) {
+        const val = formValues[field.key];
+        if (val && !isMaskedValue(val)) {
+          channelConfig[field.key] = val;
+          hasRealChange = true;
+        }
+      }
+
+      if (!hasRealChange) {
+        setSaveMsg(t("settings.configNoChanges"));
+        setSaving(false);
+        return;
+      }
+
+      // 发送到后端
+      await updateAppConfig({
+        [def.configKey]: channelConfig,
+      } as Partial<AppConfigInfo>);
+
+      setSaveMsg(t("settings.configSaved"));
+      setFormValues({});
+
+      // 刷新数据
+      await fetchAll();
+    } catch (err) {
+      setSaveMsg(
+        err instanceof Error ? err.message : t("settings.configSaveFailed"),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -185,6 +325,9 @@ export function ChannelsPage() {
     );
   }
 
+  const selectedDef = CHANNEL_DEFS.find((d) => d.id === selectedId);
+  const selectedStatus = getChannelStatus(selectedId);
+
   return (
     <>
       <PageHeader>{t("channels.title")}</PageHeader>
@@ -198,72 +341,173 @@ export function ChannelsPage() {
           </div>
         )}
 
-        {channels.length === 0 ? (
-          <div className="channels-empty">{t("channels.noChannels")}</div>
-        ) : (
-          <div className="channels-grid">
-            {channels.map((ch) => (
-              <div
-                key={ch.id}
-                className={`channels-card${ch.status === "not_configured" ? " channels-card-dimmed" : ""}`}
-              >
-                {/* Left: icon + name */}
-                <div className="channels-card-left">
-                  <span className="channels-icon">{getChannelIcon(ch.id)}</span>
-                  <span className="channels-name">{ch.name}</span>
-                </div>
+        <div className="channels-split">
+          {/* 左侧：渠道列表 */}
+          <div className="channels-list">
+            {CHANNEL_DEFS.map((def) => {
+              const status = getChannelStatus(def.id);
+              const isActive = def.id === selectedId;
+              const isConnected = status?.status === "connected";
+              const isConfigured = status?.status !== "not_configured";
 
-                {/* Middle: status */}
-                <div className="channels-card-middle">
-                  <div className="channels-status-row">
-                    <span
-                      className="channels-status-dot"
-                      style={{ background: STATUS_COLORS[ch.status] }}
-                    />
-                    <span
-                      className={`channels-status-text${ch.status === "not_configured" ? " channels-status-notconfigured" : ""}`}
-                    >
-                      {ch.status === "not_configured"
-                        ? t("channels.notConfigured")
-                        : ch.status}
-                    </span>
-                  </div>
-                  {ch.status === "connected" && ch.connectedAt && (
-                    <span className="channels-connected-time">
-                      {relativeTime(ch.connectedAt, t)}
-                    </span>
-                  )}
-                  {ch.status === "error" && ch.statusMessage && (
-                    <span className="channels-error-msg">
-                      {ch.statusMessage}
-                    </span>
-                  )}
-                </div>
-
-                {/* Right: toggle */}
-                <div className="channels-card-right">
+              return (
+                <div
+                  key={def.id}
+                  className={`channels-list-item${isActive ? " active" : ""}`}
+                  onClick={() => setSelectedId(def.id)}
+                >
+                  <span className="channels-list-icon">
+                    {getChannelIcon(def.id)}
+                  </span>
+                  <span className="channels-list-name">{def.name}</span>
                   <span
                     className={[
                       "channels-toggle",
-                      isToggleOn(ch) && "on",
-                      isToggleDisabled(ch) && "disabled",
-                      togglingIds.has(ch.id) && "loading",
+                      isConnected && "on",
+                      (!isConfigured || togglingIds.has(def.id)) && "disabled",
+                      togglingIds.has(def.id) && "loading",
                     ]
                       .filter(Boolean)
                       .join(" ")}
-                    onClick={() => !isToggleDisabled(ch) && handleToggle(ch)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (status && !togglingIds.has(def.id)) {
+                        handleToggle(status);
+                      }
+                    }}
                     role="switch"
-                    aria-checked={isToggleOn(ch)}
-                    aria-disabled={isToggleDisabled(ch)}
-                    tabIndex={0}
+                    aria-checked={isConnected}
                   >
                     <span className="channels-toggle-knob" />
                   </span>
                 </div>
-              </div>
-            ))}
+              );
+            })}
+
+            {/* WebSocket（始终连接，不可编辑） */}
+            {(() => {
+              const wsStatus = getChannelStatus("websocket");
+              return (
+                <div className="channels-list-item disabled">
+                  <span className="channels-list-icon">
+                    {getChannelIcon("websocket")}
+                  </span>
+                  <span className="channels-list-name">WebSocket</span>
+                  <span className="channels-toggle on disabled" role="switch" aria-checked>
+                    <span className="channels-toggle-knob" />
+                  </span>
+                </div>
+              );
+            })()}
           </div>
-        )}
+
+          {/* 右侧：配置表单 */}
+          <div className="channels-detail">
+            {selectedDef && (
+              <>
+                <div className="channels-detail-header">
+                  <span className="channels-detail-icon">
+                    {getChannelIcon(selectedId)}
+                  </span>
+                  <h3 className="channels-detail-title">
+                    {selectedDef.name}
+                  </h3>
+                  {selectedStatus && (
+                    <span
+                      className={`channels-detail-status ${selectedStatus.status}`}
+                    >
+                      {selectedStatus.status === "connected"
+                        ? t("settings.providerConnected")
+                        : selectedStatus.status === "error"
+                          ? "Error"
+                          : selectedStatus.status === "not_configured"
+                            ? t("channels.notConfigured")
+                            : "Disconnected"}
+                    </span>
+                  )}
+                </div>
+
+                {selectedStatus?.status === "connected" &&
+                  selectedStatus.connectedAt && (
+                    <div className="channels-detail-connected">
+                      {t("channels.connectedSince")}{" "}
+                      {relativeTime(selectedStatus.connectedAt, t)}
+                    </div>
+                  )}
+
+                {selectedStatus?.status === "error" &&
+                  selectedStatus.statusMessage && (
+                    <div className="channels-detail-error">
+                      {selectedStatus.statusMessage}
+                    </div>
+                  )}
+
+                {selectedDef.fields.length > 0 ? (
+                  <div className="channels-detail-form">
+                    {selectedDef.fields.map((field) => {
+                      // 从 config 中获取当前值作为 placeholder
+                      const configObj =
+                        config?.[
+                          selectedDef.configKey as keyof AppConfigInfo
+                        ] as Record<string, string> | undefined;
+                      const currentValue = configObj?.[field.key];
+
+                      return (
+                        <div key={field.key} className="channels-detail-field">
+                          <label className="channels-detail-label">
+                            {field.label}
+                          </label>
+                          <input
+                            type={field.type}
+                            className="config-input"
+                            placeholder={currentValue || `Enter ${field.label}`}
+                            value={formValues[field.key] || ""}
+                            onChange={(e) =>
+                              setFormValues((prev) => ({
+                                ...prev,
+                                [field.key]: e.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                      );
+                    })}
+
+                    <div className="channels-detail-actions">
+                      <button
+                        className="btn btn-primary"
+                        disabled={
+                          saving ||
+                          !Object.values(formValues).some(
+                            (v) => v && !isMaskedValue(v),
+                          )
+                        }
+                        onClick={handleSave}
+                      >
+                        {saving
+                          ? t("settings.configSaving")
+                          : t("settings.configSave")}
+                      </button>
+                      {saveMsg && (
+                        <span
+                          className={`config-save-msg ${saveMsg === t("settings.configSaved") ? "success" : ""}`}
+                        >
+                          {saveMsg}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="channels-detail-empty">
+                    {selectedDef.id === "whatsapp"
+                      ? t("channels.whatsappHint")
+                      : t("channels.noFieldsNeeded")}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </>
   );

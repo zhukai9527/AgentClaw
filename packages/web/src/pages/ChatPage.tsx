@@ -34,7 +34,6 @@ import { CodeBlock } from "../components/CodeBlock";
 import { FileDropZone } from "../components/FileDropZone";
 import { useSession } from "../components/SessionContext";
 import { useTheme } from "../components/ThemeProvider";
-import { SetupWizard } from "./SetupWizard";
 import {
   IconMenu,
   IconPaperclip,
@@ -1092,7 +1091,6 @@ export function ChatPage() {
   >([]);
   const [lastUserText, setLastUserText] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
-  const [showSetupWizard, setShowSetupWizard] = useState(false);
   const configCheckedRef = useRef(false);
   const [editTitleValue, setEditTitleValue] = useState("");
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -1659,7 +1657,7 @@ export function ChatPage() {
         const hasKey = !!(cfg.anthropicApiKey || cfg.openaiApiKey || cfg.geminiApiKey);
         configCheckedRef.current = hasKey;
         if (!hasKey) {
-          setShowSetupWizard(true);
+          navigate("/settings");
           return;
         }
       } catch {
@@ -2921,16 +2919,6 @@ export function ChatPage() {
         </div>
       </FileDropZone>
 
-      {showSetupWizard && (
-        <SetupWizard
-          modal
-          onComplete={() => {
-            setShowSetupWizard(false);
-            configCheckedRef.current = true;
-          }}
-          onClose={() => setShowSetupWizard(false)}
-        />
-      )}
     </PreviewContext.Provider>
   );
 }

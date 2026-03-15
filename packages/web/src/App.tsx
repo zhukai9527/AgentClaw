@@ -6,7 +6,6 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { TasksPage } from "./pages/TasksPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { LoginPage } from "./pages/LoginPage";
-import { SetupWizard } from "./pages/SetupWizard";
 import { AuthProvider, useAuth } from "./auth";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { SessionProvider } from "./components/SessionContext";
@@ -38,8 +37,8 @@ function AppRoutes() {
   return (
     <SessionProvider>
       <Routes>
-        {/* Setup Wizard — 全屏页面，不走 Layout */}
-        <Route path="/setup" element={<SetupWizard />} />
+        {/* /setup 重定向到 /settings */}
+        <Route path="/setup" element={<Navigate to="/settings" replace />} />
         <Route element={<Layout />}>
           <Route path="/" element={<Navigate to="/chat" replace />} />
           <Route path="/chat" element={<ChatPage />} />

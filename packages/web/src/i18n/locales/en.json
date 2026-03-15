@@ -205,7 +205,10 @@
     "title": "Channels",
     "loadingChannels": "Loading channels...",
     "noChannels": "No channels available",
-    "notConfigured": "Not configured"
+    "notConfigured": "Not configured",
+    "connectedSince": "Connected",
+    "whatsappHint": "WhatsApp requires no credential configuration. Enable and authenticate via QR code.",
+    "noFieldsNeeded": "This channel requires no credential configuration."
   },
   "memory": {
     "title": "Memory",

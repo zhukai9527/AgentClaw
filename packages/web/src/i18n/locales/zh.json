@@ -205,7 +205,10 @@
     "title": "渠道",
     "loadingChannels": "加载渠道中...",
     "noChannels": "暂无可用渠道",
-    "notConfigured": "未配置"
+    "notConfigured": "未配置",
+    "connectedSince": "已连接",
+    "whatsappHint": "WhatsApp 无需额外凭证配置，启用后通过扫码认证。",
+    "noFieldsNeeded": "该渠道无需凭证配置。"
   },
   "memory": {
     "title": "记忆",

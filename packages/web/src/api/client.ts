@@ -397,6 +397,13 @@ export interface AppConfigInfo {
   apiKey?: string;
   dbPath?: string;
   systemPromptFile?: string;
+  // Channels
+  telegram?: { botToken?: string };
+  dingtalk?: { appKey?: string; appSecret?: string };
+  feishu?: { appId?: string; appSecret?: string };
+  qqBot?: { appId?: string; appSecret?: string };
+  wecom?: { botId?: string; botSecret?: string };
+  whatsapp?: { enabled?: boolean };
   // Optional
   maxIterations?: number;
   ollamaBaseUrl?: string;
