@@ -1,3 +1,8 @@
+// Tauri sidecar: process.cwd() defaults to system32 — override with DATA_DIR
+if (process.env.DATA_DIR) {
+  process.chdir(process.env.DATA_DIR);
+}
+
 import * as Sentry from "@sentry/node";
 
 // Sentry 错误监控：仅在配置了 DSN 时初始化，否则零开销

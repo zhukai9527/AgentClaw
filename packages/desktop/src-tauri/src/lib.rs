@@ -31,6 +31,7 @@ fn start_sidecar(app: &tauri::AppHandle) -> Result<tauri_plugin_shell::process::
         .env("CONFIG_PATH", config_path.to_string_lossy().to_string())
         .env("DB_PATH", data_dir.join("agentclaw.db").to_string_lossy().to_string())
         .env("SKILLS_DIR", data_dir.join("skills").to_string_lossy().to_string())
+        .env("DATA_DIR", data_dir.to_string_lossy().to_string())
         .env("HOST", "127.0.0.1")
         .env("PORT", "3100");
 
