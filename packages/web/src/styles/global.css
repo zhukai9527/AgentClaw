@@ -536,6 +536,25 @@ textarea:focus {
   }
 }
 
+.sidebar-session-waiting {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning-subtle-bg, #e8a317);
+  flex-shrink: 0;
+  animation: sidebar-pulse 2s ease-in-out infinite;
+}
+
+@keyframes sidebar-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
 .sidebar-session-more {
   opacity: 0;
   display: flex;

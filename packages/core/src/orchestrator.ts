@@ -345,9 +345,45 @@ export class SimpleOrchestrator implements Orchestrator {
               )
               .map((b) => b.text)
               .join("");
+      // Set a temporary title (first 50 chars), then generate a better one via LLM
       session.title = rawText.slice(0, 50).trim() || "New Chat";
       this.memoryStore.saveSession(session).catch(() => {});
+      this.generateSessionTitle(session, rawText);
     }
+  }
+
+  /**
+   * Generate a concise session title via LLM (async, non-blocking).
+   * Uses fastProvider if available, falls back to main provider.
+   */
+  private generateSessionTitle(session: Session, userText: string): void {
+    const provider = this.fastProvider ?? this.provider;
+    const prompt = `Generate a concise title (max 20 chars, no quotes, no punctuation at the end) for a conversation that starts with this message. Reply with ONLY the title, nothing else.\n\nMessage: ${userText.slice(0, 200)}`;
+    (async () => {
+      try {
+        let title = "";
+        for await (const chunk of provider.stream({
+          messages: [
+            {
+              id: generateId(),
+              createdAt: new Date(),
+              role: "user" as const,
+              content: [{ type: "text" as const, text: prompt }],
+            },
+          ],
+          maxTokens: 30,
+        })) {
+          if (chunk.type === "text") title += chunk.text;
+        }
+        title = title.trim().replace(/^["']|["']$/g, "");
+        if (title && title.length <= 30) {
+          session.title = title;
+          await this.memoryStore.saveSession(session);
+        }
+      } catch {
+        // Keep the fallback title
+      }
+    })();
   }
 
   async listSessions(): Promise<Session[]> {

@@ -42,7 +42,7 @@
   "sidebar": {
     "collapse": "Collapse sidebar",
     "show": "Show sidebar",
-    "newChat": "New Chat",
+    "newChat": "New Task",
     "searchSessions": "Search sessions...",
     "searchTitle": "Search sessions",
     "recent": "Recent",
@@ -62,7 +62,8 @@
     "namePlaceholder": "e.g. Write Articles"
   },
   "chat": {
-    "welcomeTitle": "What can I do for you?",
+    "welcomeTitle": "Start Collaborating",
+    "welcomeSubtitle": "A 24/7 personal assistant agent that gets work done for you",
     "askPlaceholder": "Describe what you'd like to get done...",
     "replyPlaceholder": "Reply to AgentClaw...",
     "listeningPlaceholder": "Listening...",

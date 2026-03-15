@@ -234,10 +234,23 @@
   line-height: 1;
 }
 
+.chat-welcome-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+}
+
 .chat-welcome-title {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 700;
   color: var(--text-primary);
+  margin: 0;
+}
+
+.chat-welcome-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
 }
 
 .chat-welcome-input {

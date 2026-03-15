@@ -346,6 +346,9 @@ export function Layout() {
                       activeLoopIds.has(s.id)) && (
                       <span className="sidebar-session-spinner" />
                     )}
+                    {s.status === "waiting" && (
+                      <span className="sidebar-session-waiting" />
+                    )}
                     {formatSessionLabel(s)}
                   </span>
                 )}
