@@ -182,7 +182,11 @@ export function initDatabase(dbPath: string): DbAdapter {
   addColumnIfMissing(db, "turns", "duration_ms", "INTEGER");
   addColumnIfMissing(db, "turns", "tool_call_count", "INTEGER");
   addColumnIfMissing(db, "sessions", "title", "TEXT");
-  addColumnIfMissing(db, "sessions", "status", "TEXT DEFAULT 'active'");
+  addColumnIfMissing(db, "sessions", "status", "TEXT DEFAULT 'done'");
+  // Fix: old migration used DEFAULT 'active', bulk-correct existing rows
+  db.exec(
+    "UPDATE sessions SET status = 'done' WHERE status = 'active' AND last_active_at < datetime('now', '-1 hour')",
+  );
   addColumnIfMissing(
     db,
     "sessions",
