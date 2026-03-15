@@ -90,25 +90,23 @@ export function AutomationsPage() {
               </div>
             )}
 
-            <div className="tasks-section-header">
-              <h3 className="tasks-section-title">
-                {t("tasks.automations")}
-                <span className="tasks-column-count">{automations.length}</span>
-              </h3>
-              {!showForm && (
+            {!showForm && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  marginBottom: 12,
+                }}
+              >
                 <button
                   className="btn-secondary"
                   onClick={() => setShowForm(true)}
-                  style={{
-                    marginLeft: "auto",
-                    padding: "4px 12px",
-                    fontSize: 13,
-                  }}
+                  style={{ padding: "4px 12px", fontSize: 13 }}
                 >
                   {t("tasks.addAutomation")}
                 </button>
-              )}
-            </div>
+              </div>
+            )}
 
             {showForm && (
               <div className="auto-form">
