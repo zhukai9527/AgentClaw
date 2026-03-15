@@ -186,6 +186,7 @@ export function registerConfigRoutes(
         "qqBot",
         "wecom",
         "whatsapp",
+        "email",
       ];
       if (channelManager && channelFields.some((f) => f in configUpdates)) {
         await channelManager.refreshConfig();

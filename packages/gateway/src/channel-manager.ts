@@ -60,6 +60,11 @@ function isChannelConfigured(cfg: AppConfig, id: string): boolean {
         (cfg.wecom?.botId && cfg.wecom?.botSecret) ||
         (process.env.WECOM_BOT_ID && process.env.WECOM_BOT_SECRET)
       );
+    case "email":
+      return !!(
+        (cfg.email?.user && cfg.email?.password) ||
+        (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD)
+      );
     default:
       return false;
   }
@@ -104,6 +109,11 @@ export class ChannelManager {
       name: "WeCom",
       configured: isChannelConfigured(cfg, "wecom"),
     });
+    this.channels.set("email", {
+      id: "email",
+      name: "Email",
+      configured: isChannelConfigured(cfg, "email"),
+    });
     this.channels.set("websocket", {
       id: "websocket",
       name: "WebSocket",
@@ -127,8 +137,8 @@ export class ChannelManager {
     if (!ch.configured) throw new Error(`Channel ${id} is not configured`);
     if (ch.handle) throw new Error(`Channel ${id} is already running`);
 
-    if (id === "websocket") {
-      // WebSocket is always running via Fastify
+    if (id === "websocket" || id === "email") {
+      // WebSocket 始终由 Fastify 管理；Email 是被动凭证，不需要启动进程
       ch.connectedAt = new Date();
       return;
     }
@@ -147,7 +157,8 @@ export class ChannelManager {
   async stop(id: string): Promise<void> {
     const ch = this.channels.get(id);
     if (!ch) throw new Error(`Unknown channel: ${id}`);
-    if (id === "websocket") throw new Error("Cannot stop WebSocket channel");
+    if (id === "websocket" || id === "email")
+      throw new Error(`Cannot stop ${id} channel`);
     if (!ch.handle) return;
 
     try {
@@ -254,7 +265,7 @@ export class ChannelManager {
         statusMessage: ch.error,
       };
     }
-    if (ch.handle || ch.id === "websocket") {
+    if (ch.handle || ch.id === "websocket" || ch.id === "email") {
       return {
         id: ch.id,
         name: ch.name,

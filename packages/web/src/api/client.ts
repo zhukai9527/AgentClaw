@@ -404,6 +404,12 @@ export interface AppConfigInfo {
   qqBot?: { appId?: string; appSecret?: string };
   wecom?: { botId?: string; botSecret?: string };
   whatsapp?: { enabled?: boolean };
+  email?: {
+    imapHost?: string;
+    smtpHost?: string;
+    user?: string;
+    password?: string;
+  };
   // Optional
   maxIterations?: number;
   ollamaBaseUrl?: string;

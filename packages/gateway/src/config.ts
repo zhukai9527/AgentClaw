@@ -38,6 +38,12 @@ export interface AppConfig {
   qqBot?: { appId: string; appSecret: string };
   wecom?: { botId: string; botSecret: string };
   whatsapp?: { enabled: boolean };
+  email?: {
+    imapHost: string;
+    smtpHost: string;
+    user: string;
+    password: string;
+  };
   // Optional
   sentryDsn?: string;
   maxIterations?: number;
@@ -81,6 +87,10 @@ const ENV_MAP: Record<string, string> = {
   WECOM_BOT_ID: "wecom.botId",
   WECOM_BOT_SECRET: "wecom.botSecret",
   WHATSAPP_ENABLED: "whatsapp.enabled",
+  EMAIL_IMAP_HOST: "email.imapHost",
+  EMAIL_SMTP_HOST: "email.smtpHost",
+  EMAIL_USER: "email.user",
+  EMAIL_PASSWORD: "email.password",
   SENTRY_DSN: "sentryDsn",
   MAX_ITERATIONS: "maxIterations",
   OLLAMA_BASE_URL: "ollamaBaseUrl",
@@ -304,6 +314,13 @@ export function maskConfig(config: AppConfig): Record<string, unknown> {
         ...(value as Record<string, unknown>),
         botSecret: maskApiKey(
           (value as Record<string, unknown>).botSecret as string,
+        ),
+      };
+    } else if (key === "email" && value && typeof value === "object") {
+      result[key] = {
+        ...(value as Record<string, unknown>),
+        password: maskApiKey(
+          (value as Record<string, unknown>).password as string,
         ),
       };
     } else {

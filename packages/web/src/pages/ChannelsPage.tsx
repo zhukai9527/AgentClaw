@@ -84,6 +84,15 @@ function WeComIcon() {
   );
 }
 
+function EmailIcon() {
+  return (
+    <svg {...svgProps}>
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="M22 7l-10 7L2 7" />
+    </svg>
+  );
+}
+
 function WebSocketIcon() {
   return (
     <svg {...svgProps}>
@@ -104,6 +113,7 @@ const CHANNEL_ICONS: Record<string, () => React.ReactElement> = {
   feishu: FeishuIcon,
   qqbot: QQBotIcon,
   wecom: WeComIcon,
+  email: EmailIcon,
   websocket: WebSocketIcon,
 };
 
@@ -168,6 +178,17 @@ const CHANNEL_DEFS: ChannelFieldDef[] = [
     name: "WhatsApp",
     configKey: "whatsapp",
     fields: [], // 仅 enabled 开关
+  },
+  {
+    id: "email",
+    name: "Email",
+    configKey: "email",
+    fields: [
+      { key: "imapHost", label: "IMAP Host", type: "text" },
+      { key: "smtpHost", label: "SMTP Host", type: "text" },
+      { key: "user", label: "Email Address", type: "text" },
+      { key: "password", label: "Password", type: "password" },
+    ],
   },
 ];
 
@@ -241,8 +262,7 @@ export function ChannelsPage() {
     setSaveMsg(null);
   }, [selectedId]);
 
-  const getChannelStatus = (id: string) =>
-    channels.find((c) => c.id === id);
+  const getChannelStatus = (id: string) => channels.find((c) => c.id === id);
 
   const handleToggle = async (ch: ChannelInfo) => {
     if (ch.status === "not_configured") return;
@@ -253,9 +273,7 @@ export function ChannelsPage() {
 
     try {
       const updated = await action(ch.id);
-      setChannels((prev) =>
-        prev.map((c) => (c.id === ch.id ? updated : c)),
-      );
+      setChannels((prev) => prev.map((c) => (c.id === ch.id ? updated : c)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to toggle channel");
     } finally {
@@ -393,7 +411,11 @@ export function ChannelsPage() {
                     {getChannelIcon("websocket")}
                   </span>
                   <span className="channels-list-name">WebSocket</span>
-                  <span className="channels-toggle on disabled" role="switch" aria-checked>
+                  <span
+                    className="channels-toggle on disabled"
+                    role="switch"
+                    aria-checked
+                  >
                     <span className="channels-toggle-knob" />
                   </span>
                 </div>
@@ -409,9 +431,7 @@ export function ChannelsPage() {
                   <span className="channels-detail-icon">
                     {getChannelIcon(selectedId)}
                   </span>
-                  <h3 className="channels-detail-title">
-                    {selectedDef.name}
-                  </h3>
+                  <h3 className="channels-detail-title">{selectedDef.name}</h3>
                   {selectedStatus && (
                     <span
                       className={`channels-detail-status ${selectedStatus.status}`}
@@ -446,10 +466,9 @@ export function ChannelsPage() {
                   <div className="channels-detail-form">
                     {selectedDef.fields.map((field) => {
                       // 从 config 中获取当前值作为 placeholder
-                      const configObj =
-                        config?.[
-                          selectedDef.configKey as keyof AppConfigInfo
-                        ] as Record<string, string> | undefined;
+                      const configObj = config?.[
+                        selectedDef.configKey as keyof AppConfigInfo
+                      ] as Record<string, string> | undefined;
                       const currentValue = configObj?.[field.key];
 
                       return (
