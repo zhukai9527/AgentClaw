@@ -12,6 +12,7 @@ import {
   type AppConfigInfo,
   type UsageStatsInfo,
   type ToolInfo,
+  type ProviderInstance,
 } from "../api/client";
 import {
   IconSettings,
@@ -91,38 +92,94 @@ function isMaskedValue(value: string | undefined): boolean {
   return value.startsWith("****");
 }
 
-/* ── Provider 定义 ── */
-const PROVIDER_DEFS = [
+/* ── Provider 预设模板（用于 "添加" 流程） ── */
+interface ProviderPreset {
+  id: string;
+  type: "openai" | "claude" | "gemini";
+  name: string;
+  baseUrl?: string;
+  modelPlaceholder: string;
+  keyPlaceholder: string;
+}
+
+const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     id: "openai",
-    label: "OpenAI Compatible",
-    keyField: "openaiApiKey" as const,
-    modelField: "openaiModel" as const,
-    hasBaseUrl: true,
-    hint: "settings.configBaseUrlHint",
-    placeholder: "sk-...",
-    baseUrlPlaceholder: "https://api.openai.com/v1",
+    type: "openai",
+    name: "OpenAI",
     modelPlaceholder: "gpt-4o",
+    keyPlaceholder: "sk-...",
   },
   {
     id: "anthropic",
-    label: "Anthropic",
-    keyField: "anthropicApiKey" as const,
-    modelField: "anthropicModel" as const,
-    hasBaseUrl: false,
-    placeholder: "sk-ant-...",
+    type: "claude",
+    name: "Anthropic",
     modelPlaceholder: "claude-sonnet-4-20250514",
+    keyPlaceholder: "sk-ant-...",
   },
   {
     id: "gemini",
-    label: "Google Gemini",
-    keyField: "geminiApiKey" as const,
-    modelField: "geminiModel" as const,
-    hasBaseUrl: false,
-    placeholder: "AIza...",
+    type: "gemini",
+    name: "Google Gemini",
     modelPlaceholder: "gemini-2.0-flash",
+    keyPlaceholder: "AIza...",
   },
-] as const;
+  {
+    id: "deepseek",
+    type: "openai",
+    name: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    modelPlaceholder: "deepseek-chat",
+    keyPlaceholder: "sk-...",
+  },
+  {
+    id: "qwen",
+    type: "openai",
+    name: "Qwen (通义千问)",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    modelPlaceholder: "qwen-plus",
+    keyPlaceholder: "sk-...",
+  },
+  {
+    id: "kimi",
+    type: "openai",
+    name: "Kimi (Moonshot)",
+    baseUrl: "https://api.moonshot.cn/v1",
+    modelPlaceholder: "moonshot-v1-8k",
+    keyPlaceholder: "sk-...",
+  },
+  {
+    id: "zhipu",
+    type: "openai",
+    name: "智谱 GLM",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    modelPlaceholder: "glm-4-flash",
+    keyPlaceholder: "...",
+  },
+  {
+    id: "volcengine",
+    type: "openai",
+    name: "火山引擎 (豆包)",
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    modelPlaceholder: "doubao-1.5-pro-32k",
+    keyPlaceholder: "...",
+  },
+  {
+    id: "ollama",
+    type: "openai",
+    name: "Ollama (Local)",
+    baseUrl: "http://localhost:11434/v1",
+    modelPlaceholder: "llama3",
+    keyPlaceholder: "ollama",
+  },
+  {
+    id: "custom",
+    type: "openai",
+    name: "Custom OpenAI Compatible",
+    modelPlaceholder: "model-name",
+    keyPlaceholder: "sk-...",
+  },
+];
 
 /* ── Model tab — left-right split: provider list + config form + usage stats ── */
 function SettingsModel() {
@@ -131,12 +188,11 @@ function SettingsModel() {
   const [stats, setStats] = useState<UsageStatsInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedProvider, setSelectedProvider] = useState<string>("openai");
-  const [togglingProvider, setTogglingProvider] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [showAddMenu, setShowAddMenu] = useState(false);
 
-  const toBackendName = (id: string) => (id === "anthropic" ? "claude" : id);
-  const toFrontendId = (name: string) =>
-    name === "claude" ? "anthropic" : name;
+  const providers = config?.providers || [];
 
   const fetchAll = useCallback(async () => {
     try {
@@ -148,41 +204,97 @@ function SettingsModel() {
       setConfig(configData);
       setStats(statsData);
       setError(null);
-      // Auto-select active provider
-      const active =
-        configData.activeProvider || configData.provider || "openai";
-      setSelectedProvider(active === "claude" ? "anthropic" : active);
+      // Auto-select active provider or first
+      if (
+        !selectedId ||
+        !(configData.providers || []).find((p) => p.id === selectedId)
+      ) {
+        const active = configData.activeProvider || configData.provider;
+        const firstId = (configData.providers || [])[0]?.id;
+        setSelectedId(active || firstId || null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load settings");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedId]);
 
-  /** Toggle provider on/off — saves activeProvider immediately */
-  const handleToggle = async (providerId: string) => {
-    if (!config || togglingProvider) return;
-    const currentActive = toFrontendId(
-      config.activeProvider || config.provider || "openai",
-    );
-    // 已经是 active 的不能关（至少要有一个）
-    if (currentActive === providerId) return;
-    setTogglingProvider(providerId);
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
+
+  /** Toggle provider enabled on/off */
+  const handleToggle = async (inst: ProviderInstance) => {
+    if (!config || togglingId) return;
+    setTogglingId(inst.id);
     try {
+      const updated = providers.map((p) =>
+        p.id === inst.id ? { ...p, enabled: !p.enabled } : p,
+      );
+      // If enabling, also set as active
+      const activeProvider = !inst.enabled ? inst.id : config.activeProvider;
       await updateAppConfig({
-        activeProvider: toBackendName(providerId),
+        providers: updated,
+        activeProvider,
       } as Partial<AppConfigInfo>);
       await fetchAll();
     } catch {
       // ignore
     } finally {
-      setTogglingProvider(null);
+      setTogglingId(null);
     }
   };
 
-  useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+  /** Add a new provider from preset */
+  const handleAdd = async (preset: ProviderPreset) => {
+    setShowAddMenu(false);
+    // Generate unique id if this preset id already exists
+    let newId = preset.id;
+    const existingIds = new Set(providers.map((p) => p.id));
+    if (existingIds.has(newId)) {
+      let i = 2;
+      while (existingIds.has(`${preset.id}-${i}`)) i++;
+      newId = `${preset.id}-${i}`;
+    }
+    const newInst: ProviderInstance = {
+      id: newId,
+      type: preset.type,
+      name: preset.name,
+      baseUrl: preset.baseUrl,
+      model: "",
+      enabled: false,
+    };
+    const updated = [...providers, newInst];
+    try {
+      await updateAppConfig({ providers: updated } as Partial<AppConfigInfo>);
+      setSelectedId(newId);
+      await fetchAll();
+    } catch {
+      // ignore
+    }
+  };
+
+  /** Delete a provider instance */
+  const handleDelete = async (id: string) => {
+    const updated = providers.filter((p) => p.id !== id);
+    try {
+      const activeProvider =
+        config?.activeProvider === id
+          ? updated.find((p) => p.enabled)?.id || updated[0]?.id
+          : config?.activeProvider;
+      await updateAppConfig({
+        providers: updated,
+        activeProvider,
+      } as Partial<AppConfigInfo>);
+      if (selectedId === id) {
+        setSelectedId(updated[0]?.id || null);
+      }
+      await fetchAll();
+    } catch {
+      // ignore
+    }
+  };
 
   if (loading) {
     return (
@@ -190,20 +302,11 @@ function SettingsModel() {
     );
   }
 
-  /** 该 provider 是否已配置 */
-  const isConfigured = (def: (typeof PROVIDER_DEFS)[number]) =>
-    !!config?.[def.keyField] &&
-    config[def.keyField] !== t("settings.configNotSet");
-
-  /** 排序：已配置排前面 */
-  const sortedProviders = [...PROVIDER_DEFS].sort((a, b) => {
-    const aConf = isConfigured(a) ? 0 : 1;
-    const bConf = isConfigured(b) ? 0 : 1;
-    return aConf - bConf;
-  });
-
-  const selectedDef =
-    PROVIDER_DEFS.find((d) => d.id === selectedProvider) || PROVIDER_DEFS[0];
+  const selectedInst = providers.find((p) => p.id === selectedId) || null;
+  const preset =
+    PROVIDER_PRESETS.find((pr) => pr.id === selectedInst?.id) ||
+    PROVIDER_PRESETS.find((pr) => pr.type === selectedInst?.type) ||
+    PROVIDER_PRESETS[PROVIDER_PRESETS.length - 1]; // fallback to custom
 
   return (
     <>
@@ -213,25 +316,21 @@ function SettingsModel() {
       <div className="model-split">
         {/* Left: provider list */}
         <div className="model-list">
-          {sortedProviders.map((def) => {
-            const selected = selectedProvider === def.id;
-            const currentActive = toFrontendId(
-              config?.activeProvider || config?.provider || "openai",
-            );
-            const isOn = currentActive === def.id;
-            const toggling = togglingProvider === def.id;
+          {providers.map((inst) => {
+            const selected = selectedId === inst.id;
+            const toggling = togglingId === inst.id;
             return (
               <div
-                key={def.id}
+                key={inst.id}
                 className={`model-list-item${selected ? " active" : ""}`}
-                onClick={() => setSelectedProvider(def.id)}
+                onClick={() => setSelectedId(inst.id)}
               >
-                <span className="model-list-name">{def.label}</span>
+                <span className="model-list-name">{inst.name}</span>
                 <div
-                  className={`channels-toggle${isOn ? " on" : ""}${toggling ? " loading" : ""}`}
+                  className={`channels-toggle${inst.enabled ? " on" : ""}${toggling ? " loading" : ""}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleToggle(def.id);
+                    handleToggle(inst);
                   }}
                 >
                   <div className="channels-toggle-knob" />
@@ -239,16 +338,54 @@ function SettingsModel() {
               </div>
             );
           })}
+          {/* Add provider button */}
+          <div className="model-add-wrapper">
+            <button
+              className="model-add-btn"
+              onClick={() => setShowAddMenu(!showAddMenu)}
+            >
+              + {t("settings.addProvider")}
+            </button>
+            {showAddMenu && (
+              <div className="model-add-menu">
+                {PROVIDER_PRESETS.filter(
+                  (pr) => !providers.find((p) => p.id === pr.id),
+                ).map((pr) => (
+                  <div
+                    key={pr.id}
+                    className="model-add-menu-item"
+                    onClick={() => handleAdd(pr)}
+                  >
+                    {pr.name}
+                  </div>
+                ))}
+                {/* Always show Custom */}
+                <div
+                  className="model-add-menu-item"
+                  onClick={() =>
+                    handleAdd(PROVIDER_PRESETS[PROVIDER_PRESETS.length - 1])
+                  }
+                >
+                  {PROVIDER_PRESETS[PROVIDER_PRESETS.length - 1].name}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Right: config form for selected provider */}
         <div className="model-detail">
-          {config && (
+          {selectedInst && preset ? (
             <ProviderConfigForm
-              config={config}
-              def={selectedDef}
+              inst={selectedInst}
+              preset={preset}
+              providers={providers}
+              activeProvider={config?.activeProvider}
               onSaved={fetchAll}
+              onDelete={() => handleDelete(selectedInst.id)}
             />
+          ) : (
+            <div className="settings-empty">{t("settings.selectProvider")}</div>
           )}
         </div>
       </div>
@@ -312,20 +449,25 @@ function SettingsModel() {
 
 /* ── Single provider config form (right panel of Model tab) ── */
 function ProviderConfigForm({
-  config,
-  def,
+  inst,
+  preset,
+  providers,
+  activeProvider,
   onSaved,
+  onDelete,
 }: {
-  config: AppConfigInfo;
-  def: (typeof PROVIDER_DEFS)[number];
+  inst: ProviderInstance;
+  preset: ProviderPreset;
+  providers: ProviderInstance[];
+  activeProvider?: string;
   onSaved: () => void;
+  onDelete: () => void;
 }) {
   const { t } = useTranslation();
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState(config[def.modelField] || "");
-  const [baseUrl, setBaseUrl] = useState(
-    def.id === "openai" ? config.openaiBaseUrl || "" : "",
-  );
+  const [name, setName] = useState(inst.name);
+  const [model, setModel] = useState(inst.model || "");
+  const [baseUrl, setBaseUrl] = useState(inst.baseUrl || "");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
@@ -337,28 +479,28 @@ function ProviderConfigForm({
   // Reset form when provider changes
   useEffect(() => {
     setApiKey("");
-    setModel(config[def.modelField] || "");
-    setBaseUrl(def.id === "openai" ? config.openaiBaseUrl || "" : "");
+    setName(inst.name);
+    setModel(inst.model || "");
+    setBaseUrl(inst.baseUrl || "");
     setSaveMsg(null);
     setValidateMsg(null);
-  }, [def.id, config]);
+  }, [inst.id]);
 
-  const configured =
-    !!config[def.keyField] &&
-    config[def.keyField] !== t("settings.configNotSet");
-
-  const toBackendName = (id: string) => (id === "anthropic" ? "claude" : id);
+  const configured = !!inst.apiKey;
+  const isActive = activeProvider === inst.id;
+  const showBaseUrl = inst.type === "openai";
 
   const hasChanges = (() => {
     if (apiKey && !isMaskedValue(apiKey)) return true;
-    if (model !== (config[def.modelField] || "")) return true;
-    if (def.id === "openai" && baseUrl !== (config.openaiBaseUrl || ""))
-      return true;
+    if (name !== inst.name) return true;
+    if (model !== (inst.model || "")) return true;
+    if (showBaseUrl && baseUrl !== (inst.baseUrl || "")) return true;
     return false;
   })();
 
   const handleValidate = async () => {
-    if (!apiKey) {
+    const keyToValidate = apiKey || inst.apiKey;
+    if (!keyToValidate || isMaskedValue(keyToValidate)) {
       setValidateMsg({ ok: false, text: t("settings.configEnterKey") });
       return;
     }
@@ -370,8 +512,8 @@ function ProviderConfigForm({
         apiKey: string;
         baseUrl?: string;
         model?: string;
-      } = { provider: toBackendName(def.id), apiKey };
-      if (def.id === "openai" && baseUrl) params.baseUrl = baseUrl;
+      } = { provider: inst.type, apiKey: keyToValidate };
+      if (showBaseUrl && baseUrl) params.baseUrl = baseUrl;
       if (model) params.model = model;
       const result = await validateApiKey(params);
       setValidateMsg({
@@ -395,19 +537,22 @@ function ProviderConfigForm({
     setSaving(true);
     setSaveMsg(null);
     try {
-      const updates: Record<string, unknown> = {};
-      if (apiKey && !isMaskedValue(apiKey)) updates[def.keyField] = apiKey;
-      if (model !== (config[def.modelField] || ""))
-        updates[def.modelField] = model || undefined;
-      if (def.id === "openai" && baseUrl !== (config.openaiBaseUrl || ""))
-        updates.openaiBaseUrl = baseUrl || undefined;
-
-      if (Object.keys(updates).length === 0) {
-        setSaveMsg(t("settings.configNoChanges"));
-        setSaving(false);
-        return;
+      const updatedInst: ProviderInstance = {
+        ...inst,
+        name: name || inst.name,
+        model: model || undefined,
+        baseUrl: showBaseUrl ? baseUrl || undefined : inst.baseUrl,
+      };
+      // Only update apiKey if user typed a new non-masked value
+      if (apiKey && !isMaskedValue(apiKey)) {
+        updatedInst.apiKey = apiKey;
       }
-      await updateAppConfig(updates as Partial<AppConfigInfo>);
+      const updatedProviders = providers.map((p) =>
+        p.id === inst.id ? updatedInst : p,
+      );
+      await updateAppConfig({
+        providers: updatedProviders,
+      } as Partial<AppConfigInfo>);
       setSaveMsg(t("settings.configSaved"));
       setApiKey("");
       onSaved();
@@ -423,7 +568,7 @@ function ProviderConfigForm({
   return (
     <>
       <div className="model-detail-header">
-        <h3 className="model-detail-title">{def.label}</h3>
+        <h3 className="model-detail-title">{inst.name}</h3>
         <span
           className={`channels-status-badge${configured ? " configured" : ""}`}
         >
@@ -434,13 +579,27 @@ function ProviderConfigForm({
       </div>
 
       <div className="channels-detail-form">
+        {/* Display Name */}
+        <div className="channels-detail-field">
+          <label className="channels-detail-label">
+            {t("settings.displayName")}
+          </label>
+          <input
+            type="text"
+            className="config-input"
+            placeholder={preset.name}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+
         {/* API Key */}
         <div className="channels-detail-field">
           <label className="channels-detail-label">API Key</label>
           <input
             type="password"
             className="config-input"
-            placeholder={config[def.keyField] || def.placeholder}
+            placeholder={inst.apiKey || preset.keyPlaceholder}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
           />
@@ -467,18 +626,20 @@ function ProviderConfigForm({
           )}
         </div>
 
-        {/* Base URL (OpenAI only) */}
-        {def.hasBaseUrl && (
+        {/* Base URL (OpenAI-compatible only) */}
+        {showBaseUrl && (
           <div className="channels-detail-field">
             <label className="channels-detail-label">Base URL</label>
             <input
               type="text"
               className="config-input"
-              placeholder={def.baseUrlPlaceholder}
+              placeholder={preset.baseUrl || "https://api.openai.com/v1"}
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
             />
-            {def.hint && <span className="config-hint">{t(def.hint)}</span>}
+            <span className="config-hint">
+              {t("settings.configBaseUrlHint")}
+            </span>
           </div>
         )}
 
@@ -488,13 +649,24 @@ function ProviderConfigForm({
           <input
             type="text"
             className="config-input"
-            placeholder={def.modelPlaceholder}
+            placeholder={preset.modelPlaceholder}
             value={model}
             onChange={(e) => setModel(e.target.value)}
           />
         </div>
 
-        {/* Save */}
+        {/* Provider Type (read-only info) */}
+        <div className="channels-detail-field">
+          <label className="channels-detail-label">SDK Type</label>
+          <code
+            className="model-name"
+            style={{ display: "inline-block", padding: "6px 10px" }}
+          >
+            {inst.type}
+          </code>
+        </div>
+
+        {/* Actions */}
         <div className="channels-detail-actions">
           <button
             className="btn btn-primary"
@@ -502,6 +674,14 @@ function ProviderConfigForm({
             onClick={handleSave}
           >
             {saving ? t("settings.configSaving") : t("settings.configSave")}
+          </button>
+          <button
+            className="btn btn-danger"
+            onClick={onDelete}
+            disabled={isActive}
+            title={isActive ? t("settings.cannotDeleteActive") : ""}
+          >
+            {t("settings.delete")}
           </button>
           {saveMsg && (
             <span

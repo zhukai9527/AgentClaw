@@ -6,6 +6,7 @@ import {
   saveConfig,
   maskConfig,
   type AppConfig,
+  type ProviderInstance,
 } from "../config.js";
 import {
   ClaudeProvider,
@@ -14,58 +15,54 @@ import {
 } from "@agentclaw/providers";
 import type { LLMProvider } from "@agentclaw/types";
 
+/** 从 ProviderInstance 创建 LLMProvider */
+function createProviderFromInstance(
+  inst: ProviderInstance,
+  cfg: AppConfig,
+): LLMProvider {
+  switch (inst.type) {
+    case "claude":
+      return new ClaudeProvider({
+        apiKey: inst.apiKey!,
+        defaultModel: inst.model,
+      });
+    case "gemini":
+      return new GeminiProvider({
+        apiKey: inst.apiKey!,
+        defaultModel: inst.model,
+      });
+    case "openai":
+    default:
+      return new OpenAICompatibleProvider({
+        apiKey: inst.apiKey!,
+        baseURL: inst.baseUrl,
+        defaultModel: inst.model,
+        providerName: inst.id,
+        extraBody: cfg.disableThinking ? { think: false } : undefined,
+      });
+  }
+}
+
 /** Rebuild the active provider from current config */
 function rebuildProvider(cfg: AppConfig): {
   provider: LLMProvider;
   name: string;
   model?: string;
 } | null {
-  const active =
-    cfg.activeProvider ||
-    (cfg.anthropicApiKey
-      ? "claude"
-      : cfg.openaiApiKey
-        ? "openai"
-        : cfg.geminiApiKey
-          ? "gemini"
-          : undefined);
-  if (active === "claude" && cfg.anthropicApiKey) {
-    const model = cfg.anthropicModel || cfg.defaultModel;
-    return {
-      provider: new ClaudeProvider({
-        apiKey: cfg.anthropicApiKey,
-        defaultModel: model,
-      }),
-      name: "claude",
-      model,
-    };
-  }
-  if (active === "openai" && cfg.openaiApiKey) {
-    const model = cfg.openaiModel || cfg.defaultModel;
-    return {
-      provider: new OpenAICompatibleProvider({
-        apiKey: cfg.openaiApiKey,
-        baseURL: cfg.openaiBaseUrl,
-        defaultModel: model,
-        providerName: "openai",
-        extraBody: cfg.disableThinking ? { think: false } : undefined,
-      }),
-      name: "openai",
-      model,
-    };
-  }
-  if (active === "gemini" && cfg.geminiApiKey) {
-    const model = cfg.geminiModel || cfg.defaultModel;
-    return {
-      provider: new GeminiProvider({
-        apiKey: cfg.geminiApiKey,
-        defaultModel: model,
-      }),
-      name: "gemini",
-      model,
-    };
-  }
-  return null;
+  const providers = cfg.providers || [];
+  const activeId = cfg.activeProvider;
+
+  // 优先找 activeProvider，否则找第一个 enabled 的
+  const target =
+    providers.find((p) => p.id === activeId && p.apiKey) ||
+    providers.find((p) => p.enabled && p.apiKey);
+  if (!target) return null;
+
+  return {
+    provider: createProviderFromInstance(target, cfg),
+    name: target.id,
+    model: target.model,
+  };
 }
 
 export function registerConfigRoutes(
@@ -150,6 +147,7 @@ export function registerConfigRoutes(
 
       // 3. 判断是否需要热重建 provider
       const providerFields = [
+        "providers",
         "activeProvider",
         "openaiModel",
         "openaiBaseUrl",

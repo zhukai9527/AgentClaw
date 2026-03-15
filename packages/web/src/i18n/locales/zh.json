@@ -337,6 +337,11 @@
     "configRestartHint": "API Key 变更需重启 Gateway 后生效",
     "providerConnected": "已连接",
     "providerNotSet": "未配置",
+    "addProvider": "添加模型",
+    "selectProvider": "从左侧面板选择模型",
+    "displayName": "显示名称",
+    "delete": "删除",
+    "cannotDeleteActive": "无法删除当前使用中的模型",
     "tabs": {
       "general": "常规",
       "model": "模型",

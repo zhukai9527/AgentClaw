@@ -337,6 +337,11 @@
     "configRestartHint": "API key changes take effect after restarting the gateway",
     "providerConnected": "Connected",
     "providerNotSet": "Not configured",
+    "addProvider": "Add Provider",
+    "selectProvider": "Select a provider from the left panel",
+    "displayName": "Display Name",
+    "delete": "Delete",
+    "cannotDeleteActive": "Cannot delete active provider",
     "tabs": {
       "general": "General",
       "model": "Model",

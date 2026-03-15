@@ -5,14 +5,27 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
+/** LLM Provider 实例（多 provider 架构） */
+export interface ProviderInstance {
+  id: string; // 唯一标识，如 "deepseek", "anthropic"
+  type: "openai" | "claude" | "gemini"; // SDK 类型
+  name: string; // 显示名称，如 "DeepSeek"
+  apiKey?: string;
+  baseUrl?: string; // 仅 openai 类型需要
+  model?: string; // 默认模型
+  enabled: boolean;
+}
+
 export interface AppConfig {
-  // LLM
+  // LLM — 多 Provider 实例
+  providers?: ProviderInstance[];
+  activeProvider?: string; // 激活的 provider id
+  // LLM — 旧格式（兼容环境变量，运行时由 migrateProviders 转换）
   anthropicApiKey?: string;
   openaiApiKey?: string;
   openaiBaseUrl?: string;
   geminiApiKey?: string;
   defaultModel?: string;
-  activeProvider?: string;
   anthropicModel?: string;
   openaiModel?: string;
   geminiModel?: string;
@@ -217,7 +230,62 @@ export function loadConfig(configPath?: string): AppConfig {
     }
   }
 
-  return merged as unknown as AppConfig;
+  const cfg = merged as unknown as AppConfig;
+
+  // 迁移：如果没有 providers[] 但有旧格式字段，自动生成
+  if (!cfg.providers) {
+    cfg.providers = migrateToProviders(cfg);
+  }
+
+  return cfg;
+}
+
+/**
+ * 从旧格式字段（anthropicApiKey 等）构建 providers[] 数组。
+ * 纯内存转换，不写回文件。
+ */
+function migrateToProviders(cfg: AppConfig): ProviderInstance[] {
+  const providers: ProviderInstance[] = [];
+  const oldActive = cfg.activeProvider; // "claude" / "openai" / "gemini"
+
+  if (cfg.anthropicApiKey) {
+    providers.push({
+      id: "anthropic",
+      type: "claude",
+      name: "Anthropic",
+      apiKey: cfg.anthropicApiKey,
+      model: cfg.anthropicModel || cfg.defaultModel,
+      enabled: oldActive === "claude" || (!oldActive && providers.length === 0),
+    });
+  }
+  if (cfg.openaiApiKey) {
+    providers.push({
+      id: "openai",
+      type: "openai",
+      name: "OpenAI",
+      apiKey: cfg.openaiApiKey,
+      baseUrl: cfg.openaiBaseUrl,
+      model: cfg.openaiModel || cfg.defaultModel,
+      enabled: oldActive === "openai" || (!oldActive && providers.length === 0),
+    });
+  }
+  if (cfg.geminiApiKey) {
+    providers.push({
+      id: "gemini",
+      type: "gemini",
+      name: "Gemini",
+      apiKey: cfg.geminiApiKey,
+      model: cfg.geminiModel || cfg.defaultModel,
+      enabled: oldActive === "gemini" || (!oldActive && providers.length === 0),
+    });
+  }
+
+  // activeProvider 也迁移为新格式 id
+  if (oldActive && !cfg.activeProvider) {
+    // 已有 activeProvider 字段，保持不变
+  }
+
+  return providers;
 }
 
 /**
@@ -279,7 +347,12 @@ const SENSITIVE_FIELDS = new Set([
 export function maskConfig(config: AppConfig): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(config)) {
-    if (SENSITIVE_FIELDS.has(key) && typeof value === "string") {
+    if (key === "providers" && Array.isArray(value)) {
+      result[key] = (value as ProviderInstance[]).map((p) => ({
+        ...p,
+        apiKey: maskApiKey(p.apiKey),
+      }));
+    } else if (SENSITIVE_FIELDS.has(key) && typeof value === "string") {
       result[key] = maskApiKey(value);
     } else if (key === "telegram" && value && typeof value === "object") {
       result[key] = {

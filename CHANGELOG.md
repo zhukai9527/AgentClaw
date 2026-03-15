@@ -3,9 +3,11 @@
 ## [1.4.1] - 2026-03-15
 
 ### 新增
+- **多 Provider 实例架构**：支持同时配置任意数量的 LLM Provider（DeepSeek/通义千问/Kimi/智谱/火山引擎/Ollama 等），`providers[]` 数组存储，旧格式环境变量自动迁移
+- **Model Tab 改版**：左侧列表展示所有已配置 Provider（带开关切换），右侧编辑表单，底部添加按钮支持 10 种预设模板一键添加
+- **Agent 模型下拉选择**：Agent 编辑面板的 model 字段改为下拉菜单，直接从已配置 Provider 列表中选择
 - **Shell 命令流式进度推送**：yt-dlp、ffmpeg 等长时间命令执行时，实时推送下载/编码进度到前端（3 秒节流）
 - **渠道配置 UI 编辑**：Settings → Channels 页面改为左右分栏布局，支持在界面配置 Telegram/钉钉/飞书/QQ Bot/企微凭证，保存后自动热重启渠道
-- **Model 配置独立 Tab**：Settings → Model 页面，左右分栏选择 Provider 配置 API Key/Base URL/模型，下方展示用量统计
 
 ### 改进
 - 删除 SetupWizard 组件（~600 行），未配置时直接跳转 Settings 页面，入口统一

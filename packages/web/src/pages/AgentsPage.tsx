@@ -8,6 +8,7 @@ import {
   deleteAgent,
   getConfig,
   type AgentInfo,
+  type ProviderInstance,
 } from "../api/client";
 import "./AgentsPage.css";
 
@@ -68,6 +69,7 @@ export function AgentsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [defaultModel, setDefaultModel] = useState("");
+  const [configuredProviders, setConfiguredProviders] = useState<ProviderInstance[]>([]);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -83,6 +85,7 @@ export function AgentsPage() {
       const [data, config] = await Promise.all([listAgents(), getConfig()]);
       setAgents(data);
       setDefaultModel(config.model || "");
+      setConfiguredProviders((config.providers || []).filter((p) => p.enabled && p.apiKey));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load agents");
@@ -326,13 +329,20 @@ export function AgentsPage() {
                 {/* Model */}
                 <div className="agents-form-row">
                   <label className="agents-label">{t('agents.model')}</label>
-                  <input
-                    type="text"
-                    placeholder={defaultModel ? `Default: ${defaultModel}` : t('agents.useSystemDefault')}
+                  <select
                     value={form.model}
                     onChange={(e) => updateField("model", e.target.value)}
                     className="agents-input"
-                  />
+                  >
+                    <option value="">
+                      {defaultModel ? `${t('agents.useSystemDefault')} (${defaultModel})` : t('agents.useSystemDefault')}
+                    </option>
+                    {configuredProviders.map((p) => (
+                      <option key={p.id} value={p.model || p.id}>
+                        {p.name}{p.model ? ` — ${p.model}` : ""}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Advanced toggle */}

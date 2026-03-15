@@ -24,7 +24,7 @@ import {
   formatHealthResults,
   type HealthCheckResult,
 } from "./health-check.js";
-import { loadConfig, type AppConfig } from "./config.js";
+import { loadConfig, type AppConfig, type ProviderInstance } from "./config.js";
 
 export interface AppContext {
   provider: LLMProvider;
@@ -58,19 +58,32 @@ export interface AppRuntimeConfig {
   skillsDir: string;
 }
 
-/**
- * Get the effective model for a specific provider, falling back to defaultModel.
- */
-function getProviderModel(
+/** 从 ProviderInstance 创建 LLMProvider */
+function createProviderFromInstance(
+  inst: ProviderInstance,
   cfg: AppConfig,
-  providerName: string,
-): string | undefined {
-  const perProvider: Record<string, string | undefined> = {
-    claude: cfg.anthropicModel,
-    openai: cfg.openaiModel,
-    gemini: cfg.geminiModel,
-  };
-  return perProvider[providerName] || cfg.defaultModel;
+): LLMProvider {
+  switch (inst.type) {
+    case "claude":
+      return new ClaudeProvider({
+        apiKey: inst.apiKey!,
+        defaultModel: inst.model,
+      });
+    case "gemini":
+      return new GeminiProvider({
+        apiKey: inst.apiKey!,
+        defaultModel: inst.model,
+      });
+    case "openai":
+    default:
+      return new OpenAICompatibleProvider({
+        apiKey: inst.apiKey!,
+        baseURL: inst.baseUrl,
+        defaultModel: inst.model,
+        providerName: inst.id,
+        extraBody: cfg.disableThinking ? { think: false } : undefined,
+      });
+  }
 }
 
 function collectProviders(cfg: AppConfig): {
@@ -78,54 +91,10 @@ function collectProviders(cfg: AppConfig): {
   providerName: string;
   model?: string;
 } {
-  // Provider candidates: activeProvider first, then others as failover
-  const allCandidates: Array<{
-    name: string;
-    create: () => LLMProvider;
-  }> = [];
+  const instances = (cfg.providers || []).filter((p) => p.apiKey);
 
-  const anthropicKey = cfg.anthropicApiKey;
-  if (anthropicKey) {
-    allCandidates.push({
-      name: "claude",
-      create: () =>
-        new ClaudeProvider({
-          apiKey: anthropicKey,
-          defaultModel: getProviderModel(cfg, "claude"),
-        }),
-    });
-  }
-
-  const openaiKey = cfg.openaiApiKey;
-  if (openaiKey) {
-    const baseURL = cfg.openaiBaseUrl;
-    allCandidates.push({
-      name: "openai",
-      create: () =>
-        new OpenAICompatibleProvider({
-          apiKey: openaiKey,
-          baseURL,
-          defaultModel: getProviderModel(cfg, "openai"),
-          providerName: "openai",
-          extraBody: cfg.disableThinking ? { think: false } : undefined,
-        }),
-    });
-  }
-
-  const geminiKey = cfg.geminiApiKey;
-  if (geminiKey) {
-    allCandidates.push({
-      name: "gemini",
-      create: () =>
-        new GeminiProvider({
-          apiKey: geminiKey,
-          defaultModel: getProviderModel(cfg, "gemini"),
-        }),
-    });
-  }
-
-  // Fallback: local Ollama when no cloud key is set
-  if (allCandidates.length === 0) {
+  // Fallback: local Ollama when no provider is configured
+  if (instances.length === 0) {
     const baseURL =
       cfg.ollamaBaseUrl ||
       process.env.LLM_BASE_URL ||
@@ -141,28 +110,34 @@ function collectProviders(cfg: AppConfig): {
     return { provider: localProvider, providerName: "local", model };
   }
 
-  // Sort: activeProvider first, then others
+  // Sort: enabled + activeProvider first, then enabled, then disabled
   const active = cfg.activeProvider;
-  const candidates = active
-    ? [
-        ...allCandidates.filter((c) => c.name === active),
-        ...allCandidates.filter((c) => c.name !== active),
-      ]
-    : allCandidates;
+  const sorted = [...instances].sort((a, b) => {
+    if (a.id === active && a.enabled) return -1;
+    if (b.id === active && b.enabled) return 1;
+    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+    return 0;
+  });
 
-  const providers = candidates.map((c) => c.create());
+  // Only create providers for instances with API keys
+  const enabledInstances = sorted.filter((p) => p.enabled);
+  const candidates =
+    enabledInstances.length > 0 ? enabledInstances : [sorted[0]];
+
+  const providers = candidates.map((inst) =>
+    createProviderFromInstance(inst, cfg),
+  );
   const provider =
     providers.length > 1 ? new FailoverProvider(providers) : providers[0];
 
   if (providers.length > 1) {
     console.log(
-      `[bootstrap] Failover chain: ${providers.map((p) => p.name).join(" → ")}`,
+      `[bootstrap] Failover chain: ${candidates.map((c) => c.id).join(" → ")}`,
     );
   }
 
-  const primaryName = candidates[0].name;
-  const model = getProviderModel(cfg, primaryName);
-  return { provider, providerName: primaryName, model };
+  const primary = candidates[0];
+  return { provider, providerName: primary.id, model: primary.model };
 }
 
 /**

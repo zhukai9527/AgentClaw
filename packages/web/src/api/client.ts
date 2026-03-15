@@ -368,19 +368,32 @@ export function getStats(): Promise<UsageStatsInfo> {
   return request("/stats");
 }
 
+/** LLM Provider 实例 */
+export interface ProviderInstance {
+  id: string;
+  type: "openai" | "claude" | "gemini";
+  name: string;
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  enabled: boolean;
+}
+
 export interface AppConfigInfo {
   provider: string;
   model?: string;
   databasePath: string;
   skillsDir: string;
   dailyBriefTime?: string;
-  // LLM keys（脱敏后的值）
+  // 多 Provider 实例
+  providers?: ProviderInstance[];
+  activeProvider?: string;
+  // LLM keys（旧格式，兼容）
   anthropicApiKey?: string;
   openaiApiKey?: string;
   openaiBaseUrl?: string;
   geminiApiKey?: string;
   defaultModel?: string;
-  activeProvider?: string;
   anthropicModel?: string;
   openaiModel?: string;
   geminiModel?: string;

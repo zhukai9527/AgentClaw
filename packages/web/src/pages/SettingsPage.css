@@ -642,6 +642,95 @@
   accent-color: var(--accent);
 }
 
+/* ── Add provider button + dropdown ── */
+.model-add-wrapper {
+  position: relative;
+  margin-top: 4px;
+  padding: 4px 8px;
+}
+
+.model-add-btn {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.model-add-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.model-add-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 100%;
+  margin-top: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.model-add-menu-item {
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background 0.1s,
+    color 0.1s;
+}
+
+.model-add-menu-item:hover {
+  background: var(--accent-subtle-bg);
+  color: var(--accent);
+}
+
+.model-add-menu-item:first-child {
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.model-add-menu-item:last-child {
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+/* Danger button */
+.btn-danger {
+  padding: 6px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--error);
+  background: transparent;
+  border: 1px solid var(--error-subtle-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--error-subtle-bg);
+}
+
+.btn-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* ── Responsive: collapse settings menu on small screens ── */
 @media (max-width: 768px) {
   .settings-layout {
