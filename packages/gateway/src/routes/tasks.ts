@@ -198,7 +198,9 @@ export function registerTaskRoutes(
           });
         }
         const created = await tm.captureTask(text, "web");
-        return reply.status(201).send(serializeTask(created as Record<string, unknown>));
+        return reply
+          .status(201)
+          .send(serializeTask(created as Record<string, unknown>));
       }
 
       // 结构化创建
@@ -207,13 +209,15 @@ export function registerTaskRoutes(
           return reply.status(400).send({ error: "task.title is required" });
         }
         const id = randomUUID().slice(0, 8);
+        const exec = task.executor ?? task.assignee ?? "human";
         store.addTask({
           id,
           title: task.title,
           description: task.description,
           priority: task.priority,
           dueDate: task.deadline ?? task.dueDate,
-          assignee: task.executor ?? task.assignee,
+          assignee: exec,
+          executor: exec,
           tags: task.tags,
           createdBy: "human",
         });
