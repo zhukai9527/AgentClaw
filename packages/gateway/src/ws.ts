@@ -300,10 +300,20 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
         return;
       }
 
+      // ── 创建 ActiveStream（立即占位，防止并发消息竞态） ──
+      const stream: ActiveStream = {
+        buffer: [],
+        socketRef: { current: socket },
+        pendingPromptRef: { current: null, timer: null },
+        userAborted: false,
+      };
+      activeStreams.set(sessionId, stream);
+
       try {
         // Verify session exists
         const session = await ctx.orchestrator.getSession(sessionId);
         if (!session) {
+          activeStreams.delete(sessionId);
           safeSendTo(
             socket,
             JSON.stringify({
@@ -313,15 +323,6 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
           );
           return;
         }
-
-        // ── 创建 ActiveStream ──
-        const stream: ActiveStream = {
-          buffer: [],
-          socketRef: { current: socket },
-          pendingPromptRef: { current: null, timer: null },
-          userAborted: false,
-        };
-        activeStreams.set(sessionId, stream);
 
         /** 发送事件到当前 socket + 缓冲（跨 socket 生存） */
         function streamSend(data: string): void {
@@ -525,6 +526,10 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
           streamSend(JSON.stringify({ type: "error", error: message }));
           streamSend(JSON.stringify({ type: "done" }));
         } finally {
+          if (stream.pendingPromptRef.timer) {
+            clearTimeout(stream.pendingPromptRef.timer);
+            stream.pendingPromptRef.timer = null;
+          }
           activeStreams.delete(sessionId);
         }
       } catch (err: unknown) {

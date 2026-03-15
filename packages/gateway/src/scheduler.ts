@@ -169,6 +169,11 @@ export class TaskScheduler {
   private loadFromStore(store: ScheduledTaskStore): void {
     const saved = store.listScheduledTasks();
     for (const t of saved) {
+      // Cleanup orphaned one-shot tasks that already fired (crash recovery)
+      if (t.oneShot && t.lastRunAt) {
+        store.deleteScheduledTask(t.id);
+        continue;
+      }
       const task: InternalTask = { ...t };
       if (task.enabled && !task.oneShot) {
         this.startJob(task);
@@ -198,15 +203,15 @@ export class TaskScheduler {
         }
       } finally {
         task.status = "idle";
-      }
-      // One-shot tasks: stop and remove after firing
-      if (task.oneShot) {
-        task.job?.stop();
-        this.tasks.delete(task.id);
-        this.store?.deleteScheduledTask(task.id);
-        console.log(
-          `[scheduler] One-shot task "${task.name}" (${task.id}) auto-removed`,
-        );
+        // One-shot tasks: stop and remove after firing
+        if (task.oneShot) {
+          task.job?.stop();
+          this.tasks.delete(task.id);
+          this.store?.deleteScheduledTask(task.id);
+          console.log(
+            `[scheduler] One-shot task "${task.name}" (${task.id}) auto-removed`,
+          );
+        }
       }
     });
 

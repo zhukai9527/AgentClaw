@@ -5,6 +5,12 @@
 ### 修复
 - **Gemini tool_use ID 碰撞**：同一响应中多次调用同一工具时 ID 重复（用了 function name 作 ID），改为始终生成唯一 ID
 - **Ollama native API tool call ID 碰撞**：同一响应多个 tool call 使用 `Date.now()` 生成相同 ID，改用 `generateId()` 保证唯一
+- **WS activeStreams 竞态条件**：两个并发消息可同时通过 `has()` 检查，导致同一 session 启动两个 agent loop；现在在 await 前立即占位
+- **WS promptUser 定时器泄漏**：stream 结束时未清理 pendingPromptRef.timer，导致 5 分钟后回调仍然触发
+- **QQ Bot Resume 路径 token 未 await**：`getToken()` 是 async 函数，Resume 路径直接拼接了 Promise 对象而非 token 字符串
+- **Scheduler 一次性任务竞态**：one-shot 清理逻辑在 finally 块外，回调抛异常时任务不会被清理成为僵尸记录；启动时也增加了对已执行 one-shot 的孤儿清理
+- **每日简报 cron NaN**：`daily_brief_time` 设置值格式异常时 `split(":").map(Number)` 产生 NaN，导致 cron 表达式无效；增加 fallback 默认值
+- **任务列表 limit 无上限**：`/api/tasks` 的 `limit` 参数无上限校验，恶意请求可拉取全量数据；限制最大 500
 
 ## [1.4.1] - 2026-03-15
 

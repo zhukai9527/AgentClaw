@@ -551,16 +551,18 @@ export async function startQQBot(
 
             if (sessionId && resumeUrl) {
               // Resume
-              ws!.send(
-                JSON.stringify({
-                  op: OP.RESUME,
-                  d: {
-                    token: `QQBot ${tokenManager.getToken()}`,
-                    session_id: sessionId,
-                    seq: lastSeq,
-                  },
-                }),
-              );
+              tokenManager.getToken().then((token) => {
+                ws!.send(
+                  JSON.stringify({
+                    op: OP.RESUME,
+                    d: {
+                      token: `QQBot ${token}`,
+                      session_id: sessionId,
+                      seq: lastSeq,
+                    },
+                  }),
+                );
+              });
             } else {
               // Identify
               const intents =

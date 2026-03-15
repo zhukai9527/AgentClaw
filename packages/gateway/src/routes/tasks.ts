@@ -96,7 +96,7 @@ export function registerTaskRoutes(
           priority: priority || undefined,
           assignee: executor || undefined,
         },
-        limit ? parseInt(limit, 10) : 100,
+        limit ? Math.min(parseInt(limit, 10), 500) : 100,
         offset ? parseInt(offset, 10) : 0,
       );
       const stats = store.getTaskStats();

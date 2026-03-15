@@ -164,7 +164,9 @@ async function main(): Promise<void> {
     const store = ctx.memoryStore as any;
     const time = store.getSetting?.("daily_brief_time") || "09:00";
     const [hour, minute] = time.split(":").map(Number);
-    const cronExpr = `${minute} ${hour} * * *`;
+    const hh = isNaN(hour) ? 9 : hour;
+    const mm = isNaN(minute) ? 0 : minute;
+    const cronExpr = `${mm} ${hh} * * *`;
 
     dailyBriefJob = new Cron(cronExpr, async () => {
       try {
