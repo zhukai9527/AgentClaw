@@ -1010,23 +1010,28 @@ export class SimpleAgentLoop implements AgentLoop {
       // Loop back for next LLM call with tool results
     }
 
-    // Max iterations reached — persist trace
+    // Loop exited — either max iterations, budget exhausted, or user abort
     const durationMs = Date.now() - startTime;
+    const wasAborted = this.aborted;
+
+    // Persist trace
     trace.model = usedModel;
     trace.tokensIn = totalTokensIn;
     trace.tokensOut = totalTokensOut;
     trace.durationMs = durationMs;
-    trace.error = "max_iterations_reached";
+    trace.error = wasAborted ? "user_aborted" : "max_iterations_reached";
     try {
       await this.memoryStore.addTrace(trace);
     } catch (e) {
       console.error("[agent-loop] Failed to persist trace:", e);
     }
 
-    // Store a final assistant turn so token stats persist
-    const fallbackContent =
-      lastFullText ||
-      "I've reached the maximum number of iterations. Please try breaking your request into smaller steps.";
+    // Store a final assistant turn with cumulative usage stats.
+    // For abort: empty content (just the stats for history). For max iterations: fallback text.
+    const fallbackContent = wasAborted
+      ? ""
+      : lastFullText ||
+        "I've reached the maximum number of iterations. Please try breaking your request into smaller steps.";
     const fallbackTurn: ConversationTurn = {
       id: generateId(),
       conversationId: convId,
@@ -1045,7 +1050,7 @@ export class SimpleAgentLoop implements AgentLoop {
     await this.memoryStore.addTurn(convId, fallbackTurn);
 
     this.setState("idle");
-    const fallbackMessage: Message = {
+    const message: Message = {
       id: generateId(),
       role: "assistant",
       content: fallbackContent,
@@ -1058,7 +1063,7 @@ export class SimpleAgentLoop implements AgentLoop {
       durationMs,
       toolCallCount: totalToolCalls,
     };
-    yield this.createEvent("response_complete", { message: fallbackMessage });
+    yield this.createEvent("response_complete", { message });
   }
 
   stop(): void {

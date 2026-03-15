@@ -7,7 +7,7 @@
 
 ### 修复
 - 点击停止按钮后，正在执行的工具卡片时钟图标不停止旋转（含刷新后历史加载）
-- 停止的会话缺失 usage stats（tokens/耗时/工具数）——`done` 事件因 `streaming` 已被清除而被跳过
+- 停止的会话缺失 usage stats（tokens/耗时/工具数）——WS abort 直接 break generator 导致收尾代码被跳过，改为 continue + drain
 
 ## [1.4.0] - 2026-03-14
 

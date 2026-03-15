@@ -420,7 +420,11 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
         // ── 消费事件流（不受 socket 断连影响） ──
         try {
           for await (const event of eventStream) {
-            if (stream.userAborted) break;
+            // After user abort: skip sending events but keep draining the generator
+            // so agent-loop cleanup code (persist usage stats) still runs.
+            // Only response_complete is captured (for usageStats in the "done" msg).
+            if (stream.userAborted && event.type !== "response_complete")
+              continue;
             switch (event.type) {
               case "tool_call": {
                 const data = event.data as { name: string; input: unknown };
