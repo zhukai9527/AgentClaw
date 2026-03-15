@@ -2464,9 +2464,6 @@ export function ChatPage() {
                   <h2 className="chat-welcome-title">
                     {t("chat.welcomeTitle")}
                   </h2>
-                  <p className="chat-welcome-subtitle">
-                    {t("chat.welcomeSubtitle")}
-                  </p>
                   <div className="chat-welcome-input">
                     <div className="chat-input-box" ref={slashMenuRef}>
                       <textarea
