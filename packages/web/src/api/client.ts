@@ -25,7 +25,12 @@
 
 import { getStoredApiKey, clearStoredApiKey } from "../auth";
 
-const BASE = "/api";
+// In Tauri desktop, window.location is tauri://localhost — API calls must target the sidecar
+const isTauri =
+  window.location.protocol === "tauri:" ||
+  window.location.hostname === "tauri.localhost";
+const GATEWAY = isTauri ? "http://localhost:3100" : "";
+const BASE = `${GATEWAY}/api`;
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {};
@@ -780,7 +785,7 @@ export async function uploadFile(
   if (apiKey) {
     headers.Authorization = `Bearer ${apiKey}`;
   }
-  const res = await fetch("/api/upload", {
+  const res = await fetch(`${GATEWAY}/api/upload`, {
     method: "POST",
     headers,
     body: formData,
@@ -852,8 +857,9 @@ export function connectWebSocket(
   close: () => void;
   promptReply: (content: string) => void;
 } {
+  const wsHost = isTauri ? "localhost:3100" : window.location.host;
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  let wsUrl = `${protocol}//${window.location.host}/ws?sessionId=${sessionId}`;
+  let wsUrl = `${protocol}//${wsHost}/ws?sessionId=${sessionId}`;
   const apiKey = getStoredApiKey();
   if (apiKey) {
     wsUrl += `&token=${encodeURIComponent(apiKey)}`;

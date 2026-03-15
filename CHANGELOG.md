@@ -9,6 +9,7 @@
 - 点击停止按钮后，正在执行的工具卡片时钟图标不停止旋转（含刷新后历史加载）
 - 停止的会话缺失 usage stats——WS abort 跳过 generator 收尾 + 有工具调用但无文本回复时 message-meta 不渲染
 - 删除会话时清理 `data/tmp/{sessionId}/` 目录及文件
+- Tauri 桌面版 API/WS 连接失败（`tauri://localhost` 下相对路径打到资产协议而非 gateway）
 
 ## [1.4.0] - 2026-03-14
 
