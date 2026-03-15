@@ -268,10 +268,11 @@ export function Layout() {
               : sessions;
 
             // Determine effective status: running loops override to "active"
+            // Old sessions without explicit status default to "done"
             const effectiveStatus = (s: (typeof sessions)[0]) => {
               if (activeLoopIds.has(s.id) || s.id === streamingSessionId)
                 return "active";
-              return s.status || "active";
+              return s.status || "done";
             };
 
             const groups: {
@@ -367,19 +368,21 @@ export function Layout() {
               </button>
             );
 
-            return groups.map((g) => (
-              <div key={g.key}>
-                <div className="sidebar-divider">
-                  <span>{g.label}</span>
-                  <span className="sidebar-divider-count">
-                    {g.items.length}
-                  </span>
-                </div>
-                <div className="sidebar-sessions">
-                  {g.items.map(renderSession)}
-                </div>
+            return (
+              <div className="sidebar-sessions">
+                {groups.map((g) => (
+                  <div key={g.key}>
+                    <div className="sidebar-divider">
+                      <span>{g.label}</span>
+                      <span className="sidebar-divider-count">
+                        {g.items.length}
+                      </span>
+                    </div>
+                    {g.items.map(renderSession)}
+                  </div>
+                ))}
               </div>
-            ));
+            );
           })()}
 
         {/* Footer */}
