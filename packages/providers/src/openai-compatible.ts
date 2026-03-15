@@ -351,7 +351,7 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
               yield {
                 type: "tool_use_start",
                 toolUse: {
-                  id: tc.id ?? `call_${Date.now()}`,
+                  id: tc.id ?? generateId(),
                   name: tc.function.name,
                   input: JSON.stringify(tc.function.arguments ?? {}),
                 },

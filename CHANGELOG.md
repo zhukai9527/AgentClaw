@@ -1,5 +1,11 @@
 # 更新日志
 
+## [1.4.2] - 2026-03-16
+
+### 修复
+- **Gemini tool_use ID 碰撞**：同一响应中多次调用同一工具时 ID 重复（用了 function name 作 ID），改为始终生成唯一 ID
+- **Ollama native API tool call ID 碰撞**：同一响应多个 tool call 使用 `Date.now()` 生成相同 ID，改用 `generateId()` 保证唯一
+
 ## [1.4.1] - 2026-03-15
 
 ### 新增
