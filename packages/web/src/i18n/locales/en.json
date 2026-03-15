@@ -339,6 +339,7 @@
     "providerNotSet": "Not configured",
     "tabs": {
       "general": "General",
+      "model": "Model",
       "channels": "Channels",
       "agents": "Agents",
       "subagents": "Subagents",

@@ -339,6 +339,7 @@
     "providerNotSet": "未配置",
     "tabs": {
       "general": "常规",
+      "model": "模型",
       "channels": "渠道",
       "agents": "智能体",
       "subagents": "子代理",

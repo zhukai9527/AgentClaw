@@ -34,6 +34,26 @@ import { SkillsPage } from "./SkillsPage";
 import { ApiPage } from "./ApiPage";
 import "./SettingsPage.css";
 
+/* ── Icon for Model (chip/processor) ── */
+function IconModel({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <rect x="9" y="9" width="6" height="6" rx="1" />
+      <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3" />
+    </svg>
+  );
+}
+
 /* ── Icon for Tools (simple wrench) ── */
 function IconTools({ size = 16 }: { size?: number }) {
   return (
@@ -54,6 +74,7 @@ function IconTools({ size = 16 }: { size?: number }) {
 
 const TABS = [
   { id: "general", icon: IconSettings },
+  { id: "model", icon: IconModel },
   { id: "channels", icon: IconChannels },
   { id: "agents", icon: IconAgents },
   { id: "subagents", icon: IconSubAgents },
@@ -103,307 +124,14 @@ const PROVIDER_DEFS = [
   },
 ] as const;
 
-/* ── LLM 配置编辑区域 — 按 Provider 分卡片 ── */
-function ConfigEditor({
-  config,
-  onSaved,
-}: {
-  config: AppConfigInfo;
-  onSaved: () => void;
-}) {
+/* ── Model tab — left-right split: provider list + config form + usage stats ── */
+function SettingsModel() {
   const { t } = useTranslation();
-
-  // Per-provider form state
-  const [keys, setKeys] = useState<Record<string, string>>({
-    anthropic: "",
-    openai: "",
-    gemini: "",
-  });
-  const [models, setModels] = useState<Record<string, string>>({
-    anthropic: config.anthropicModel || "",
-    openai: config.openaiModel || config.defaultModel || config.model || "",
-    gemini: config.geminiModel || "",
-  });
-  const [openaiBaseUrl, setOpenaiBaseUrl] = useState(
-    config.openaiBaseUrl || "",
-  );
-  const [activeProvider, setActiveProvider] = useState(() => {
-    const raw = config.activeProvider || config.provider || "openai";
-    return raw === "claude" ? "anthropic" : raw;
-  });
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
-  const [validating, setValidating] = useState<string | null>(null);
-  const [validateMsg, setValidateMsg] = useState<
-    Record<string, { ok: boolean; text: string }>
-  >({});
-
-  const setKey = (provider: string, value: string) =>
-    setKeys((prev) => ({ ...prev, [provider]: value }));
-  const setModel = (provider: string, value: string) =>
-    setModels((prev) => ({ ...prev, [provider]: value }));
-
-  /** 该 provider 是否已配置（脱敏值存在） */
-  const isConfigured = (def: (typeof PROVIDER_DEFS)[number]) =>
-    !!config[def.keyField] &&
-    config[def.keyField] !== t("settings.configNotSet");
-
-  /** 排序：已配置排前面 */
-  const sortedProviders = [...PROVIDER_DEFS].sort((a, b) => {
-    const aConf = isConfigured(a) ? 0 : 1;
-    const bConf = isConfigured(b) ? 0 : 1;
-    return aConf - bConf;
-  });
-
-  /** Map between frontend card id and backend provider name */
-  const toBackendName = (id: string) => (id === "anthropic" ? "claude" : id);
-  const toFrontendId = (name: string) =>
-    name === "claude" ? "anthropic" : name;
-
-  /** 是否有任何修改 */
-  const hasChanges = (() => {
-    for (const def of PROVIDER_DEFS) {
-      if (keys[def.id] && !isMaskedValue(keys[def.id])) return true;
-      if (models[def.id] !== (config[def.modelField] || "")) return true;
-    }
-    if (openaiBaseUrl !== (config.openaiBaseUrl || "")) return true;
-    const origActive = toFrontendId(
-      config.activeProvider || config.provider || "openai",
-    );
-    if (activeProvider !== origActive) return true;
-    return false;
-  })();
-
-  const handleValidate = async (providerId: string) => {
-    const apiKey = keys[providerId];
-    if (!apiKey) {
-      setValidateMsg((prev) => ({
-        ...prev,
-        [providerId]: { ok: false, text: t("settings.configEnterKey") },
-      }));
-      return;
-    }
-    setValidating(providerId);
-    setValidateMsg((prev) => ({ ...prev, [providerId]: undefined as never }));
-    try {
-      const params: {
-        provider: string;
-        apiKey: string;
-        baseUrl?: string;
-        model?: string;
-      } = {
-        provider: toBackendName(providerId),
-        apiKey,
-      };
-      if (providerId === "openai" && openaiBaseUrl)
-        params.baseUrl = openaiBaseUrl;
-      if (models[providerId]) params.model = models[providerId];
-      const result = await validateApiKey(params);
-      setValidateMsg((prev) => ({
-        ...prev,
-        [providerId]: {
-          ok: result.valid,
-          text: result.valid
-            ? t("settings.configKeyValid")
-            : t("settings.configKeyInvalid") +
-              (result.error ? `: ${result.error}` : ""),
-        },
-      }));
-    } catch (err) {
-      setValidateMsg((prev) => ({
-        ...prev,
-        [providerId]: {
-          ok: false,
-          text: err instanceof Error ? err.message : String(err),
-        },
-      }));
-    } finally {
-      setValidating(null);
-    }
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    setSaveMsg(null);
-    try {
-      const updates: Record<string, unknown> = {};
-      // Keys
-      if (keys.anthropic && !isMaskedValue(keys.anthropic))
-        updates.anthropicApiKey = keys.anthropic;
-      if (keys.openai && !isMaskedValue(keys.openai))
-        updates.openaiApiKey = keys.openai;
-      if (keys.gemini && !isMaskedValue(keys.gemini))
-        updates.geminiApiKey = keys.gemini;
-      // Base URL
-      if (openaiBaseUrl !== (config.openaiBaseUrl || ""))
-        updates.openaiBaseUrl = openaiBaseUrl || undefined;
-      // Per-provider models
-      for (const def of PROVIDER_DEFS) {
-        if (models[def.id] !== (config[def.modelField] || ""))
-          updates[def.modelField] = models[def.id] || undefined;
-      }
-      // Active provider
-      const origActive = config.activeProvider || config.provider || "openai";
-      if (activeProvider !== origActive)
-        updates.activeProvider = toBackendName(activeProvider);
-
-      if (Object.keys(updates).length === 0) {
-        setSaveMsg(t("settings.configNoChanges"));
-        setSaving(false);
-        return;
-      }
-      await updateAppConfig(updates as Partial<AppConfigInfo>);
-      setSaveMsg(t("settings.configSaved"));
-      setKeys({ anthropic: "", openai: "", gemini: "" });
-      onSaved();
-    } catch (err) {
-      setSaveMsg(
-        err instanceof Error ? err.message : t("settings.configSaveFailed"),
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <section className="card settings-section">
-      <h2 className="settings-section-title">{t("settings.configTitle")}</h2>
-      <div className="provider-cards">
-        {sortedProviders.map((def) => {
-          const configured = isConfigured(def);
-          const isActive =
-            toBackendName(activeProvider) === toBackendName(def.id);
-          const msg = validateMsg[def.id];
-          return (
-            <div
-              key={def.id}
-              className={`provider-card${configured ? " configured" : ""}${isActive ? " active" : ""}`}
-            >
-              <div
-                className="provider-card-header"
-                onClick={() => {
-                  if (configured || keys[def.id]) {
-                    setActiveProvider(def.id);
-                  }
-                }}
-                style={{
-                  cursor: configured || keys[def.id] ? "pointer" : "default",
-                }}
-              >
-                <span className="provider-card-radio">
-                  <span
-                    className={`provider-radio${isActive ? " checked" : ""}`}
-                  />
-                  <span className="provider-card-name">{def.label}</span>
-                </span>
-                <span
-                  className={`provider-card-status ${configured ? "on" : ""}`}
-                >
-                  {configured
-                    ? t("settings.providerConnected")
-                    : t("settings.providerNotSet")}
-                </span>
-              </div>
-              <div className="provider-card-body">
-                <div className="provider-card-field">
-                  <label className="provider-card-label">API Key</label>
-                  <input
-                    type="password"
-                    className="config-input"
-                    placeholder={config[def.keyField] || def.placeholder}
-                    value={keys[def.id]}
-                    onChange={(e) => setKey(def.id, e.target.value)}
-                  />
-                </div>
-                {(keys[def.id] || msg) && (
-                  <div className="provider-card-aux">
-                    {keys[def.id] && (
-                      <span
-                        className={`config-validate-link${validating === def.id ? " disabled" : ""}`}
-                        onClick={() =>
-                          validating !== def.id && handleValidate(def.id)
-                        }
-                      >
-                        {validating === def.id
-                          ? t("settings.configValidating")
-                          : t("settings.configValidate")}
-                      </span>
-                    )}
-                    {msg && (
-                      <span
-                        className={`config-validate-msg ${msg.ok ? "success" : "error"}`}
-                      >
-                        {msg.text}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {def.hasBaseUrl && (
-                  <>
-                    <div className="provider-card-field">
-                      <label className="provider-card-label">Base URL</label>
-                      <input
-                        type="text"
-                        className="config-input"
-                        placeholder={def.baseUrlPlaceholder}
-                        value={openaiBaseUrl}
-                        onChange={(e) => setOpenaiBaseUrl(e.target.value)}
-                      />
-                    </div>
-                    {def.hint && (
-                      <div className="provider-card-aux">
-                        <span className="config-hint">{t(def.hint)}</span>
-                      </div>
-                    )}
-                  </>
-                )}
-                <div className="provider-card-field">
-                  <label className="provider-card-label">
-                    {t("settings.model")}
-                  </label>
-                  <input
-                    type="text"
-                    className="config-input"
-                    placeholder={def.modelPlaceholder}
-                    value={models[def.id]}
-                    onChange={(e) => setModel(def.id, e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="settings-form-actions">
-        <button
-          className="btn btn-primary"
-          disabled={!hasChanges || saving}
-          onClick={handleSave}
-        >
-          {saving ? t("settings.configSaving") : t("settings.configSave")}
-        </button>
-        {saveMsg && (
-          <span
-            className={`config-save-msg ${saveMsg === t("settings.configSaved") ? "success" : ""}`}
-          >
-            {saveMsg}
-          </span>
-        )}
-      </div>
-    </section>
-  );
-}
-
-/* ── General tab (the original settings content) ── */
-function SettingsGeneral() {
-  const { t } = useTranslation();
-  const { theme, toggle } = useTheme();
   const [config, setConfig] = useState<AppConfigInfo | null>(null);
   const [stats, setStats] = useState<UsageStatsInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [lang, setLang] = useState(getLanguage());
+  const [selectedProvider, setSelectedProvider] = useState<string>("openai");
 
   const fetchAll = useCallback(async () => {
     try {
@@ -415,6 +143,10 @@ function SettingsGeneral() {
       setConfig(configData);
       setStats(statsData);
       setError(null);
+      // Auto-select active provider
+      const active =
+        configData.activeProvider || configData.provider || "openai";
+      setSelectedProvider(active === "claude" ? "anthropic" : active);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load settings");
     } finally {
@@ -432,16 +164,67 @@ function SettingsGeneral() {
     );
   }
 
+  /** 该 provider 是否已配置 */
+  const isConfigured = (def: (typeof PROVIDER_DEFS)[number]) =>
+    !!config?.[def.keyField] &&
+    config[def.keyField] !== t("settings.configNotSet");
+
+  /** 排序：已配置排前面 */
+  const sortedProviders = [...PROVIDER_DEFS].sort((a, b) => {
+    const aConf = isConfigured(a) ? 0 : 1;
+    const bConf = isConfigured(b) ? 0 : 1;
+    return aConf - bConf;
+  });
+
+  const selectedDef =
+    PROVIDER_DEFS.find((d) => d.id === selectedProvider) || PROVIDER_DEFS[0];
+
   return (
     <>
       {error && <div className="settings-error">{error}</div>}
 
-      {/* LLM 配置编辑 */}
-      {config && <ConfigEditor config={config} onSaved={fetchAll} />}
+      {/* Provider split layout */}
+      <div className="model-split">
+        {/* Left: provider list */}
+        <div className="model-list">
+          {sortedProviders.map((def) => {
+            const configured = isConfigured(def);
+            const active = selectedProvider === def.id;
+            return (
+              <div
+                key={def.id}
+                className={`model-list-item${active ? " active" : ""}`}
+                onClick={() => setSelectedProvider(def.id)}
+              >
+                <span className="model-list-name">{def.label}</span>
+                <span
+                  className={`channels-status-badge${configured ? " configured" : ""}`}
+                >
+                  {configured
+                    ? t("settings.providerConnected")
+                    : t("settings.providerNotSet")}
+                </span>
+              </div>
+            );
+          })}
+        </div>
 
-      {/* Usage Statistics + System Info */}
+        {/* Right: config form for selected provider */}
+        <div className="model-detail">
+          {config && (
+            <ProviderConfigForm
+              config={config}
+              def={selectedDef}
+              allDefs={PROVIDER_DEFS}
+              onSaved={fetchAll}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Usage Statistics */}
       {stats && (
-        <section className="card settings-section">
+        <section className="card settings-section" style={{ marginTop: 20 }}>
           <h2 className="settings-section-title">{t("settings.usageStats")}</h2>
           <div className="stats-overview">
             <div className="stat-item">
@@ -490,36 +273,270 @@ function SettingsGeneral() {
               </table>
             </div>
           )}
-
-          {config && (
-            <div className="stats-system-info">
-              <span className="stats-sys-item">
-                <span className="stats-sys-label">
-                  {t("settings.provider")}
-                </span>
-                <code>{config.provider}</code>
-              </span>
-              {config.model && (
-                <span className="stats-sys-item">
-                  <span className="stats-sys-label">{t("settings.model")}</span>
-                  <code className="model-name">{config.model}</code>
-                </span>
-              )}
-              <span className="stats-sys-item">
-                <span className="stats-sys-label">{t("settings.db")}</span>
-                <code>{config.databasePath}</code>
-              </span>
-              <span className="stats-sys-item">
-                <span className="stats-sys-label">
-                  {t("settings.skillsLabel")}
-                </span>
-                <code>{config.skillsDir}</code>
-              </span>
-            </div>
-          )}
         </section>
       )}
+    </>
+  );
+}
 
+/* ── Single provider config form (right panel of Model tab) ── */
+function ProviderConfigForm({
+  config,
+  def,
+  allDefs,
+  onSaved,
+}: {
+  config: AppConfigInfo;
+  def: (typeof PROVIDER_DEFS)[number];
+  allDefs: readonly (typeof PROVIDER_DEFS)[number][];
+  onSaved: () => void;
+}) {
+  const { t } = useTranslation();
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState(config[def.modelField] || "");
+  const [baseUrl, setBaseUrl] = useState(
+    def.id === "openai" ? config.openaiBaseUrl || "" : "",
+  );
+  const [isActive, setIsActive] = useState(() => {
+    const raw = config.activeProvider || config.provider || "openai";
+    return (raw === "claude" ? "anthropic" : raw) === def.id;
+  });
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [validating, setValidating] = useState(false);
+  const [validateMsg, setValidateMsg] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
+
+  // Reset form when provider changes
+  useEffect(() => {
+    setApiKey("");
+    setModel(config[def.modelField] || "");
+    setBaseUrl(def.id === "openai" ? config.openaiBaseUrl || "" : "");
+    const raw = config.activeProvider || config.provider || "openai";
+    setIsActive((raw === "claude" ? "anthropic" : raw) === def.id);
+    setSaveMsg(null);
+    setValidateMsg(null);
+  }, [def.id, config]);
+
+  const configured =
+    !!config[def.keyField] &&
+    config[def.keyField] !== t("settings.configNotSet");
+
+  const toBackendName = (id: string) => (id === "anthropic" ? "claude" : id);
+
+  const hasChanges = (() => {
+    if (apiKey && !isMaskedValue(apiKey)) return true;
+    if (model !== (config[def.modelField] || "")) return true;
+    if (def.id === "openai" && baseUrl !== (config.openaiBaseUrl || ""))
+      return true;
+    const origActive = config.activeProvider || config.provider || "openai";
+    const origId = origActive === "claude" ? "anthropic" : origActive;
+    if (isActive && origId !== def.id) return true;
+    return false;
+  })();
+
+  const handleValidate = async () => {
+    if (!apiKey) {
+      setValidateMsg({ ok: false, text: t("settings.configEnterKey") });
+      return;
+    }
+    setValidating(true);
+    setValidateMsg(null);
+    try {
+      const params: {
+        provider: string;
+        apiKey: string;
+        baseUrl?: string;
+        model?: string;
+      } = { provider: toBackendName(def.id), apiKey };
+      if (def.id === "openai" && baseUrl) params.baseUrl = baseUrl;
+      if (model) params.model = model;
+      const result = await validateApiKey(params);
+      setValidateMsg({
+        ok: result.valid,
+        text: result.valid
+          ? t("settings.configKeyValid")
+          : t("settings.configKeyInvalid") +
+            (result.error ? `: ${result.error}` : ""),
+      });
+    } catch (err) {
+      setValidateMsg({
+        ok: false,
+        text: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const updates: Record<string, unknown> = {};
+      if (apiKey && !isMaskedValue(apiKey)) updates[def.keyField] = apiKey;
+      if (model !== (config[def.modelField] || ""))
+        updates[def.modelField] = model || undefined;
+      if (def.id === "openai" && baseUrl !== (config.openaiBaseUrl || ""))
+        updates.openaiBaseUrl = baseUrl || undefined;
+      if (isActive) {
+        const origActive = config.activeProvider || config.provider || "openai";
+        if (toBackendName(def.id) !== origActive)
+          updates.activeProvider = toBackendName(def.id);
+      }
+
+      if (Object.keys(updates).length === 0) {
+        setSaveMsg(t("settings.configNoChanges"));
+        setSaving(false);
+        return;
+      }
+      await updateAppConfig(updates as Partial<AppConfigInfo>);
+      setSaveMsg(t("settings.configSaved"));
+      setApiKey("");
+      onSaved();
+    } catch (err) {
+      setSaveMsg(
+        err instanceof Error ? err.message : t("settings.configSaveFailed"),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="model-detail-header">
+        <h3 className="model-detail-title">{def.label}</h3>
+        <span
+          className={`channels-status-badge${configured ? " configured" : ""}`}
+        >
+          {configured
+            ? t("settings.providerConnected")
+            : t("settings.providerNotSet")}
+        </span>
+      </div>
+
+      <div className="channels-detail-form">
+        {/* Active provider radio */}
+        <div className="channels-detail-field">
+          <label className="model-active-row">
+            <input
+              type="checkbox"
+              checked={isActive}
+              onChange={(e) => setIsActive(e.target.checked)}
+            />
+            <span className="channels-detail-label">
+              {t("settings.configDefaultModel")}
+            </span>
+          </label>
+        </div>
+
+        {/* API Key */}
+        <div className="channels-detail-field">
+          <label className="channels-detail-label">API Key</label>
+          <input
+            type="password"
+            className="config-input"
+            placeholder={config[def.keyField] || def.placeholder}
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+          {(apiKey || validateMsg) && (
+            <div className="provider-card-aux" style={{ paddingLeft: 0 }}>
+              {apiKey && (
+                <span
+                  className={`config-validate-link${validating ? " disabled" : ""}`}
+                  onClick={() => !validating && handleValidate()}
+                >
+                  {validating
+                    ? t("settings.configValidating")
+                    : t("settings.configValidate")}
+                </span>
+              )}
+              {validateMsg && (
+                <span
+                  className={`config-validate-msg ${validateMsg.ok ? "success" : "error"}`}
+                >
+                  {validateMsg.text}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Base URL (OpenAI only) */}
+        {def.hasBaseUrl && (
+          <div className="channels-detail-field">
+            <label className="channels-detail-label">Base URL</label>
+            <input
+              type="text"
+              className="config-input"
+              placeholder={def.baseUrlPlaceholder}
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+            />
+            {def.hint && <span className="config-hint">{t(def.hint)}</span>}
+          </div>
+        )}
+
+        {/* Model */}
+        <div className="channels-detail-field">
+          <label className="channels-detail-label">{t("settings.model")}</label>
+          <input
+            type="text"
+            className="config-input"
+            placeholder={def.modelPlaceholder}
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+          />
+        </div>
+
+        {/* Save */}
+        <div className="channels-detail-actions">
+          <button
+            className="btn btn-primary"
+            disabled={!hasChanges || saving}
+            onClick={handleSave}
+          >
+            {saving ? t("settings.configSaving") : t("settings.configSave")}
+          </button>
+          {saveMsg && (
+            <span
+              className={`config-save-msg ${saveMsg === t("settings.configSaved") ? "success" : ""}`}
+            >
+              {saveMsg}
+            </span>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ── General tab — appearance + system info only ── */
+function SettingsGeneral() {
+  const { t } = useTranslation();
+  const { theme, toggle } = useTheme();
+  const [config, setConfig] = useState<AppConfigInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [lang, setLang] = useState(getLanguage());
+
+  useEffect(() => {
+    getConfig()
+      .then(setConfig)
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="settings-loading">{t("settings.loadingSettings")}</div>
+    );
+  }
+
+  return (
+    <>
       {/* Appearance */}
       <section className="card settings-section">
         <h2 className="settings-section-title">{t("settings.appearance")}</h2>
@@ -553,6 +570,40 @@ function SettingsGeneral() {
           </div>
         </div>
       </section>
+
+      {/* System Info */}
+      {config && (
+        <section className="card settings-section">
+          <h2 className="settings-section-title">
+            {t("settings.configTitle")}
+          </h2>
+          <div
+            className="stats-system-info"
+            style={{ marginTop: 0, paddingTop: 0, borderTop: "none" }}
+          >
+            <span className="stats-sys-item">
+              <span className="stats-sys-label">{t("settings.provider")}</span>
+              <code>{config.provider}</code>
+            </span>
+            {config.model && (
+              <span className="stats-sys-item">
+                <span className="stats-sys-label">{t("settings.model")}</span>
+                <code className="model-name">{config.model}</code>
+              </span>
+            )}
+            <span className="stats-sys-item">
+              <span className="stats-sys-label">{t("settings.db")}</span>
+              <code>{config.databasePath}</code>
+            </span>
+            <span className="stats-sys-item">
+              <span className="stats-sys-label">
+                {t("settings.skillsLabel")}
+              </span>
+              <code>{config.skillsDir}</code>
+            </span>
+          </div>
+        </section>
+      )}
     </>
   );
 }
@@ -606,6 +657,8 @@ export function SettingsPage() {
     switch (activeTab) {
       case "general":
         return <SettingsGeneral />;
+      case "model":
+        return <SettingsModel />;
       case "channels":
         return (
           <div className="settings-embed">

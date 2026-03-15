@@ -5,10 +5,12 @@
 ### 新增
 - **Shell 命令流式进度推送**：yt-dlp、ffmpeg 等长时间命令执行时，实时推送下载/编码进度到前端（3 秒节流）
 - **渠道配置 UI 编辑**：Settings → Channels 页面改为左右分栏布局，支持在界面配置 Telegram/钉钉/飞书/QQ Bot/企微凭证，保存后自动热重启渠道
+- **Model 配置独立 Tab**：Settings → Model 页面，左右分栏选择 Provider 配置 API Key/Base URL/模型，下方展示用量统计
 
 ### 改进
 - 删除 SetupWizard 组件（~600 行），未配置时直接跳转 Settings 页面，入口统一
 - 渠道凭证读取改为 config.json 优先、环境变量兜底，兼容老用户 .env 配置
+- General Tab 精简为外观（语言/主题）+ 系统信息，LLM 配置和用量统计移至 Model Tab
 
 ### 修复
 - 点击停止按钮后，正在执行的工具卡片时钟图标不停止旋转（含刷新后历史加载）
