@@ -103,7 +103,7 @@
   "tasks": {
     "title": "Tasks",
     "loadingTasks": "Loading tasks...",
-    "addPlaceholder": "Add a task... (natural language or just a title)",
+    "addPlaceholder": "Add to do...",
     "today": "Today",
     "allTasks": "All Tasks",
     "calendar": "Calendar",

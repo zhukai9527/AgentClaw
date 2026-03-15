@@ -103,7 +103,7 @@
   "tasks": {
     "title": "任务",
     "loadingTasks": "加载任务中...",
-    "addPlaceholder": "添加任务...（自然语言或直接写标题）",
+    "addPlaceholder": "添加待办...",
     "today": "今天",
     "allTasks": "全部任务",
     "calendar": "日历",
