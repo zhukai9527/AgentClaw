@@ -132,6 +132,11 @@ function SettingsModel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<string>("openai");
+  const [togglingProvider, setTogglingProvider] = useState<string | null>(null);
+
+  const toBackendName = (id: string) => (id === "anthropic" ? "claude" : id);
+  const toFrontendId = (name: string) =>
+    name === "claude" ? "anthropic" : name;
 
   const fetchAll = useCallback(async () => {
     try {
@@ -153,6 +158,27 @@ function SettingsModel() {
       setLoading(false);
     }
   }, []);
+
+  /** Toggle provider on/off — saves activeProvider immediately */
+  const handleToggle = async (providerId: string) => {
+    if (!config || togglingProvider) return;
+    const currentActive = toFrontendId(
+      config.activeProvider || config.provider || "openai",
+    );
+    // 已经是 active 的不能关（至少要有一个）
+    if (currentActive === providerId) return;
+    setTogglingProvider(providerId);
+    try {
+      await updateAppConfig({
+        activeProvider: toBackendName(providerId),
+      } as Partial<AppConfigInfo>);
+      await fetchAll();
+    } catch {
+      // ignore
+    } finally {
+      setTogglingProvider(null);
+    }
+  };
 
   useEffect(() => {
     fetchAll();
@@ -188,22 +214,28 @@ function SettingsModel() {
         {/* Left: provider list */}
         <div className="model-list">
           {sortedProviders.map((def) => {
-            const configured = isConfigured(def);
-            const active = selectedProvider === def.id;
+            const selected = selectedProvider === def.id;
+            const currentActive = toFrontendId(
+              config?.activeProvider || config?.provider || "openai",
+            );
+            const isOn = currentActive === def.id;
+            const toggling = togglingProvider === def.id;
             return (
               <div
                 key={def.id}
-                className={`model-list-item${active ? " active" : ""}`}
+                className={`model-list-item${selected ? " active" : ""}`}
                 onClick={() => setSelectedProvider(def.id)}
               >
                 <span className="model-list-name">{def.label}</span>
-                <span
-                  className={`channels-status-badge${configured ? " configured" : ""}`}
+                <div
+                  className={`channels-toggle${isOn ? " on" : ""}${toggling ? " loading" : ""}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggle(def.id);
+                  }}
                 >
-                  {configured
-                    ? t("settings.providerConnected")
-                    : t("settings.providerNotSet")}
-                </span>
+                  <div className="channels-toggle-knob" />
+                </div>
               </div>
             );
           })}
@@ -215,7 +247,6 @@ function SettingsModel() {
             <ProviderConfigForm
               config={config}
               def={selectedDef}
-              allDefs={PROVIDER_DEFS}
               onSaved={fetchAll}
             />
           )}
@@ -283,12 +314,10 @@ function SettingsModel() {
 function ProviderConfigForm({
   config,
   def,
-  allDefs,
   onSaved,
 }: {
   config: AppConfigInfo;
   def: (typeof PROVIDER_DEFS)[number];
-  allDefs: readonly (typeof PROVIDER_DEFS)[number][];
   onSaved: () => void;
 }) {
   const { t } = useTranslation();
@@ -297,10 +326,6 @@ function ProviderConfigForm({
   const [baseUrl, setBaseUrl] = useState(
     def.id === "openai" ? config.openaiBaseUrl || "" : "",
   );
-  const [isActive, setIsActive] = useState(() => {
-    const raw = config.activeProvider || config.provider || "openai";
-    return (raw === "claude" ? "anthropic" : raw) === def.id;
-  });
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
@@ -314,8 +339,6 @@ function ProviderConfigForm({
     setApiKey("");
     setModel(config[def.modelField] || "");
     setBaseUrl(def.id === "openai" ? config.openaiBaseUrl || "" : "");
-    const raw = config.activeProvider || config.provider || "openai";
-    setIsActive((raw === "claude" ? "anthropic" : raw) === def.id);
     setSaveMsg(null);
     setValidateMsg(null);
   }, [def.id, config]);
@@ -331,9 +354,6 @@ function ProviderConfigForm({
     if (model !== (config[def.modelField] || "")) return true;
     if (def.id === "openai" && baseUrl !== (config.openaiBaseUrl || ""))
       return true;
-    const origActive = config.activeProvider || config.provider || "openai";
-    const origId = origActive === "claude" ? "anthropic" : origActive;
-    if (isActive && origId !== def.id) return true;
     return false;
   })();
 
@@ -381,11 +401,6 @@ function ProviderConfigForm({
         updates[def.modelField] = model || undefined;
       if (def.id === "openai" && baseUrl !== (config.openaiBaseUrl || ""))
         updates.openaiBaseUrl = baseUrl || undefined;
-      if (isActive) {
-        const origActive = config.activeProvider || config.provider || "openai";
-        if (toBackendName(def.id) !== origActive)
-          updates.activeProvider = toBackendName(def.id);
-      }
 
       if (Object.keys(updates).length === 0) {
         setSaveMsg(t("settings.configNoChanges"));
@@ -419,20 +434,6 @@ function ProviderConfigForm({
       </div>
 
       <div className="channels-detail-form">
-        {/* Active provider radio */}
-        <div className="channels-detail-field">
-          <label className="model-active-row">
-            <input
-              type="checkbox"
-              checked={isActive}
-              onChange={(e) => setIsActive(e.target.checked)}
-            />
-            <span className="channels-detail-label">
-              {t("settings.configDefaultModel")}
-            </span>
-          </label>
-        </div>
-
         {/* API Key */}
         <div className="channels-detail-field">
           <label className="channels-detail-label">API Key</label>
