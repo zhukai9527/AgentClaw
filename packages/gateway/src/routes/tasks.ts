@@ -431,6 +431,26 @@ export function registerTaskRoutes(
     return reply.status(201).send(task);
   });
 
+  // PUT /api/tasks/scheduled/:id — 更新定时任务
+  app.put<{
+    Params: { id: string };
+    Body: {
+      name?: string;
+      cron?: string;
+      action?: string;
+      enabled?: boolean;
+    };
+  }>("/api/tasks/scheduled/:id", async (req, reply) => {
+    if (!scheduler) {
+      return reply.status(400).send({ error: "Scheduler not available" });
+    }
+    const updated = scheduler.update(req.params.id, req.body);
+    if (!updated) {
+      return reply.status(404).send({ error: "Scheduled task not found" });
+    }
+    return reply.send(updated);
+  });
+
   // DELETE /api/tasks/scheduled/:id — 删除定时任务
   app.delete<{ Params: { id: string } }>(
     "/api/tasks/scheduled/:id",

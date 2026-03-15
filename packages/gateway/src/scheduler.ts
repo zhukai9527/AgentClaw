@@ -86,6 +86,47 @@ export class TaskScheduler {
     return task ? this.toPublic(task) : undefined;
   }
 
+  update(
+    id: string,
+    input: { name?: string; cron?: string; action?: string; enabled?: boolean },
+  ): ScheduledTask | undefined {
+    const task = this.tasks.get(id);
+    if (!task) return undefined;
+
+    if (input.name !== undefined) task.name = input.name;
+    if (input.action !== undefined) task.action = input.action;
+
+    // If cron or enabled changed, restart the job
+    const cronChanged = input.cron !== undefined && input.cron !== task.cron;
+    const enabledChanged =
+      input.enabled !== undefined && input.enabled !== task.enabled;
+
+    if (input.cron !== undefined) task.cron = input.cron;
+    if (input.enabled !== undefined) task.enabled = input.enabled;
+
+    if (cronChanged || enabledChanged) {
+      task.job?.stop();
+      task.job = undefined;
+      task.nextRunAt = undefined;
+      if (task.enabled) {
+        this.startJob(task);
+      }
+    }
+
+    // Persist
+    this.store?.saveScheduledTask({
+      id: task.id,
+      name: task.name,
+      cron: task.cron,
+      action: task.action,
+      enabled: task.enabled,
+      oneShot: task.oneShot,
+      lastRunAt: task.lastRunAt,
+    });
+
+    return this.toPublic(task);
+  }
+
   delete(id: string): boolean {
     const task = this.tasks.get(id);
     if (!task) return false;

@@ -4,6 +4,7 @@ import { PageHeader } from "../components/PageHeader";
 import {
   listScheduledTasks,
   createScheduledTask,
+  updateScheduledTask,
   deleteScheduledTask,
   type ScheduledTaskInfo,
 } from "../api/client";
@@ -91,8 +92,14 @@ export function AutomationsPage() {
   const { t } = useTranslation();
   const [automations, setAutomations] = useState<ScheduledTaskInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Form state — shared for create & edit
+  const [formMode, setFormMode] = useState<
+    { type: "hidden" } | { type: "create" } | { type: "edit"; id: string }
+  >({ type: "hidden" });
   const [name, setName] = useState("");
   const [action, setAction] = useState("");
   const [freq, setFreq] = useState<Frequency>("daily");
@@ -100,8 +107,6 @@ export function AutomationsPage() {
   const [weekday, setWeekday] = useState(1);
   const [monthday, setMonthday] = useState(1);
   const [customCron, setCustomCron] = useState("");
-  const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const cronExpr = useMemo(
     () => buildCron(freq, time, weekday, monthday, customCron),
@@ -131,25 +136,67 @@ export function AutomationsPage() {
     setWeekday(1);
     setMonthday(1);
     setCustomCron("");
+    setFormMode({ type: "hidden" });
   };
 
-  const handleCreate = async () => {
+  const openCreate = () => {
+    resetForm();
+    setFormMode({ type: "create" });
+  };
+
+  const openEdit = (auto: ScheduledTaskInfo) => {
+    setName(auto.name);
+    setAction(auto.action);
+    const parsed = parseCron(auto.cron);
+    setFreq(parsed.freq);
+    setTime(parsed.time);
+    setWeekday(parsed.weekday);
+    setMonthday(parsed.monthday);
+    if (parsed.freq === "custom") setCustomCron(auto.cron);
+    else setCustomCron("");
+    setFormMode({ type: "edit", id: auto.id });
+  };
+
+  const handleSave = async () => {
     if (!name.trim() || !cronExpr.trim() || !action.trim()) return;
     setSaving(true);
     try {
-      const task = await createScheduledTask({
-        name: name.trim(),
-        cron: cronExpr.trim(),
-        action: action.trim(),
-        enabled: true,
-      });
-      setAutomations((prev) => [...prev, task]);
-      setShowForm(false);
+      if (formMode.type === "create") {
+        const task = await createScheduledTask({
+          name: name.trim(),
+          cron: cronExpr.trim(),
+          action: action.trim(),
+          enabled: true,
+        });
+        setAutomations((prev) => [...prev, task]);
+      } else if (formMode.type === "edit") {
+        const updated = await updateScheduledTask(formMode.id, {
+          name: name.trim(),
+          cron: cronExpr.trim(),
+          action: action.trim(),
+        });
+        setAutomations((prev) =>
+          prev.map((a) => (a.id === formMode.id ? updated : a)),
+        );
+      }
       resetForm();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create");
+      setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleToggle = async (auto: ScheduledTaskInfo) => {
+    try {
+      const updated = await updateScheduledTask(auto.id, {
+        enabled: !auto.enabled,
+      });
+      setAutomations((prev) =>
+        prev.map((a) => (a.id === auto.id ? updated : a)),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update");
     }
   };
 
@@ -178,6 +225,8 @@ export function AutomationsPage() {
     t("dayNames.sat"),
   ];
 
+  const showForm = formMode.type !== "hidden";
+
   return (
     <>
       <PageHeader>{t("nav.automations")}</PageHeader>
@@ -205,7 +254,7 @@ export function AutomationsPage() {
               >
                 <button
                   className="btn-secondary"
-                  onClick={() => setShowForm(true)}
+                  onClick={openCreate}
                   style={{ padding: "4px 12px", fontSize: 13 }}
                 >
                   {t("tasks.addAutomation")}
@@ -312,7 +361,7 @@ export function AutomationsPage() {
                 <div className="tasks-form-actions">
                   <button
                     className="btn-primary"
-                    onClick={handleCreate}
+                    onClick={handleSave}
                     disabled={
                       saving ||
                       !name.trim() ||
@@ -324,10 +373,7 @@ export function AutomationsPage() {
                   </button>
                   <button
                     className="btn-secondary"
-                    onClick={() => {
-                      setShowForm(false);
-                      resetForm();
-                    }}
+                    onClick={resetForm}
                     disabled={saving}
                   >
                     {t("common.cancel")}
@@ -351,6 +397,7 @@ export function AutomationsPage() {
                               ? t("tasks.enabled")
                               : t("tasks.disabled")
                           }
+                          onClick={() => handleToggle(auto)}
                         >
                           <div className="auto-toggle-knob" />
                         </div>
@@ -376,12 +423,20 @@ export function AutomationsPage() {
                             </button>
                           </span>
                         ) : (
-                          <button
-                            className="btn-secondary tasks-card-btn"
-                            onClick={() => handleDelete(auto.id)}
-                          >
-                            {t("common.delete")}
-                          </button>
+                          <>
+                            <button
+                              className="btn-secondary tasks-card-btn"
+                              onClick={() => openEdit(auto)}
+                            >
+                              {t("common.edit")}
+                            </button>
+                            <button
+                              className="btn-secondary tasks-card-btn"
+                              onClick={() => handleDelete(auto.id)}
+                            >
+                              {t("common.delete")}
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>

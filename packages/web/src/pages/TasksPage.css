@@ -766,6 +766,7 @@
   border: 1px solid var(--border);
   position: relative;
   flex-shrink: 0;
+  cursor: pointer;
   transition:
     background 0.2s,
     border-color 0.2s;

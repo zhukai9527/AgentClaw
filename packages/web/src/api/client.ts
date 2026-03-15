@@ -579,6 +579,18 @@ export function createScheduledTask(
   });
 }
 
+export function updateScheduledTask(
+  id: string,
+  updates: Partial<
+    Pick<ScheduledTaskInfo, "name" | "cron" | "action" | "enabled">
+  >,
+): Promise<ScheduledTaskInfo> {
+  return request(`/tasks/scheduled/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  });
+}
+
 export function deleteScheduledTask(id: string): Promise<void> {
   return request(`/tasks/scheduled/${id}`, { method: "DELETE" });
 }

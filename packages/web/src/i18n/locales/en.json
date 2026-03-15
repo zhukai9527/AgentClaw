@@ -21,7 +21,8 @@
     "add": "Add",
     "close": "Close",
     "copy": "Copy",
-    "copied": "Copied"
+    "copied": "Copied",
+    "edit": "Edit"
   },
   "nav": {
     "chat": "Chat",
