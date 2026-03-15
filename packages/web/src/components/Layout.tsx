@@ -15,6 +15,7 @@ import {
   IconEdit,
   IconMenu,
   IconTasks,
+  IconClock,
   IconProjects,
   IconChevronDown,
   IconMoreHorizontal,
@@ -206,6 +207,13 @@ export function Layout() {
             onClick={closeSidebarOnMobile}
           >
             <IconTasks size={16} /> {t("nav.tasks")}
+          </NavLink>
+          <NavLink
+            to="/automations"
+            className={({ isActive }) => (isActive ? "active" : "")}
+            onClick={closeSidebarOnMobile}
+          >
+            <IconClock size={16} /> {t("nav.automations")}
           </NavLink>
         </nav>
 

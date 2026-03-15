@@ -26,6 +26,7 @@
   "nav": {
     "chat": "Chat",
     "tasks": "Tasks",
+    "automations": "Automations",
     "projects": "Projects",
     "newProject": "New Project",
     "more": "More",
