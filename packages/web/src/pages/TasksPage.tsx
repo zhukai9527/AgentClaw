@@ -1005,13 +1005,6 @@ export function TasksPage() {
               <span className="tm-tab-badge">{decisionCount}</span>
             )}
           </button>
-          <button
-            className="btn-secondary tm-refresh-btn"
-            onClick={fetchTasks}
-            disabled={loading}
-          >
-            {loading ? "..." : t("common.refresh")}
-          </button>
         </div>
 
         {tab === "today" && (
