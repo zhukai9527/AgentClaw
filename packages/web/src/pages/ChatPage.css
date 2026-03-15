@@ -1725,7 +1725,7 @@
     display: none;
   }
   .preview-panel {
-    width: 100%;
+    width: 100% !important;
     min-width: 0;
     border-left: none;
     animation: none;
