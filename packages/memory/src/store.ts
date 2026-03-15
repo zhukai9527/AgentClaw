@@ -476,7 +476,7 @@ export class SQLiteMemoryStore implements MemoryStore {
     limit?: number,
   ): Promise<ConversationTurn[]> {
     const sql = limit
-      ? "SELECT * FROM turns WHERE conversation_id = ? ORDER BY created_at ASC LIMIT ?"
+      ? "SELECT * FROM (SELECT * FROM turns WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?) ORDER BY created_at ASC"
       : "SELECT * FROM turns WHERE conversation_id = ? ORDER BY created_at ASC";
 
     const params: unknown[] = [conversationId];

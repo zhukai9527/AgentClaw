@@ -1737,7 +1737,7 @@ export function ChatPage() {
     activeSessionId, 
     connectWs, 
     setPendingSend, 
-    startStreaming, pendingPrompt, wsRef.current
+    startStreaming, pendingPrompt,
   ]);
 
   const handleStop = useCallback(() => {
@@ -1761,7 +1761,7 @@ export function ChatPage() {
       }
       return prev;
     });
-  }, [resetStreamingLocal, wsRef.current, t]);
+  }, [resetStreamingLocal, t]);
 
   const handleRegenerate = useCallback(() => {
     if (isSending || !wsRef.current || !lastUserText) return;
@@ -1773,7 +1773,7 @@ export function ChatPage() {
     sendTimestampRef.current = Date.now();
     startStreaming(activeSessionId);
     wsRef.current.send(lastUserText);
-  }, [isSending, lastUserText, activeSessionId, startStreaming, wsRef.current]);
+  }, [isSending, lastUserText, activeSessionId, startStreaming]);
 
   const handleEditSubmit = useCallback(
     async (msgKey: string) => {
@@ -1837,7 +1837,7 @@ export function ChatPage() {
       startStreaming(activeSessionId);
       wsRef.current!.send(text);
     },
-    [editMsgValue, isSending, activeSessionId, messages, refreshSessions, startStreaming, wsRef.current],
+    [editMsgValue, isSending, activeSessionId, messages, refreshSessions, startStreaming],
   );
 
   const handleFiles = useCallback((files: File[]) => {

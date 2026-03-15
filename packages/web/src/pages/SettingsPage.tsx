@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "../components/PageHeader";
@@ -191,6 +191,8 @@ function SettingsModel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selectedId;
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const savedProviders = config?.providers || [];
@@ -234,9 +236,10 @@ function SettingsModel() {
       setStats(statsData);
       setError(null);
       // Auto-select active provider or first preset
+      const currentSelectedId = selectedIdRef.current;
       if (
-        !selectedId ||
-        !mergedProviders.find((m) => m.inst.id === selectedId)
+        !currentSelectedId ||
+        !mergedProviders.find((m) => m.inst.id === currentSelectedId)
       ) {
         const active = configData.activeProvider || configData.provider;
         setSelectedId(active || displayPresets[0]?.id || null);
@@ -247,7 +250,7 @@ function SettingsModel() {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+  }, []);
 
   useEffect(() => {
     fetchAll();

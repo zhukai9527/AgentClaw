@@ -41,6 +41,19 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (apiKey) {
     headers.Authorization = `Bearer ${apiKey}`;
   }
+  // Merge caller headers (caller can override defaults)
+  const callerHeaders = options?.headers;
+  if (callerHeaders) {
+    const entries =
+      callerHeaders instanceof Headers
+        ? Array.from(callerHeaders.entries())
+        : Array.isArray(callerHeaders)
+          ? callerHeaders
+          : Object.entries(callerHeaders);
+    for (const [k, v] of entries) {
+      headers[k] = v;
+    }
+  }
   const { headers: _dropHeaders, ...restOptions } = options ?? {};
   const res = await fetch(`${BASE}${path}`, {
     ...restOptions,

@@ -3,12 +3,9 @@
 ## [1.4.2] - 2026-03-16
 
 ### 修复
-- **IterationBudget use_skill 回滚遗漏**：`iterations--` 回滚本地计数器但未同步 `iterationBudget.unconsume()`，子代理 use_skill 会多消耗预算
-- **Context 压缩 splitIdx 越界**：`turns.length - compressAfter` 可为负数导致崩溃，增加 `splitIdx <= 0` 守卫跳过压缩
-- **Tool turn JSON 解析失败静默丢失**：空 catch 导致工具结果被丢弃为空消息，改为返回 fallback tool_result block
-- **remember 工具缺少 identity 类型**：type assertion 和 `saveMemory` 签名均缺少 `"identity"` 选项，与 MemoryType 定义不一致
-- **ask_user CLI fallback 无超时**：readline Promise 永远等待可能挂起进程，增加 5 分钟超时保护
-- **Shell streaming 模式信号杀死误判成功**：进程被信号终止时 `code` 为 null 默认为 0，现在检查 signal 参数正确设置退出码为 1
+- **getHistory 返回最旧记录**：`ORDER BY ASC LIMIT N` 返回最旧 N 条而非最新，超 50 轮对话后 agent 完全失忆；改用子查询取最新 N 条再正排
+- **memories 表重建丢失 FTS 索引**：`rebuildMemoriesTableIfNeeded` 后 `memories_fts` 残留旧数据，全文搜索完全失效；重建后同步清理并重插 FTS
+- **memories/tasks 表重建无事务保护**：多条 DDL 语句不在事务中，进程崩溃可致表永久丢失；包裹 `db.transaction()`
 - **Gemini tool_use ID 碰撞**：同一响应中多次调用同一工具时 ID 重复（用了 function name 作 ID），改为始终生成唯一 ID
 - **Ollama native API tool call ID 碰撞**：同一响应多个 tool call 使用 `Date.now()` 生成相同 ID，改用 `generateId()` 保证唯一
 - **WS activeStreams 竞态条件**：两个并发消息可同时通过 `has()` 检查，导致同一 session 启动两个 agent loop；现在在 await 前立即占位
@@ -17,6 +14,15 @@
 - **Scheduler 一次性任务竞态**：one-shot 清理逻辑在 finally 块外，回调抛异常时任务不会被清理成为僵尸记录；启动时也增加了对已执行 one-shot 的孤儿清理
 - **每日简报 cron NaN**：`daily_brief_time` 设置值格式异常时 `split(":").map(Number)` 产生 NaN，导致 cron 表达式无效；增加 fallback 默认值
 - **任务列表 limit 无上限**：`/api/tasks` 的 `limit` 参数无上限校验，恶意请求可拉取全量数据；限制最大 500
+- **IterationBudget use_skill 回滚遗漏**：`iterations--` 回滚本地计数器但未同步 `iterationBudget.unconsume()`，子代理 use_skill 会多消耗预算
+- **Context 压缩 splitIdx 越界**：`turns.length - compressAfter` 可为负数导致崩溃，增加 `splitIdx <= 0` 守卫跳过压缩
+- **Tool turn JSON 解析失败静默丢失**：空 catch 导致工具结果被丢弃为空消息，改为返回 fallback tool_result block
+- **remember 工具缺少 identity 类型**：type assertion 和 `saveMemory` 签名均缺少 `"identity"` 选项，与 MemoryType 定义不一致
+- **ask_user CLI fallback 无超时**：readline Promise 永远等待可能挂起进程，增加 5 分钟超时保护
+- **Shell streaming 模式信号杀死误判成功**：进程被信号终止时 `code` 为 null 默认为 0，现在检查 signal 参数正确设置退出码为 1
+- **ChatPage wsRef stale closure**：`wsRef.current` 被错误放入 useCallback 依赖数组，WS 重连后回调使用旧连接
+- **SettingsPage 无限重渲染**：`fetchAll` 和 `selectedId` 构成循环依赖，改用 ref 打破循环
+- **API client headers 被丢弃**：`request()` 函数丢弃调用方自定义 headers，改为合并默认与自定义 headers
 
 ## [1.4.1] - 2026-03-15
 

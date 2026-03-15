@@ -272,23 +272,30 @@ function rebuildMemoriesTableIfNeeded(db: DbAdapter): void {
     db.exec("DELETE FROM memories WHERE id = '__check_probe__'");
   } catch {
     // CHECK constraint failed → rebuild without CHECK on type
-    db.exec(`
-      CREATE TABLE memories_new (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,
-        content TEXT NOT NULL,
-        source_turn_id TEXT,
-        importance REAL NOT NULL DEFAULT 0.5,
-        embedding BLOB,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        accessed_at TEXT NOT NULL DEFAULT (datetime('now')),
-        access_count INTEGER NOT NULL DEFAULT 0,
-        metadata TEXT
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE memories_new (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL,
+          content TEXT NOT NULL,
+          source_turn_id TEXT,
+          importance REAL NOT NULL DEFAULT 0.5,
+          embedding BLOB,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          accessed_at TEXT NOT NULL DEFAULT (datetime('now')),
+          access_count INTEGER NOT NULL DEFAULT 0,
+          metadata TEXT
+        );
+        INSERT INTO memories_new SELECT id, type, content, source_turn_id, importance, embedding, created_at, accessed_at, access_count, metadata FROM memories;
+        DROP TABLE memories;
+        ALTER TABLE memories_new RENAME TO memories;
+      `);
+      // Rebuild FTS5 index to match new table
+      db.exec("DELETE FROM memories_fts");
+      db.exec(
+        "INSERT INTO memories_fts(id, content) SELECT id, content FROM memories",
       );
-      INSERT INTO memories_new SELECT id, type, content, source_turn_id, importance, embedding, created_at, accessed_at, access_count, metadata FROM memories;
-      DROP TABLE memories;
-      ALTER TABLE memories_new RENAME TO memories;
-    `);
+    })();
   }
 }
 
@@ -307,28 +314,30 @@ function rebuildTasksTableIfNeeded(db: DbAdapter): void {
     db.exec("DELETE FROM tasks WHERE id = '__check_probe__'");
   } catch {
     // CHECK constraint failed → need to rebuild without CHECK constraints
-    db.exec(`
-      CREATE TABLE tasks_new (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        description TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL DEFAULT 'todo',
-        priority TEXT NOT NULL DEFAULT 'normal',
-        due_date TEXT,
-        assignee TEXT NOT NULL DEFAULT 'human',
-        created_by TEXT NOT NULL DEFAULT 'human',
-        session_id TEXT,
-        trace_id TEXT,
-        tags TEXT NOT NULL DEFAULT '[]',
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-      INSERT INTO tasks_new SELECT id, title, description, status, priority, due_date, assignee, created_by, session_id, trace_id, tags, created_at, updated_at FROM tasks;
-      DROP TABLE tasks;
-      ALTER TABLE tasks_new RENAME TO tasks;
-      CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-      CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
-    `);
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE tasks_new (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'todo',
+          priority TEXT NOT NULL DEFAULT 'normal',
+          due_date TEXT,
+          assignee TEXT NOT NULL DEFAULT 'human',
+          created_by TEXT NOT NULL DEFAULT 'human',
+          session_id TEXT,
+          trace_id TEXT,
+          tags TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO tasks_new SELECT id, title, description, status, priority, due_date, assignee, created_by, session_id, trace_id, tags, created_at, updated_at FROM tasks;
+        DROP TABLE tasks;
+        ALTER TABLE tasks_new RENAME TO tasks;
+        CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+        CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
+      `);
+    })();
   }
 }
 
