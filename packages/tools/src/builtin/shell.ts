@@ -331,7 +331,7 @@ function runShell(
       child.stdout?.on("data", (chunk: Buffer) => handleData(chunk, false));
       child.stderr?.on("data", (chunk: Buffer) => handleData(chunk, true));
 
-      child.on("close", (code) => {
+      child.on("close", (code, signal) => {
         clearTimeout(timer);
         if (aborted) {
           resolve({ content: "Command aborted by user.", isError: true, metadata: { exitCode: null, aborted: true } });
@@ -346,7 +346,7 @@ function runShell(
           return;
         }
 
-        const exitCode = code ?? 0;
+        const exitCode = code ?? (signal ? 1 : 0);
         const hasOutput = stdoutStr.trim().length > 0;
         resolve({
           content: output,

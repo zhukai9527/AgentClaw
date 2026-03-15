@@ -46,6 +46,10 @@ export class IterationBudget {
     this.used += n;
   }
 
+  unconsume(n = 1): void {
+    this.used = Math.max(0, this.used - n);
+  }
+
   get exhausted(): boolean {
     return this.used >= this.max;
   }
@@ -1004,6 +1008,7 @@ export class SimpleAgentLoop implements AgentLoop {
         useSkillRollbacks < 3
       ) {
         iterations--;
+        this.iterationBudget?.unconsume();
         useSkillRollbacks++;
       }
 

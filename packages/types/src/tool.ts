@@ -50,7 +50,7 @@ export interface ToolExecutionContext {
   /** Save a piece of information to long-term memory (provided by orchestrator) */
   saveMemory?: (
     content: string,
-    type?: "fact" | "preference" | "entity" | "episodic",
+    type?: "identity" | "fact" | "preference" | "entity" | "episodic",
   ) => Promise<void>;
   /** Task scheduler for recurring tasks (provided by orchestrator) */
   scheduler?: {

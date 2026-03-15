@@ -92,32 +92,37 @@ export class SimpleContextManager implements ContextManager {
     if (turns.length > this.compressAfter) {
       // Find the compress boundary, avoiding splitting tool_call/result pairs
       let splitIdx = turns.length - this.compressAfter;
-      // If the split point lands on a "tool" turn, push it forward past tool results
-      while (splitIdx < turns.length && turns[splitIdx].role === "tool") {
-        splitIdx++;
-      }
-      // Safety: don't compress everything
-      if (splitIdx >= turns.length - 2)
-        splitIdx = turns.length - this.compressAfter;
+      // Nothing meaningful to compress — skip compression entirely
+      if (splitIdx <= 0) {
+        historyMessages = turns.map((t) => this.turnToMessage(t));
+      } else {
+        // If the split point lands on a "tool" turn, push it forward past tool results
+        while (splitIdx < turns.length && turns[splitIdx].role === "tool") {
+          splitIdx++;
+        }
+        // Safety: don't compress everything
+        if (splitIdx >= turns.length - 2)
+          splitIdx = turns.length - this.compressAfter;
 
-      const oldTurns = turns.slice(0, splitIdx);
-      const recentTurns = turns.slice(splitIdx);
-      const summary = await this.compressTurns(conversationId, oldTurns);
-      historyMessages = [
-        {
-          id: "summary",
-          role: "user",
-          content: summary,
-          createdAt: oldTurns[0].createdAt,
-        },
-        {
-          id: "summary-ack",
-          role: "assistant",
-          content: "Understood, I have the conversation context.",
-          createdAt: oldTurns[0].createdAt,
-        },
-        ...recentTurns.map((turn) => this.turnToMessage(turn)),
-      ];
+        const oldTurns = turns.slice(0, splitIdx);
+        const recentTurns = turns.slice(splitIdx);
+        const summary = await this.compressTurns(conversationId, oldTurns);
+        historyMessages = [
+          {
+            id: "summary",
+            role: "user",
+            content: summary,
+            createdAt: oldTurns[0].createdAt,
+          },
+          {
+            id: "summary-ack",
+            role: "assistant",
+            content: "Understood, I have the conversation context.",
+            createdAt: oldTurns[0].createdAt,
+          },
+          ...recentTurns.map((turn) => this.turnToMessage(turn)),
+        ];
+      }
     } else {
       historyMessages = turns.map((turn) => this.turnToMessage(turn));
     }
@@ -482,7 +487,19 @@ export class SimpleContextManager implements ContextManager {
           createdAt: turn.createdAt,
         };
       } catch {
-        // Fallback: plain string
+        // Fallback: wrap raw content as a tool_result block
+        return {
+          id: turn.id,
+          role: "tool" as const,
+          content: [
+            {
+              type: "tool_result" as const,
+              toolUseId: "unknown",
+              content: turn.content,
+            },
+          ],
+          createdAt: turn.createdAt,
+        };
       }
     }
 

@@ -107,7 +107,7 @@ export const rememberTool: Tool = {
     try {
       await context.saveMemory(
         content,
-        type as "fact" | "preference" | "entity" | "episodic",
+        type as "identity" | "fact" | "preference" | "entity" | "episodic",
       );
       return {
         content: `Remembered: ${content}`,

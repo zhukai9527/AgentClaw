@@ -3,6 +3,12 @@
 ## [1.4.2] - 2026-03-16
 
 ### 修复
+- **IterationBudget use_skill 回滚遗漏**：`iterations--` 回滚本地计数器但未同步 `iterationBudget.unconsume()`，子代理 use_skill 会多消耗预算
+- **Context 压缩 splitIdx 越界**：`turns.length - compressAfter` 可为负数导致崩溃，增加 `splitIdx <= 0` 守卫跳过压缩
+- **Tool turn JSON 解析失败静默丢失**：空 catch 导致工具结果被丢弃为空消息，改为返回 fallback tool_result block
+- **remember 工具缺少 identity 类型**：type assertion 和 `saveMemory` 签名均缺少 `"identity"` 选项，与 MemoryType 定义不一致
+- **ask_user CLI fallback 无超时**：readline Promise 永远等待可能挂起进程，增加 5 分钟超时保护
+- **Shell streaming 模式信号杀死误判成功**：进程被信号终止时 `code` 为 null 默认为 0，现在检查 signal 参数正确设置退出码为 1
 - **Gemini tool_use ID 碰撞**：同一响应中多次调用同一工具时 ID 重复（用了 function name 作 ID），改为始终生成唯一 ID
 - **Ollama native API tool call ID 碰撞**：同一响应多个 tool call 使用 `Date.now()` 生成相同 ID，改用 `generateId()` 保证唯一
 - **WS activeStreams 竞态条件**：两个并发消息可同时通过 `has()` 检查，导致同一 session 启动两个 agent loop；现在在 await 前立即占位

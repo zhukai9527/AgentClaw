@@ -32,11 +32,16 @@ export const askUserTool: Tool = {
     });
 
     try {
-      const answer = await new Promise<string>((resolve) => {
-        rl.question(`${question}\n> `, (ans) => {
-          resolve(ans);
-        });
-      });
+      const answer = await Promise.race([
+        new Promise<string>((resolve) => {
+          rl.question(`${question}\n> `, (ans) => {
+            resolve(ans);
+          });
+        }),
+        new Promise<string>((resolve) =>
+          setTimeout(() => resolve("[用户未在 5 分钟内回答]"), 5 * 60 * 1000),
+        ),
+      ]);
 
       return {
         content: answer,
