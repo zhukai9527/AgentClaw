@@ -91,13 +91,28 @@ export async function collectResponse(
     channel: "system",
   });
   let text = "";
+  let completeText = "";
   for await (const event of orchestrator.processInputStream(
     session.id,
     prompt,
   )) {
     if (event.type === "response_chunk") {
       text += (event.data as { text: string }).text;
+    } else if (event.type === "response_complete") {
+      // Fallback: extract text from the complete message if chunks were empty
+      const msg = (
+        event.data as {
+          message?: { content?: Array<{ type: string; text?: string }> };
+        }
+      )?.message;
+      if (msg?.content) {
+        for (const block of msg.content) {
+          if (block.type === "text" && block.text) {
+            completeText += block.text;
+          }
+        }
+      }
     }
   }
-  return text;
+  return text || completeText;
 }

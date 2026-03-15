@@ -458,7 +458,7 @@ export function registerTaskRoutes(
       if (!scheduler) {
         return reply.status(400).send({ error: "Scheduler not available" });
       }
-      const result = await scheduler.runNow(req.params.id);
+      const result = scheduler.runNow(req.params.id);
       if (!result) {
         return reply.status(404).send({ error: "Scheduled task not found" });
       }
