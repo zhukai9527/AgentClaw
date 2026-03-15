@@ -18,7 +18,7 @@ import { SimpleContextManager } from "./context-manager.js";
 import { MemoryExtractor } from "./memory-extractor.js";
 import { SimpleSubAgentManager } from "./subagent-manager.js";
 import { ToolHookManager } from "./tool-hooks.js";
-import { readdirSync, unlinkSync } from "node:fs";
+import { readdirSync, unlinkSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 /** How many user turns between automatic memory extraction runs */
@@ -378,6 +378,16 @@ export class SimpleOrchestrator implements Orchestrator {
     this.stopSession(sessionId);
     this.sessions.delete(sessionId);
     await this.memoryStore.deleteSession(sessionId);
+
+    // Clean up per-session temp directory (data/tmp/{sessionId}/)
+    const tmpDir = join(process.cwd(), "data", "tmp", sessionId);
+    if (existsSync(tmpDir)) {
+      try {
+        rmSync(tmpDir, { recursive: true, force: true });
+      } catch (e) {
+        console.error(`[orchestrator] Failed to clean up ${tmpDir}:`, e);
+      }
+    }
   }
 
   setModel(model: string): void {
