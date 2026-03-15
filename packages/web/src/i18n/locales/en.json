@@ -208,7 +208,11 @@
     "notConfigured": "Not configured",
     "connectedSince": "Connected",
     "whatsappHint": "WhatsApp requires no credential configuration. Enable and authenticate via QR code.",
-    "noFieldsNeeded": "This channel requires no credential configuration."
+    "noFieldsNeeded": "This channel requires no credential configuration.",
+    "imChannels": "IM Channels",
+    "credentials": "Credentials",
+    "configured": "Configured",
+    "alwaysOn": "Always on"
   },
   "memory": {
     "title": "Memory",

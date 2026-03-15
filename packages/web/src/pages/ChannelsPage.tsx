@@ -128,6 +128,8 @@ interface ChannelFieldDef {
   name: string;
   configKey: string; // AppConfigInfo 中的 key
   fields: { key: string; label: string; type: "text" | "password" }[];
+  /** "bot" = IM 渠道（有启停），"credential" = 服务凭证（只有配置状态） */
+  kind: "bot" | "credential";
 }
 
 const CHANNEL_DEFS: ChannelFieldDef[] = [
@@ -135,12 +137,14 @@ const CHANNEL_DEFS: ChannelFieldDef[] = [
     id: "telegram",
     name: "Telegram",
     configKey: "telegram",
+    kind: "bot",
     fields: [{ key: "botToken", label: "Bot Token", type: "password" }],
   },
   {
     id: "dingtalk",
     name: "DingTalk",
     configKey: "dingtalk",
+    kind: "bot",
     fields: [
       { key: "appKey", label: "App Key", type: "text" },
       { key: "appSecret", label: "App Secret", type: "password" },
@@ -150,6 +154,7 @@ const CHANNEL_DEFS: ChannelFieldDef[] = [
     id: "feishu",
     name: "Feishu",
     configKey: "feishu",
+    kind: "bot",
     fields: [
       { key: "appId", label: "App ID", type: "text" },
       { key: "appSecret", label: "App Secret", type: "password" },
@@ -159,6 +164,7 @@ const CHANNEL_DEFS: ChannelFieldDef[] = [
     id: "qqbot",
     name: "QQ Bot",
     configKey: "qqBot",
+    kind: "bot",
     fields: [
       { key: "appId", label: "App ID", type: "text" },
       { key: "appSecret", label: "App Secret", type: "password" },
@@ -168,6 +174,7 @@ const CHANNEL_DEFS: ChannelFieldDef[] = [
     id: "wecom",
     name: "WeCom",
     configKey: "wecom",
+    kind: "bot",
     fields: [
       { key: "botId", label: "Bot ID", type: "text" },
       { key: "botSecret", label: "Bot Secret", type: "password" },
@@ -177,12 +184,14 @@ const CHANNEL_DEFS: ChannelFieldDef[] = [
     id: "whatsapp",
     name: "WhatsApp",
     configKey: "whatsapp",
+    kind: "bot",
     fields: [], // 仅 enabled 开关
   },
   {
     id: "email",
     name: "Email",
     configKey: "email",
+    kind: "credential",
     fields: [
       { key: "imapHost", label: "IMAP Host", type: "text" },
       { key: "smtpHost", label: "SMTP Host", type: "text" },
@@ -191,6 +200,9 @@ const CHANNEL_DEFS: ChannelFieldDef[] = [
     ],
   },
 ];
+
+const BOT_CHANNELS = CHANNEL_DEFS.filter((d) => d.kind === "bot");
+const CREDENTIAL_CHANNELS = CHANNEL_DEFS.filter((d) => d.kind === "credential");
 
 /** 判断脱敏值 */
 function isMaskedValue(value: string | undefined): boolean {
@@ -360,9 +372,13 @@ export function ChannelsPage() {
         )}
 
         <div className="channels-split">
-          {/* 左侧：渠道列表 */}
+          {/* 左侧：分组渠道列表 */}
           <div className="channels-list">
-            {CHANNEL_DEFS.map((def) => {
+            {/* IM 渠道组 */}
+            <div className="channels-group-label">
+              {t("channels.imChannels")}
+            </div>
+            {BOT_CHANNELS.map((def) => {
               const status = getChannelStatus(def.id);
               const isActive = def.id === selectedId;
               const isConnected = status?.status === "connected";
@@ -402,25 +418,46 @@ export function ChannelsPage() {
               );
             })}
 
-            {/* WebSocket（始终连接，不可编辑） */}
-            {(() => {
-              const wsStatus = getChannelStatus("websocket");
+            {/* 服务凭证组 */}
+            <div className="channels-group-label">
+              {t("channels.credentials")}
+            </div>
+            {CREDENTIAL_CHANNELS.map((def) => {
+              const status = getChannelStatus(def.id);
+              const isActive = def.id === selectedId;
+              const isConfigured = status?.status !== "not_configured";
+
               return (
-                <div className="channels-list-item disabled">
+                <div
+                  key={def.id}
+                  className={`channels-list-item${isActive ? " active" : ""}`}
+                  onClick={() => setSelectedId(def.id)}
+                >
                   <span className="channels-list-icon">
-                    {getChannelIcon("websocket")}
+                    {getChannelIcon(def.id)}
                   </span>
-                  <span className="channels-list-name">WebSocket</span>
+                  <span className="channels-list-name">{def.name}</span>
                   <span
-                    className="channels-toggle on disabled"
-                    role="switch"
-                    aria-checked
+                    className={`channels-status-badge ${isConfigured ? "configured" : ""}`}
                   >
-                    <span className="channels-toggle-knob" />
+                    {isConfigured
+                      ? t("channels.configured")
+                      : t("channels.notConfigured")}
                   </span>
                 </div>
               );
-            })()}
+            })}
+
+            {/* WebSocket（始终启用，不可点击） */}
+            <div className="channels-list-item disabled">
+              <span className="channels-list-icon">
+                {getChannelIcon("websocket")}
+              </span>
+              <span className="channels-list-name">WebSocket</span>
+              <span className="channels-status-badge configured">
+                {t("channels.alwaysOn")}
+              </span>
+            </div>
           </div>
 
           {/* 右侧：配置表单 */}

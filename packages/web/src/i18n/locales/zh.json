@@ -208,7 +208,11 @@
     "notConfigured": "未配置",
     "connectedSince": "已连接",
     "whatsappHint": "WhatsApp 无需额外凭证配置，启用后通过扫码认证。",
-    "noFieldsNeeded": "该渠道无需凭证配置。"
+    "noFieldsNeeded": "该渠道无需凭证配置。",
+    "imChannels": "IM 渠道",
+    "credentials": "服务凭证",
+    "configured": "已配置",
+    "alwaysOn": "始终启用"
   },
   "memory": {
     "title": "记忆",
