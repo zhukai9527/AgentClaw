@@ -7,7 +7,7 @@
 
 ### 修复
 - 点击停止按钮后，正在执行的工具卡片时钟图标不停止旋转（含刷新后历史加载）
-- 停止的会话缺失 usage stats（tokens/耗时/工具数）——WS abort 直接 break generator 导致收尾代码被跳过，改为 continue + drain
+- 停止的会话缺失 usage stats——WS abort 跳过 generator 收尾 + 有工具调用但无文本回复时 message-meta 不渲染
 
 ## [1.4.0] - 2026-03-14
 

@@ -2728,6 +2728,18 @@ export function ChatPage() {
                                 <ToolCallGroup entries={visible} />
                               ) : null;
                             })()}
+                            {/* 有工具调用但无文本时（停止/纯工具），单独渲染 usage stats */}
+                            {m.role === "assistant" && m.toolCalls.length > 0 && !parseMessageContent(m.content).text && !m.streaming && (
+                              <div className="message-meta" style={{ padding: "4px 0 0" }}>
+                                {formatTimeOnly(m.createdAt)}
+                                {(() => {
+                                  const usage = formatUsageStats(m);
+                                  if (usage) return ` \u00b7 ${usage}`;
+                                  if (m.model) return ` \u00b7 ${m.model}`;
+                                  return "";
+                                })()}
+                              </div>
+                            )}
                             {/* 有工具调用时，文本放在工具卡片下面 */}
                             {m.role === "assistant" && m.toolCalls.length > 0 && m.content && (() => {
                               const parsed = parseMessageContent(m.content);
