@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "../components/PageHeader";
 import {
@@ -9,6 +9,84 @@ import {
 } from "../api/client";
 import "./TasksPage.css";
 
+type Frequency = "daily" | "weekdays" | "weekly" | "monthly" | "custom";
+
+/** Build a cron expression from visual schedule picker state */
+function buildCron(
+  freq: Frequency,
+  time: string,
+  weekday: number,
+  monthday: number,
+  customCron: string,
+): string {
+  if (freq === "custom") return customCron;
+  const [h, m] = time.split(":").map(Number);
+  const mm = isNaN(m) ? 0 : m;
+  const hh = isNaN(h) ? 9 : h;
+  switch (freq) {
+    case "daily":
+      return `${mm} ${hh} * * *`;
+    case "weekdays":
+      return `${mm} ${hh} * * 1-5`;
+    case "weekly":
+      return `${mm} ${hh} * * ${weekday}`;
+    case "monthly":
+      return `${mm} ${hh} ${monthday} * *`;
+    default:
+      return `${mm} ${hh} * * *`;
+  }
+}
+
+/** Parse a cron expression into visual picker state (best-effort) */
+function parseCron(cron: string): {
+  freq: Frequency;
+  time: string;
+  weekday: number;
+  monthday: number;
+} {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5)
+    return { freq: "custom", time: "09:00", weekday: 1, monthday: 1 };
+  const [mm, hh, dom, , dow] = parts;
+  const time = `${hh.padStart(2, "0")}:${mm.padStart(2, "0")}`;
+  if (dom === "*" && dow === "*")
+    return { freq: "daily", time, weekday: 1, monthday: 1 };
+  if (dom === "*" && dow === "1-5")
+    return { freq: "weekdays", time, weekday: 1, monthday: 1 };
+  if (dom === "*" && /^\d$/.test(dow))
+    return { freq: "weekly", time, weekday: Number(dow), monthday: 1 };
+  if (/^\d+$/.test(dom) && dow === "*")
+    return { freq: "monthly", time, weekday: 1, monthday: Number(dom) };
+  return { freq: "custom", time, weekday: 1, monthday: 1 };
+}
+
+/** Human-readable schedule description */
+function describeCron(cron: string, t: (k: string) => string): string {
+  const { freq, time } = parseCron(cron);
+  const parts = cron.trim().split(/\s+/);
+  const dayNames = [
+    t("dayNames.sun"),
+    t("dayNames.mon"),
+    t("dayNames.tue"),
+    t("dayNames.wed"),
+    t("dayNames.thu"),
+    t("dayNames.fri"),
+    t("dayNames.sat"),
+  ];
+  switch (freq) {
+    case "daily":
+      return `${t("tasks.schedEveryDay")} ${time}`;
+    case "weekdays":
+      return `${t("tasks.schedWeekdays")} ${time}`;
+    case "weekly":
+      return `${t("tasks.schedEveryWeek")} ${dayNames[Number(parts[4])]} ${time}`;
+    case "monthly":
+      return `${t("tasks.schedEveryMonth")} ${parts[2]}${t("tasks.schedDaySuffix")} ${time}`;
+    default:
+      return cron;
+  }
+}
+
 export function AutomationsPage() {
   const { t } = useTranslation();
   const [automations, setAutomations] = useState<ScheduledTaskInfo[]>([]);
@@ -16,10 +94,19 @@ export function AutomationsPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
-  const [cron, setCron] = useState("");
   const [action, setAction] = useState("");
+  const [freq, setFreq] = useState<Frequency>("daily");
+  const [time, setTime] = useState("09:00");
+  const [weekday, setWeekday] = useState(1);
+  const [monthday, setMonthday] = useState(1);
+  const [customCron, setCustomCron] = useState("");
   const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const cronExpr = useMemo(
+    () => buildCron(freq, time, weekday, monthday, customCron),
+    [freq, time, weekday, monthday, customCron],
+  );
 
   const fetchAuto = useCallback(async () => {
     try {
@@ -36,21 +123,29 @@ export function AutomationsPage() {
     fetchAuto();
   }, [fetchAuto]);
 
+  const resetForm = () => {
+    setName("");
+    setAction("");
+    setFreq("daily");
+    setTime("09:00");
+    setWeekday(1);
+    setMonthday(1);
+    setCustomCron("");
+  };
+
   const handleCreate = async () => {
-    if (!name.trim() || !cron.trim() || !action.trim()) return;
+    if (!name.trim() || !cronExpr.trim() || !action.trim()) return;
     setSaving(true);
     try {
       const task = await createScheduledTask({
         name: name.trim(),
-        cron: cron.trim(),
+        cron: cronExpr.trim(),
         action: action.trim(),
         enabled: true,
       });
       setAutomations((prev) => [...prev, task]);
       setShowForm(false);
-      setName("");
-      setCron("");
-      setAction("");
+      resetForm();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create");
     } finally {
@@ -65,13 +160,23 @@ export function AutomationsPage() {
     }
     try {
       await deleteScheduledTask(id);
-      setAutomations((prev) => prev.filter((t) => t.id !== id));
+      setAutomations((prev) => prev.filter((a) => a.id !== id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete");
     } finally {
       setConfirmDelId(null);
     }
   };
+
+  const dayNames = [
+    t("dayNames.sun"),
+    t("dayNames.mon"),
+    t("dayNames.tue"),
+    t("dayNames.wed"),
+    t("dayNames.thu"),
+    t("dayNames.fri"),
+    t("dayNames.sat"),
+  ];
 
   return (
     <>
@@ -118,33 +223,111 @@ export function AutomationsPage() {
                   onChange={(e) => setName(e.target.value)}
                   autoFocus
                 />
-                <input
-                  type="text"
-                  className="tasks-form-input"
-                  placeholder={t("tasks.cronPlaceholder")}
-                  value={cron}
-                  onChange={(e) => setCron(e.target.value)}
-                />
-                <input
-                  type="text"
-                  className="tasks-form-input"
+
+                <textarea
+                  className="tasks-form-input auto-action-textarea"
                   placeholder={t("tasks.actionPlaceholder")}
                   value={action}
                   onChange={(e) => setAction(e.target.value)}
+                  rows={3}
                 />
+
+                <div className="auto-schedule-section">
+                  <label className="auto-schedule-label">
+                    {t("tasks.schedule")}
+                  </label>
+                  <div className="auto-schedule-row">
+                    <select
+                      className="auto-select"
+                      value={freq}
+                      onChange={(e) => setFreq(e.target.value as Frequency)}
+                    >
+                      <option value="daily">{t("tasks.freqDaily")}</option>
+                      <option value="weekdays">
+                        {t("tasks.freqWeekdays")}
+                      </option>
+                      <option value="weekly">{t("tasks.freqWeekly")}</option>
+                      <option value="monthly">{t("tasks.freqMonthly")}</option>
+                      <option value="custom">{t("tasks.freqCustom")}</option>
+                    </select>
+
+                    {freq === "weekly" && (
+                      <select
+                        className="auto-select"
+                        value={weekday}
+                        onChange={(e) => setWeekday(Number(e.target.value))}
+                      >
+                        {dayNames.map((d, i) => (
+                          <option key={i} value={i}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    {freq === "monthly" && (
+                      <select
+                        className="auto-select"
+                        value={monthday}
+                        onChange={(e) => setMonthday(Number(e.target.value))}
+                      >
+                        {Array.from({ length: 28 }, (_, i) => i + 1).map(
+                          (d) => (
+                            <option key={d} value={d}>
+                              {d}
+                              {t("tasks.schedDaySuffix")}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                    )}
+
+                    {freq !== "custom" && (
+                      <input
+                        type="time"
+                        className="auto-time-input"
+                        value={time}
+                        onChange={(e) => setTime(e.target.value)}
+                      />
+                    )}
+
+                    {freq === "custom" && (
+                      <input
+                        type="text"
+                        className="tasks-form-input auto-cron-input"
+                        placeholder={t("tasks.cronPlaceholder")}
+                        value={customCron}
+                        onChange={(e) => setCustomCron(e.target.value)}
+                      />
+                    )}
+                  </div>
+
+                  {freq !== "custom" && (
+                    <div className="auto-schedule-preview">
+                      <code>{cronExpr}</code>
+                    </div>
+                  )}
+                </div>
+
                 <div className="tasks-form-actions">
                   <button
                     className="btn-primary"
                     onClick={handleCreate}
                     disabled={
-                      saving || !name.trim() || !cron.trim() || !action.trim()
+                      saving ||
+                      !name.trim() ||
+                      !cronExpr.trim() ||
+                      !action.trim()
                     }
                   >
                     {saving ? t("common.saving") : t("common.save")}
                   </button>
                   <button
                     className="btn-secondary"
-                    onClick={() => setShowForm(false)}
+                    onClick={() => {
+                      setShowForm(false);
+                      resetForm();
+                    }}
                     disabled={saving}
                   >
                     {t("common.cancel")}
@@ -205,9 +388,9 @@ export function AutomationsPage() {
                     <div className="auto-item-details">
                       <span>
                         <span className="auto-detail-label">
-                          {t("tasks.cron")}
+                          {t("tasks.schedule")}
                         </span>{" "}
-                        <code>{auto.cron}</code>
+                        {describeCron(auto.cron, t)}
                       </span>
                       <span>
                         <span className="auto-detail-label">
