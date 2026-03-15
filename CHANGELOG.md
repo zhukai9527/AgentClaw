@@ -21,6 +21,7 @@
 - General Tab 精简为外观（语言/主题）+ 系统信息，LLM 配置和用量统计移至 Model Tab
 
 ### 修复
+- **Provider API Key 被脱敏值覆盖**：保存某个 Provider 配置时，其他 Provider 的 `apiKey` 从 GET 返回的脱敏值（`****xxxx`）被原样写回 config.json，导致重启后 key 失效。后端现在检测 `****` 前缀并保留原始值
 - 任务型侧边栏：历史会话默认归入"已完成"而非"进行中"；分组后列表无法滚动
 - 点击停止按钮后，正在执行的工具卡片时钟图标不停止旋转（含刷新后历史加载）
 - 停止的会话缺失 usage stats——WS abort 跳过 generator 收尾 + 有工具调用但无文本回复时 message-meta 不渲染
