@@ -62,8 +62,8 @@
     "namePlaceholder": "例如：撰写文章"
   },
   "chat": {
-    "welcomeTitle": "开始协作",
-    "welcomeSubtitle": "你的 24/7 AI 助理，帮你搞定各种任务",
+    "welcomeTitle": "你想搞定什么？",
+    "welcomeSubtitle": "交代任务，全程自动执行",
     "askPlaceholder": "描述你想完成的任务...",
     "replyPlaceholder": "回复 AgentClaw...",
     "listeningPlaceholder": "正在听...",
