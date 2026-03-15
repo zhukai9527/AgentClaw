@@ -8,6 +8,7 @@ export interface ScheduledTask {
   action: string;
   enabled: boolean;
   oneShot?: boolean;
+  status?: "idle" | "running";
   lastRunAt?: Date;
   nextRunAt?: Date;
 }
@@ -130,15 +131,21 @@ export class TaskScheduler {
   async runNow(id: string): Promise<ScheduledTask | undefined> {
     const task = this.tasks.get(id);
     if (!task) return undefined;
+    if (task.status === "running") return this.toPublic(task); // already running
 
+    task.status = "running";
     task.lastRunAt = new Date();
     console.log(
       `[scheduler] Task "${task.name}" (${task.id}) manually triggered at ${task.lastRunAt.toISOString()}`,
     );
     this.store?.updateScheduledTaskLastRun(task.id, task.lastRunAt);
 
-    if (this.onTaskFire) {
-      await this.onTaskFire(this.toPublic(task));
+    try {
+      if (this.onTaskFire) {
+        await this.onTaskFire(this.toPublic(task));
+      }
+    } finally {
+      task.status = "idle";
     }
 
     return this.toPublic(task);
@@ -174,7 +181,8 @@ export class TaskScheduler {
   }
 
   private startJob(task: InternalTask): void {
-    task.job = new Cron(task.cron, () => {
+    task.job = new Cron(task.cron, async () => {
+      task.status = "running";
       task.lastRunAt = new Date();
       console.log(
         `[scheduler] Task "${task.name}" (${task.id}) executed at ${task.lastRunAt.toISOString()}`,
@@ -184,8 +192,12 @@ export class TaskScheduler {
       this.store?.updateScheduledTaskLastRun(task.id, task.lastRunAt);
 
       // Notify via callback if registered
-      if (this.onTaskFire) {
-        this.onTaskFire(this.toPublic(task));
+      try {
+        if (this.onTaskFire) {
+          await this.onTaskFire(this.toPublic(task));
+        }
+      } finally {
+        task.status = "idle";
       }
       // One-shot tasks: stop and remove after firing
       if (task.oneShot) {
@@ -216,6 +228,7 @@ export class TaskScheduler {
       action: task.action,
       enabled: task.enabled,
       oneShot: task.oneShot,
+      status: task.status || "idle",
       lastRunAt: task.lastRunAt,
       nextRunAt,
     };

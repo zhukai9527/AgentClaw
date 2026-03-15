@@ -202,11 +202,22 @@ export function AutomationsPage() {
     }
   };
 
-  const [runningId, setRunningId] = useState<string | null>(null);
+  // Poll for status updates while any task is running
+  const hasRunning = automations.some((a) => a.status === "running");
+  useEffect(() => {
+    if (!hasRunning) return;
+    const timer = setInterval(fetchAuto, 3000);
+    return () => clearInterval(timer);
+  }, [hasRunning, fetchAuto]);
 
   const handleRunNow = async (auto: ScheduledTaskInfo) => {
-    if (runningId) return;
-    setRunningId(auto.id);
+    if (auto.status === "running") return;
+    // Optimistically set status to running
+    setAutomations((prev) =>
+      prev.map((a) =>
+        a.id === auto.id ? { ...a, status: "running" as const } : a,
+      ),
+    );
     try {
       const updated = await runScheduledTask(auto.id);
       setAutomations((prev) =>
@@ -214,8 +225,12 @@ export function AutomationsPage() {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to run");
-    } finally {
-      setRunningId(null);
+      // Revert optimistic update
+      setAutomations((prev) =>
+        prev.map((a) =>
+          a.id === auto.id ? { ...a, status: "idle" as const } : a,
+        ),
+      );
     }
   };
 
@@ -451,12 +466,12 @@ export function AutomationsPage() {
                               <IconEdit size={15} />
                             </button>
                             <button
-                              className={`btn-icon auto-icon-btn-play`}
+                              className="btn-icon auto-icon-btn-play"
                               onClick={() => handleRunNow(auto)}
-                              disabled={!!runningId}
+                              disabled={auto.status === "running"}
                               title={t("tasks.runNow")}
                             >
-                              {runningId === auto.id ? (
+                              {auto.status === "running" ? (
                                 <span className="spinning">
                                   <IconClock size={15} />
                                 </span>

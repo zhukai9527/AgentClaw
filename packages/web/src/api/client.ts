@@ -555,6 +555,7 @@ export interface ScheduledTaskInfo {
   id: string;
   name: string;
   cron: string;
+  status?: "idle" | "running";
   action: string;
   enabled: boolean;
   lastRunAt?: string;
