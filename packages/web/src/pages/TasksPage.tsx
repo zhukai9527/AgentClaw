@@ -570,21 +570,30 @@ function DailyBriefSettings() {
 
   if (!loaded) return null;
 
-  const dirty =
-    (time !== originalTime || enabled !== originalEnabled) && !saved;
+  const dirty = time !== originalTime && !saved;
 
   const handleSave = async () => {
     try {
       await updateConfig({
         dailyBriefTime: time,
-        dailyBriefEnabled: enabled,
       } as Record<string, unknown>);
       setOriginalTime(time);
-      setOriginalEnabled(enabled);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
       // ignore
+    }
+  };
+
+  const handleToggle = async () => {
+    const newEnabled = !enabled;
+    setEnabled(newEnabled);
+    try {
+      await updateConfig({
+        dailyBriefEnabled: newEnabled,
+      } as Record<string, unknown>);
+    } catch {
+      setEnabled(!newEnabled); // revert on failure
     }
   };
 
@@ -595,10 +604,7 @@ function DailyBriefSettings() {
         <div
           className={`auto-toggle ${enabled ? "enabled" : ""}`}
           title={enabled ? t("tasks.enabled") : t("tasks.disabled")}
-          onClick={() => {
-            setEnabled(!enabled);
-            setSaved(false);
-          }}
+          onClick={handleToggle}
         >
           <div className="auto-toggle-knob" />
         </div>
