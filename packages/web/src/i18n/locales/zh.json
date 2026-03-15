@@ -361,7 +361,13 @@
       "tools": "工具",
       "skills": "技能",
       "traces": "追踪",
-      "api": "API"
+      "api": "API",
+      "about": "关于"
+    },
+    "about": {
+      "version": "版本",
+      "github": "GitHub",
+      "license": "许可协议"
     }
   },
   "api": {

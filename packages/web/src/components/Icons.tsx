@@ -79,6 +79,15 @@ export function IconApi({ size }: { size?: number }) {
   );
 }
 
+export function IconInfo({ size }: { size?: number }) {
+  return (
+    <I size={size}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 16v-4M12 8h.01" />
+    </I>
+  );
+}
+
 export function IconSearch({ size }: { size?: number }) {
   return (
     <I size={size}>

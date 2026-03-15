@@ -23,6 +23,7 @@ import {
   IconTraces,
   IconSkills,
   IconApi,
+  IconInfo,
 } from "../components/Icons";
 import { formatNumber } from "../utils/format";
 import { setLanguage, getLanguage } from "../i18n";
@@ -84,6 +85,7 @@ const TABS = [
   { id: "skills", icon: IconSkills },
   { id: "traces", icon: IconTraces },
   { id: "api", icon: IconApi },
+  { id: "about", icon: IconInfo },
 ] as const;
 
 /** 判断脱敏值是否已被修改（非 "****xxxx" 格式或空） */
@@ -853,6 +855,45 @@ function SettingsTools() {
   );
 }
 
+/* ── About ── */
+const APP_VERSION = "1.4.1";
+
+function SettingsAbout() {
+  const { t } = useTranslation();
+  return (
+    <div className="settings-about">
+      <img src="/favicon.png" alt="AgentClaw" className="settings-about-icon" />
+      <h2 className="settings-about-name">AgentClaw</h2>
+      <span className="settings-about-version">v{APP_VERSION}</span>
+      <table className="settings-about-table">
+        <tbody>
+          <tr>
+            <td>{t("settings.about.version")}</td>
+            <td>{APP_VERSION}</td>
+          </tr>
+          <tr>
+            <td>{t("settings.about.github")}</td>
+            <td>
+              <a
+                href="https://github.com/vorojar/AgentClaw"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                github.com/vorojar/AgentClaw
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td>{t("settings.about.license")}</td>
+            <td>MIT</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="settings-about-copyright">© 2026 AgentClaw</div>
+    </div>
+  );
+}
+
 /* ── Settings Shell ── */
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -909,6 +950,8 @@ export function SettingsPage() {
             <ApiPage />
           </div>
         );
+      case "about":
+        return <SettingsAbout />;
       default:
         return <SettingsGeneral />;
     }

@@ -812,3 +812,70 @@
     padding: 16px;
   }
 }
+
+/* ── About ── */
+.settings-about {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 48px 24px;
+  gap: 8px;
+}
+
+.settings-about-icon {
+  width: 80px;
+  height: 80px;
+  border-radius: 16px;
+}
+
+.settings-about-name {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 8px 0 0;
+}
+
+.settings-about-version {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.settings-about-table {
+  margin-top: 24px;
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 420px;
+}
+
+.settings-about-table td {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.settings-about-table tr:last-child td {
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-about-table td:first-child {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.settings-about-table td:last-child {
+  text-align: right;
+}
+
+.settings-about-table a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.settings-about-table a:hover {
+  text-decoration: underline;
+}
+
+.settings-about-copyright {
+  margin-top: 32px;
+  font-size: 13px;
+  color: var(--text-muted);
+}

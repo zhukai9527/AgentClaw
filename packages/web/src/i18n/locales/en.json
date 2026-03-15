@@ -361,7 +361,13 @@
       "tools": "Tools",
       "skills": "Skills",
       "traces": "Traces",
-      "api": "API"
+      "api": "API",
+      "about": "About"
+    },
+    "about": {
+      "version": "Version",
+      "github": "GitHub",
+      "license": "License"
     }
   },
   "api": {
