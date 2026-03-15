@@ -338,6 +338,7 @@
     "providerConnected": "Connected",
     "providerNotSet": "Not configured",
     "addProvider": "Add Provider",
+    "addCustomProvider": "Add Custom Provider",
     "selectProvider": "Select a provider from the left panel",
     "displayName": "Display Name",
     "delete": "Delete",

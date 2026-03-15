@@ -190,9 +190,36 @@ function SettingsModel() {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
-  const [showAddMenu, setShowAddMenu] = useState(false);
 
-  const providers = config?.providers || [];
+  const savedProviders = config?.providers || [];
+
+  /**
+   * 合并视图：预设 provider 全部列出 + config 中的自定义 provider。
+   * 预设按 PROVIDER_PRESETS 顺序，自定义的追加在后面。
+   * "custom" 预设不在列表中显示（它只作为"添加自定义"的模板）。
+   */
+  const displayPresets = PROVIDER_PRESETS.filter((pr) => pr.id !== "custom");
+  const mergedProviders: { inst: ProviderInstance; preset: ProviderPreset }[] =
+    displayPresets.map((pr) => {
+      const existing = savedProviders.find((p) => p.id === pr.id);
+      return {
+        inst: existing || {
+          id: pr.id,
+          type: pr.type,
+          name: pr.name,
+          baseUrl: pr.baseUrl,
+          enabled: false,
+        },
+        preset: pr,
+      };
+    });
+  // Append custom providers (not matching any preset id)
+  const presetIds = new Set(displayPresets.map((pr) => pr.id));
+  const customProviders = savedProviders.filter((p) => !presetIds.has(p.id));
+  const customPreset = PROVIDER_PRESETS.find((pr) => pr.id === "custom")!;
+  for (const cp of customProviders) {
+    mergedProviders.push({ inst: cp, preset: customPreset });
+  }
 
   const fetchAll = useCallback(async () => {
     try {
@@ -204,35 +231,44 @@ function SettingsModel() {
       setConfig(configData);
       setStats(statsData);
       setError(null);
-      // Auto-select active provider or first
+      // Auto-select active provider or first preset
       if (
         !selectedId ||
-        !(configData.providers || []).find((p) => p.id === selectedId)
+        !mergedProviders.find((m) => m.inst.id === selectedId)
       ) {
         const active = configData.activeProvider || configData.provider;
-        const firstId = (configData.providers || [])[0]?.id;
-        setSelectedId(active || firstId || null);
+        setSelectedId(active || displayPresets[0]?.id || null);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load settings");
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
 
-  /** Toggle provider enabled on/off */
-  const handleToggle = async (inst: ProviderInstance) => {
+  /** Toggle provider enabled on/off — 同时确保 provider 存在于 config.providers */
+  const handleToggle = async (inst: ProviderInstance, pr: ProviderPreset) => {
     if (!config || togglingId) return;
     setTogglingId(inst.id);
     try {
-      const updated = providers.map((p) =>
-        p.id === inst.id ? { ...p, enabled: !p.enabled } : p,
-      );
-      // If enabling, also set as active
+      const exists = savedProviders.find((p) => p.id === inst.id);
+      let updated: ProviderInstance[];
+      if (exists) {
+        updated = savedProviders.map((p) =>
+          p.id === inst.id ? { ...p, enabled: !p.enabled } : p,
+        );
+      } else {
+        // 预设 provider 首次启用——添加到 config
+        updated = [
+          ...savedProviders,
+          { ...inst, baseUrl: pr.baseUrl, enabled: true },
+        ];
+      }
       const activeProvider = !inst.enabled ? inst.id : config.activeProvider;
       await updateAppConfig({
         providers: updated,
@@ -246,26 +282,22 @@ function SettingsModel() {
     }
   };
 
-  /** Add a new provider from preset */
-  const handleAdd = async (preset: ProviderPreset) => {
-    setShowAddMenu(false);
-    // Generate unique id if this preset id already exists
-    let newId = preset.id;
-    const existingIds = new Set(providers.map((p) => p.id));
-    if (existingIds.has(newId)) {
-      let i = 2;
-      while (existingIds.has(`${preset.id}-${i}`)) i++;
-      newId = `${preset.id}-${i}`;
+  /** Add a custom provider */
+  const handleAddCustom = async () => {
+    let newId = "custom";
+    const existingIds = new Set(savedProviders.map((p) => p.id));
+    let i = 1;
+    while (existingIds.has(newId)) {
+      i++;
+      newId = `custom-${i}`;
     }
     const newInst: ProviderInstance = {
       id: newId,
-      type: preset.type,
-      name: preset.name,
-      baseUrl: preset.baseUrl,
-      model: "",
+      type: "openai",
+      name: `Custom ${i > 1 ? i : ""}`.trim(),
       enabled: false,
     };
-    const updated = [...providers, newInst];
+    const updated = [...savedProviders, newInst];
     try {
       await updateAppConfig({ providers: updated } as Partial<AppConfigInfo>);
       setSelectedId(newId);
@@ -275,21 +307,19 @@ function SettingsModel() {
     }
   };
 
-  /** Delete a provider instance */
-  const handleDelete = async (id: string) => {
-    const updated = providers.filter((p) => p.id !== id);
+  /** Delete a custom provider (only for non-preset providers) */
+  const handleDeleteCustom = async (id: string) => {
+    const updated = savedProviders.filter((p) => p.id !== id);
+    const activeProvider =
+      config?.activeProvider === id
+        ? updated.find((p) => p.enabled)?.id || undefined
+        : config?.activeProvider;
     try {
-      const activeProvider =
-        config?.activeProvider === id
-          ? updated.find((p) => p.enabled)?.id || updated[0]?.id
-          : config?.activeProvider;
       await updateAppConfig({
         providers: updated,
         activeProvider,
       } as Partial<AppConfigInfo>);
-      if (selectedId === id) {
-        setSelectedId(updated[0]?.id || null);
-      }
+      if (selectedId === id) setSelectedId(displayPresets[0]?.id || null);
       await fetchAll();
     } catch {
       // ignore
@@ -302,11 +332,8 @@ function SettingsModel() {
     );
   }
 
-  const selectedInst = providers.find((p) => p.id === selectedId) || null;
-  const preset =
-    PROVIDER_PRESETS.find((pr) => pr.id === selectedInst?.id) ||
-    PROVIDER_PRESETS.find((pr) => pr.type === selectedInst?.type) ||
-    PROVIDER_PRESETS[PROVIDER_PRESETS.length - 1]; // fallback to custom
+  const selectedEntry = mergedProviders.find((m) => m.inst.id === selectedId);
+  const isCustom = selectedEntry ? !presetIds.has(selectedEntry.inst.id) : false;
 
   return (
     <>
@@ -316,13 +343,10 @@ function SettingsModel() {
       <div className="model-split">
         {/* Left: provider list */}
         <div className="model-list">
-          {providers.map((inst) => {
+          {mergedProviders.map(({ inst }) => {
             const selected = selectedId === inst.id;
             const toggling = togglingId === inst.id;
-            const hasKey =
-              !!inst.apiKey && !isMaskedValue(inst.apiKey)
-                ? true
-                : !!inst.apiKey;
+            const hasKey = !!inst.apiKey;
             const isPrimary =
               config?.activeProvider === inst.id && hasKey && inst.enabled;
             const canToggle = hasKey;
@@ -344,7 +368,10 @@ function SettingsModel() {
                   className={`channels-toggle${inst.enabled ? " on" : ""}${toggling ? " loading" : ""}${!canToggle ? " disabled" : ""}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (canToggle) handleToggle(inst);
+                    if (canToggle) {
+                      const pr = mergedProviders.find((m) => m.inst.id === inst.id)!.preset;
+                      handleToggle(inst, pr);
+                    }
                   }}
                 >
                   <div className="channels-toggle-knob" />
@@ -352,51 +379,24 @@ function SettingsModel() {
               </div>
             );
           })}
-          {/* Add provider button */}
+          {/* Add custom provider */}
           <div className="model-add-wrapper">
-            <button
-              className="model-add-btn"
-              onClick={() => setShowAddMenu(!showAddMenu)}
-            >
-              + {t("settings.addProvider")}
+            <button className="model-add-btn" onClick={handleAddCustom}>
+              + {t("settings.addCustomProvider")}
             </button>
-            {showAddMenu && (
-              <div className="model-add-menu">
-                {PROVIDER_PRESETS.filter(
-                  (pr) => !providers.find((p) => p.id === pr.id),
-                ).map((pr) => (
-                  <div
-                    key={pr.id}
-                    className="model-add-menu-item"
-                    onClick={() => handleAdd(pr)}
-                  >
-                    {pr.name}
-                  </div>
-                ))}
-                {/* Always show Custom */}
-                <div
-                  className="model-add-menu-item"
-                  onClick={() =>
-                    handleAdd(PROVIDER_PRESETS[PROVIDER_PRESETS.length - 1])
-                  }
-                >
-                  {PROVIDER_PRESETS[PROVIDER_PRESETS.length - 1].name}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
         {/* Right: config form for selected provider */}
         <div className="model-detail">
-          {selectedInst && preset ? (
+          {selectedEntry ? (
             <ProviderConfigForm
-              inst={selectedInst}
-              preset={preset}
-              providers={providers}
+              inst={selectedEntry.inst}
+              preset={selectedEntry.preset}
+              providers={savedProviders}
               activeProvider={config?.activeProvider}
               onSaved={fetchAll}
-              onDelete={() => handleDelete(selectedInst.id)}
+              onDelete={isCustom ? () => handleDeleteCustom(selectedEntry.inst.id) : undefined}
             />
           ) : (
             <div className="settings-empty">{t("settings.selectProvider")}</div>
@@ -475,7 +475,7 @@ function ProviderConfigForm({
   providers: ProviderInstance[];
   activeProvider?: string;
   onSaved: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
 }) {
   const { t } = useTranslation();
   const [apiKey, setApiKey] = useState("");
@@ -561,9 +561,11 @@ function ProviderConfigForm({
       if (apiKey && !isMaskedValue(apiKey)) {
         updatedInst.apiKey = apiKey;
       }
-      const updatedProviders = providers.map((p) =>
-        p.id === inst.id ? updatedInst : p,
-      );
+      // If this preset doesn't exist in saved providers yet, add it
+      const exists = providers.find((p) => p.id === inst.id);
+      const updatedProviders = exists
+        ? providers.map((p) => (p.id === inst.id ? updatedInst : p))
+        : [...providers, updatedInst];
       await updateAppConfig({
         providers: updatedProviders,
       } as Partial<AppConfigInfo>);
@@ -707,14 +709,16 @@ function ProviderConfigForm({
           >
             {saving ? t("settings.configSaving") : t("settings.configSave")}
           </button>
-          <button
-            className="btn btn-danger"
-            onClick={onDelete}
-            disabled={isActive}
-            title={isActive ? t("settings.cannotDeleteActive") : ""}
-          >
-            {t("settings.delete")}
-          </button>
+          {onDelete && (
+            <button
+              className="btn btn-danger"
+              onClick={onDelete}
+              disabled={isActive}
+              title={isActive ? t("settings.cannotDeleteActive") : ""}
+            >
+              {t("settings.delete")}
+            </button>
+          )}
           {saveMsg && (
             <span
               className={`config-save-msg ${saveMsg === t("settings.configSaved") ? "success" : ""}`}
