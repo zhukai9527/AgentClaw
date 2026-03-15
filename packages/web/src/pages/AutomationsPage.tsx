@@ -5,9 +5,11 @@ import {
   listScheduledTasks,
   createScheduledTask,
   updateScheduledTask,
+  runScheduledTask,
   deleteScheduledTask,
   type ScheduledTaskInfo,
 } from "../api/client";
+import { IconEdit, IconPlay, IconTrash } from "../components/Icons";
 import "./TasksPage.css";
 
 type Frequency = "daily" | "weekdays" | "weekly" | "monthly" | "custom";
@@ -197,6 +199,22 @@ export function AutomationsPage() {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update");
+    }
+  };
+
+  const [runningId, setRunningId] = useState<string | null>(null);
+
+  const handleRunNow = async (auto: ScheduledTaskInfo) => {
+    setRunningId(auto.id);
+    try {
+      const updated = await runScheduledTask(auto.id);
+      setAutomations((prev) =>
+        prev.map((a) => (a.id === auto.id ? updated : a)),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to run");
+    } finally {
+      setRunningId(null);
     }
   };
 
@@ -425,16 +443,26 @@ export function AutomationsPage() {
                         ) : (
                           <>
                             <button
-                              className="btn-secondary tasks-card-btn"
+                              className="auto-icon-btn"
                               onClick={() => openEdit(auto)}
+                              title={t("common.edit")}
                             >
-                              {t("common.edit")}
+                              <IconEdit size={15} />
                             </button>
                             <button
-                              className="btn-secondary tasks-card-btn"
-                              onClick={() => handleDelete(auto.id)}
+                              className="auto-icon-btn auto-icon-btn-play"
+                              onClick={() => handleRunNow(auto)}
+                              disabled={runningId === auto.id}
+                              title={t("tasks.runNow")}
                             >
-                              {t("common.delete")}
+                              <IconPlay size={15} />
+                            </button>
+                            <button
+                              className="auto-icon-btn auto-icon-btn-danger"
+                              onClick={() => handleDelete(auto.id)}
+                              title={t("common.delete")}
+                            >
+                              <IconTrash size={15} />
                             </button>
                           </>
                         )}

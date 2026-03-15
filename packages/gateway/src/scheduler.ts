@@ -127,6 +127,23 @@ export class TaskScheduler {
     return this.toPublic(task);
   }
 
+  async runNow(id: string): Promise<ScheduledTask | undefined> {
+    const task = this.tasks.get(id);
+    if (!task) return undefined;
+
+    task.lastRunAt = new Date();
+    console.log(
+      `[scheduler] Task "${task.name}" (${task.id}) manually triggered at ${task.lastRunAt.toISOString()}`,
+    );
+    this.store?.updateScheduledTaskLastRun(task.id, task.lastRunAt);
+
+    if (this.onTaskFire) {
+      await this.onTaskFire(this.toPublic(task));
+    }
+
+    return this.toPublic(task);
+  }
+
   delete(id: string): boolean {
     const task = this.tasks.get(id);
     if (!task) return false;

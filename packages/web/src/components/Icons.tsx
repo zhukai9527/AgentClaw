@@ -292,6 +292,14 @@ export function IconMoreHorizontal({ size }: { size?: number }) {
   );
 }
 
+export function IconPlay({ size }: { size?: number }) {
+  return (
+    <I size={size}>
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </I>
+  );
+}
+
 export function IconTrash({ size }: { size?: number }) {
   return (
     <I size={size}>

@@ -804,6 +804,43 @@
   gap: 6px;
 }
 
+.auto-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.auto-icon-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.auto-icon-btn-play:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.auto-icon-btn-danger:hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.auto-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .auto-confirm-delete {
   display: flex;
   align-items: center;

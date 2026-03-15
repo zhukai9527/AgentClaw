@@ -591,6 +591,10 @@ export function updateScheduledTask(
   });
 }
 
+export function runScheduledTask(id: string): Promise<ScheduledTaskInfo> {
+  return request(`/tasks/scheduled/${id}/run`, { method: "POST" });
+}
+
 export function deleteScheduledTask(id: string): Promise<void> {
   return request(`/tasks/scheduled/${id}`, { method: "DELETE" });
 }
