@@ -642,6 +642,38 @@
   accent-color: var(--accent);
 }
 
+/* ── Primary badge ── */
+.model-list-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.model-primary-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.btn-sm {
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--accent-subtle-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-sm:hover {
+  background: var(--accent-subtle-bg);
+}
+
 /* ── Add provider button + dropdown ── */
 .model-add-wrapper {
   position: relative;

@@ -342,6 +342,8 @@
     "displayName": "显示名称",
     "delete": "删除",
     "cannotDeleteActive": "无法删除当前使用中的模型",
+    "primary": "主力",
+    "setAsPrimary": "设为主力",
     "tabs": {
       "general": "常规",
       "model": "模型",

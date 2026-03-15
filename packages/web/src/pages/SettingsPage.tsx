@@ -319,13 +319,21 @@ function SettingsModel() {
           {providers.map((inst) => {
             const selected = selectedId === inst.id;
             const toggling = togglingId === inst.id;
+            const isPrimary = config?.activeProvider === inst.id;
             return (
               <div
                 key={inst.id}
                 className={`model-list-item${selected ? " active" : ""}`}
                 onClick={() => setSelectedId(inst.id)}
               >
-                <span className="model-list-name">{inst.name}</span>
+                <div className="model-list-info">
+                  <span className="model-list-name">{inst.name}</span>
+                  {isPrimary && (
+                    <span className="model-primary-badge">
+                      {t("settings.primary")}
+                    </span>
+                  )}
+                </div>
                 <div
                   className={`channels-toggle${inst.enabled ? " on" : ""}${toggling ? " loading" : ""}`}
                   onClick={(e) => {
@@ -576,6 +584,24 @@ function ProviderConfigForm({
             ? t("settings.providerConnected")
             : t("settings.providerNotSet")}
         </span>
+        {isActive ? (
+          <span className="model-primary-badge">{t("settings.primary")}</span>
+        ) : (
+          inst.enabled &&
+          configured && (
+            <button
+              className="btn btn-sm"
+              onClick={async () => {
+                await updateAppConfig({
+                  activeProvider: inst.id,
+                } as Partial<AppConfigInfo>);
+                onSaved();
+              }}
+            >
+              {t("settings.setAsPrimary")}
+            </button>
+          )
+        )}
       </div>
 
       <div className="channels-detail-form">

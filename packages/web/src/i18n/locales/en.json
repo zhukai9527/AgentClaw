@@ -342,6 +342,8 @@
     "displayName": "Display Name",
     "delete": "Delete",
     "cannotDeleteActive": "Cannot delete active provider",
+    "primary": "Primary",
+    "setAsPrimary": "Set as Primary",
     "tabs": {
       "general": "General",
       "model": "Model",
