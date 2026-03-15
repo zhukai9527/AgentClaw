@@ -443,14 +443,14 @@ export function AutomationsPage() {
                         ) : (
                           <>
                             <button
-                              className="auto-icon-btn"
+                              className="btn-icon"
                               onClick={() => openEdit(auto)}
                               title={t("common.edit")}
                             >
                               <IconEdit size={15} />
                             </button>
                             <button
-                              className="auto-icon-btn auto-icon-btn-play"
+                              className="btn-icon auto-icon-btn-play"
                               onClick={() => handleRunNow(auto)}
                               disabled={runningId === auto.id}
                               title={t("tasks.runNow")}
@@ -458,7 +458,7 @@ export function AutomationsPage() {
                               <IconPlay size={15} />
                             </button>
                             <button
-                              className="auto-icon-btn auto-icon-btn-danger"
+                              className="btn-icon auto-icon-btn-danger"
                               onClick={() => handleDelete(auto.id)}
                               title={t("common.delete")}
                             >
