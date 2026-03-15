@@ -46,10 +46,15 @@
     "searchSessions": "Search sessions...",
     "searchTitle": "Search sessions",
     "recent": "Recent",
+    "active": "In Progress",
+    "waiting": "Waiting for You",
+    "done": "Completed",
     "results": "Results ({{count}})",
     "lightMode": "Light mode",
     "darkMode": "Dark mode",
-    "moveToProject": "Move to Project"
+    "moveToProject": "Move to Project",
+    "markDone": "Mark as Done",
+    "markActive": "Reopen"
   },
   "projectModal": {
     "title": "New Project",

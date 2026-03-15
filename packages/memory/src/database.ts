@@ -182,6 +182,7 @@ export function initDatabase(dbPath: string): DbAdapter {
   addColumnIfMissing(db, "turns", "duration_ms", "INTEGER");
   addColumnIfMissing(db, "turns", "tool_call_count", "INTEGER");
   addColumnIfMissing(db, "sessions", "title", "TEXT");
+  addColumnIfMissing(db, "sessions", "status", "TEXT DEFAULT 'active'");
   addColumnIfMissing(
     db,
     "sessions",

@@ -20,6 +20,7 @@ import {
   IconChevronDown,
   IconMoreHorizontal,
   IconTrash,
+  IconCheck,
 } from "./Icons";
 
 function formatSessionLabel(s: {
@@ -256,7 +257,7 @@ export function Layout() {
           )}
         </div>
 
-        {/* Session list */}
+        {/* Session list — grouped by status */}
         {sessions.length > 0 &&
           (() => {
             const q = searchQuery.toLowerCase();
@@ -265,69 +266,120 @@ export function Layout() {
                   formatSessionLabel(s).toLowerCase().includes(q),
                 )
               : sessions;
-            return (
-              <>
+
+            // Determine effective status: running loops override to "active"
+            const effectiveStatus = (s: (typeof sessions)[0]) => {
+              if (activeLoopIds.has(s.id) || s.id === streamingSessionId)
+                return "active";
+              return s.status || "active";
+            };
+
+            const groups: {
+              key: string;
+              label: string;
+              items: typeof filtered;
+            }[] = [];
+            if (q) {
+              // Search mode: flat list
+              groups.push({
+                key: "search",
+                label: t("sidebar.results", { count: filtered.length }),
+                items: filtered,
+              });
+            } else {
+              const active = filtered.filter(
+                (s) => effectiveStatus(s) === "active",
+              );
+              const waiting = filtered.filter(
+                (s) => effectiveStatus(s) === "waiting",
+              );
+              const done = filtered.filter(
+                (s) => effectiveStatus(s) === "done",
+              );
+              if (active.length)
+                groups.push({
+                  key: "active",
+                  label: t("sidebar.active"),
+                  items: active,
+                });
+              if (waiting.length)
+                groups.push({
+                  key: "waiting",
+                  label: t("sidebar.waiting"),
+                  items: waiting,
+                });
+              if (done.length)
+                groups.push({
+                  key: "done",
+                  label: t("sidebar.done"),
+                  items: done,
+                });
+            }
+
+            const renderSession = (s: (typeof sessions)[0]) => (
+              <button
+                key={s.id}
+                className={`sidebar-session-item${s.id === activeSessionId ? " active" : ""}`}
+                onClick={() => {
+                  if (renamingSessionId === s.id) return;
+                  handleSelectSession(s.id);
+                  closeSidebarOnMobile();
+                }}
+              >
+                {renamingSessionId === s.id ? (
+                  <input
+                    autoFocus
+                    className="sidebar-session-rename"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSessionRename();
+                      if (e.key === "Escape") setRenamingSessionId(null);
+                    }}
+                    onBlur={handleSessionRename}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span className="sidebar-session-label">
+                    {(s.id === streamingSessionId ||
+                      activeLoopIds.has(s.id)) && (
+                      <span className="sidebar-session-spinner" />
+                    )}
+                    {formatSessionLabel(s)}
+                  </span>
+                )}
+                <span
+                  className="sidebar-session-more"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const rect = (
+                      e.currentTarget as HTMLElement
+                    ).getBoundingClientRect();
+                    setSessionMenu({
+                      x: rect.right,
+                      y: rect.top,
+                      sessionId: s.id,
+                    });
+                  }}
+                >
+                  <IconMoreHorizontal size={14} />
+                </span>
+              </button>
+            );
+
+            return groups.map((g) => (
+              <div key={g.key}>
                 <div className="sidebar-divider">
-                  <span>
-                    {q
-                      ? t("sidebar.results", { count: filtered.length })
-                      : t("sidebar.recent")}
+                  <span>{g.label}</span>
+                  <span className="sidebar-divider-count">
+                    {g.items.length}
                   </span>
                 </div>
                 <div className="sidebar-sessions">
-                  {filtered.map((s) => (
-                    <button
-                      key={s.id}
-                      className={`sidebar-session-item${s.id === activeSessionId ? " active" : ""}`}
-                      onClick={() => {
-                        if (renamingSessionId === s.id) return;
-                        handleSelectSession(s.id);
-                        closeSidebarOnMobile();
-                      }}
-                    >
-                      {renamingSessionId === s.id ? (
-                        <input
-                          autoFocus
-                          className="sidebar-session-rename"
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleSessionRename();
-                            if (e.key === "Escape") setRenamingSessionId(null);
-                          }}
-                          onBlur={handleSessionRename}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      ) : (
-                        <span className="sidebar-session-label">
-                          {(s.id === streamingSessionId ||
-                            activeLoopIds.has(s.id)) && (
-                            <span className="sidebar-session-spinner" />
-                          )}
-                          {formatSessionLabel(s)}
-                        </span>
-                      )}
-                      <span
-                        className="sidebar-session-more"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const rect = (
-                            e.currentTarget as HTMLElement
-                          ).getBoundingClientRect();
-                          setSessionMenu({
-                            x: rect.right,
-                            y: rect.top,
-                            sessionId: s.id,
-                          });
-                        }}
-                      >
-                        <IconMoreHorizontal size={14} />
-                      </span>
-                    </button>
-                  ))}
+                  {g.items.map(renderSession)}
                 </div>
-              </>
-            );
+              </div>
+            ));
           })()}
 
         {/* Footer */}
@@ -447,6 +499,25 @@ export function Layout() {
                   )}
                 </div>
               )}
+              {(() => {
+                const s = sessions.find((s) => s.id === sessionMenu.sessionId);
+                const isDone = s?.status === "done";
+                return (
+                  <button
+                    className="session-context-item"
+                    onClick={async () => {
+                      await updateSession(sessionMenu.sessionId, {
+                        status: isDone ? "active" : "done",
+                      });
+                      refreshSessions();
+                      setSessionMenu(null);
+                    }}
+                  >
+                    <IconCheck size={14} />{" "}
+                    {isDone ? t("sidebar.markActive") : t("sidebar.markDone")}
+                  </button>
+                );
+              })()}
               <button
                 className="session-context-item session-context-danger"
                 onClick={() => {

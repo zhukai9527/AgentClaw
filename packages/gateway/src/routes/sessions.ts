@@ -21,6 +21,7 @@ function serializeSession(session: {
     createdAt: session.createdAt.toISOString(),
     lastActiveAt: session.lastActiveAt.toISOString(),
     title: session.title,
+    status: session.status ?? "active",
     projectId: session.projectId ?? null,
     preview: session.preview ?? null,
     agentId: (session.metadata?.agentId as string) || "default",
@@ -125,10 +126,10 @@ export function registerSessionRoutes(
     },
   );
 
-  // PATCH /api/sessions/:id - Update session (title, projectId)
+  // PATCH /api/sessions/:id - Update session (title, status, projectId)
   app.patch<{
     Params: { id: string };
-    Body: { title?: string; projectId?: string | null };
+    Body: { title?: string; status?: string; projectId?: string | null };
   }>(
     "/api/sessions/:id",
     {
@@ -148,6 +149,9 @@ export function registerSessionRoutes(
         }
         const updated = { ...session };
         if (req.body.title !== undefined) updated.title = req.body.title;
+        if (req.body.status !== undefined) {
+          updated.status = req.body.status as typeof updated.status;
+        }
         if (req.body.projectId !== undefined) {
           (updated as { projectId?: string }).projectId =
             req.body.projectId ?? undefined;

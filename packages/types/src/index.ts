@@ -42,6 +42,7 @@ export type {
   MemorySearchResult,
   Project,
   SessionData,
+  SessionStatus,
   MemoryStore,
   ConversationTurn,
   TraceStep,

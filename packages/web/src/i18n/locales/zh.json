@@ -46,10 +46,15 @@
     "searchSessions": "搜索会话...",
     "searchTitle": "搜索会话",
     "recent": "最近",
+    "active": "进行中",
+    "waiting": "等你回复",
+    "done": "已完成",
     "results": "搜索结果 ({{count}})",
     "lightMode": "浅色模式",
     "darkMode": "深色模式",
-    "moveToProject": "移至项目"
+    "moveToProject": "移至项目",
+    "markDone": "标记完成",
+    "markActive": "重新打开"
   },
   "projectModal": {
     "title": "新建项目",

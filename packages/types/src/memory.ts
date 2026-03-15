@@ -90,6 +90,9 @@ export interface Project {
   sessionCount?: number;
 }
 
+/** Session status for task-oriented UI */
+export type SessionStatus = "active" | "waiting" | "done";
+
 /** Session data shared between MemoryStore and Orchestrator */
 export interface SessionData {
   id: string;
@@ -97,6 +100,7 @@ export interface SessionData {
   createdAt: Date;
   lastActiveAt: Date;
   title?: string;
+  status?: SessionStatus;
   projectId?: string;
   metadata?: Record<string, unknown>;
 }

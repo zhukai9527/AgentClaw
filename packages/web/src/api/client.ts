@@ -62,10 +62,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 // ── Sessions ────────────────────────────────────────
 
+export type SessionStatus = "active" | "waiting" | "done";
+
 export interface SessionInfo {
   id: string;
   conversationId: string;
   title?: string;
+  status?: SessionStatus;
   agentId?: string;
   projectId?: string | null;
   preview?: string | null;
@@ -88,7 +91,11 @@ export function createSession(
 
 export function updateSession(
   id: string,
-  updates: { title?: string; projectId?: string | null },
+  updates: {
+    title?: string;
+    status?: SessionStatus;
+    projectId?: string | null;
+  },
 ): Promise<SessionInfo> {
   return request(`/sessions/${id}`, {
     method: "PATCH",

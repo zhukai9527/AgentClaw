@@ -633,8 +633,8 @@ export class SQLiteMemoryStore implements MemoryStore {
   async saveSession(session: SessionData): Promise<void> {
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO sessions (id, conversation_id, project_id, created_at, last_active_at, title, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO sessions (id, conversation_id, project_id, created_at, last_active_at, title, status, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         session.id,
@@ -643,6 +643,7 @@ export class SQLiteMemoryStore implements MemoryStore {
         session.createdAt.toISOString(),
         session.lastActiveAt.toISOString(),
         session.title ?? null,
+        session.status ?? "active",
         session.metadata ? JSON.stringify(session.metadata) : null,
       );
   }
@@ -1574,6 +1575,7 @@ interface SessionRow {
   created_at: string;
   last_active_at: string;
   title: string | null;
+  status: string | null;
   metadata: string | null;
 }
 
@@ -1585,6 +1587,7 @@ function rowToSession(row: SessionRow): SessionData {
     createdAt: new Date(row.created_at),
     lastActiveAt: new Date(row.last_active_at),
     title: row.title ?? undefined,
+    status: (row.status as SessionData["status"]) ?? "active",
     metadata: row.metadata
       ? (JSON.parse(row.metadata) as Record<string, unknown>)
       : undefined,
