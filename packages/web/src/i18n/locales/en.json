@@ -90,6 +90,7 @@
     "input": "INPUT",
     "output": "OUTPUT",
     "error": "ERROR",
+    "stopped": "Stopped",
     "appError": "Application error",
     "thinking": ["Thinking", "Pondering", "Processing", "Musing", "Computing", "Synthesizing", "Generating", "Brewing", "Cooking", "Imagining"]
   },

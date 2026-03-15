@@ -1737,11 +1737,21 @@ export function ChatPage() {
     resetStreamingLocal();
     setMessages((prev) => {
       const last = prev[prev.length - 1];
-      if (last && last.role === "assistant" && last.streaming)
-        return [...prev.slice(0, -1), { ...last, streaming: false }];
+      if (last && last.role === "assistant") {
+        const updated = { ...last, streaming: false };
+        // Mark any in-progress tool calls as aborted so the clock icon stops
+        if (updated.toolCalls.length > 0) {
+          updated.toolCalls = updated.toolCalls.map((tc) =>
+            tc.toolResult === undefined
+              ? { ...tc, toolResult: t("chat.stopped"), isError: true }
+              : tc,
+          );
+        }
+        return [...prev.slice(0, -1), updated];
+      }
       return prev;
     });
-  }, [resetStreamingLocal, wsRef.current]);
+  }, [resetStreamingLocal, wsRef.current, t]);
 
   const handleRegenerate = useCallback(() => {
     if (isSending || !wsRef.current || !lastUserText) return;
