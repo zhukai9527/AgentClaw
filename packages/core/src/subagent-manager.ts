@@ -161,12 +161,11 @@ export class SimpleSubAgentManager implements SubAgentManager {
     options?: SubAgentSpawnOptions,
     onProgress?: SubAgentProgressCallback,
   ): Promise<SubAgentTaskResult[]> {
-    const results: SubAgentTaskResult[] = [];
+    const concurrency = Math.max(1, options?.concurrency ?? 3);
+    const results: SubAgentTaskResult[] = new Array(goals.length);
 
-    for (let i = 0; i < goals.length; i++) {
-      const goal = goals[i];
-      onProgress?.(i, goals.length, goal, "running");
-
+    // Prepare all entries upfront
+    const entries = goals.map((goal, i) => {
       const entry = this.createEntry(goal, options);
       this.agents.set(entry.info.id, entry);
       this.memoryStore.addSubAgent({
@@ -174,19 +173,41 @@ export class SimpleSubAgentManager implements SubAgentManager {
         goal,
         model: options?.model ?? this.agentConfig?.model,
       });
+      return { entry, index: i, goal };
+    });
 
-      // Run synchronously — one at a time, no LLM contention
-      await this.runAgent(entry);
+    // Run with concurrency control
+    let next = 0;
+    const runNext = async (): Promise<void> => {
+      while (next < entries.length) {
+        const current = next++;
+        const { entry, index, goal } = entries[current];
+        onProgress?.(index, goals.length, goal, "running");
 
-      const taskResult: SubAgentTaskResult = {
-        goal,
-        status: entry.info.status,
-        result: entry.info.result,
-        error: entry.info.error,
-      };
-      results.push(taskResult);
-      onProgress?.(i, goals.length, goal, entry.info.status, entry.info.result);
-    }
+        await this.runAgent(entry);
+
+        results[index] = {
+          goal,
+          status: entry.info.status,
+          result: entry.info.result,
+          error: entry.info.error,
+        };
+        onProgress?.(
+          index,
+          goals.length,
+          goal,
+          entry.info.status,
+          entry.info.result,
+        );
+      }
+    };
+
+    // Launch N workers
+    const workers = Array.from(
+      { length: Math.min(concurrency, goals.length) },
+      () => runNext(),
+    );
+    await Promise.all(workers);
 
     return results;
   }

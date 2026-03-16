@@ -4,8 +4,8 @@ export const subagentTool: Tool = {
   name: "subagent",
   category: "builtin",
   description:
-    "Spawn sub-agents for task processing. " +
-    "PREFERRED: Use spawn_and_wait with multiple goals — runs sequentially, returns all results at once. " +
+    "Spawn sub-agents for parallel task processing. " +
+    "PREFERRED: Use spawn_and_wait with multiple goals — runs concurrently (default 3 parallel), returns all results at once. " +
     "ALTERNATIVE: Use spawn/result/kill for advanced control (background execution, steering). " +
     "Actions: spawn_and_wait (recommended), spawn, result, kill, list.",
   parameters: {
@@ -45,6 +45,11 @@ export const subagentTool: Tool = {
           '"full" (default, all tools) or "explore" (read-only: file_read, glob, grep, web_fetch, web_search)',
         enum: ["full", "explore"],
         default: "full",
+      },
+      concurrency: {
+        type: "number",
+        description:
+          "Max parallel sub-agents for spawn_and_wait (default: 3, set 1 for sequential)",
       },
     },
     required: ["action"],
@@ -89,6 +94,7 @@ export const subagentTool: Tool = {
             maxIterations: input.maxIterations as number | undefined,
             model: input.model as string | undefined,
             allowedTools: mode === "explore" ? EXPLORE_TOOLS : undefined,
+            concurrency: input.concurrency as number | undefined,
           },
           // Progress callback → sends real-time updates to UI
           (index, total, goal, status, result) => {

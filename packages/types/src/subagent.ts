@@ -20,6 +20,8 @@ export interface SubAgentSpawnOptions {
   maxIterations?: number;
   /** If set, sub-agent can only use these tools (read-only mode etc.) */
   allowedTools?: string[];
+  /** Max concurrent sub-agents for spawnAndWait (default: 3, 1 = sequential) */
+  concurrency?: number;
 }
 
 /** Result of a single sub-task in spawn_and_wait */
@@ -43,7 +45,7 @@ export type SubAgentProgressCallback = (
 export interface SubAgentManager {
   /** Spawn a new sub-agent with a goal. Returns the sub-agent ID. */
   spawn(goal: string, options?: SubAgentSpawnOptions): string;
-  /** Spawn multiple sub-agents sequentially, wait for all to complete */
+  /** Spawn multiple sub-agents concurrently, wait for all to complete */
   spawnAndWait(
     goals: string[],
     options?: SubAgentSpawnOptions,
