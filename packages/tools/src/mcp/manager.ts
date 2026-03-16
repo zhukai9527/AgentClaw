@@ -50,6 +50,36 @@ export class MCPManager {
   }
 
   /**
+   * List all connected servers with their tool counts.
+   */
+  listServers(): Array<{
+    name: string;
+    toolCount: number;
+    tools: Array<{ name: string; description: string }>;
+  }> {
+    const result: Array<{
+      name: string;
+      toolCount: number;
+      tools: Array<{ name: string; description: string }>;
+    }> = [];
+    for (const [name, tools] of this.toolsByServer) {
+      result.push({
+        name,
+        toolCount: tools.length,
+        tools: tools.map((t) => ({ name: t.name, description: t.description })),
+      });
+    }
+    return result;
+  }
+
+  /**
+   * Get tools for a specific server.
+   */
+  getServerTools(name: string): Tool[] {
+    return this.toolsByServer.get(name) || [];
+  }
+
+  /**
    * Get all tools from all currently connected MCP servers.
    */
   getAllTools(): Tool[] {

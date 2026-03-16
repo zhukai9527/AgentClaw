@@ -45,6 +45,8 @@ export interface AppContext {
    * 返回变化的检查项（从 ok→fail 或 fail→ok），便于外部决定是否通知。
    */
   refreshHealth: () => Promise<HealthCheckResult[]>;
+  /** MCP server manager for dynamic add/remove/reload */
+  mcpManager: MCPManager;
 }
 
 export interface AppRuntimeConfig {
@@ -506,5 +508,6 @@ export async function bootstrap(): Promise<AppContext> {
     agents,
     refreshAgents,
     refreshHealth,
+    mcpManager,
   };
 }

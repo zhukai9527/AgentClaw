@@ -14,6 +14,7 @@ import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerMemoryRoutes } from "./routes/memories.js";
 import { registerToolRoutes } from "./routes/tools.js";
+import { registerMCPRoutes } from "./routes/mcp.js";
 import { registerConfigRoutes } from "./routes/config.js";
 import { registerTokenLogRoutes } from "./routes/token-logs.js";
 import { registerTraceRoutes } from "./routes/traces.js";
@@ -84,6 +85,7 @@ export async function createServer(
   registerProjectRoutes(app, ctx);
   registerMemoryRoutes(app, ctx);
   registerToolRoutes(app, ctx);
+  registerMCPRoutes(app, ctx);
   registerConfigRoutes(app, ctx, options.channelManager);
   registerTokenLogRoutes(app, ctx);
   registerTraceRoutes(app, ctx);

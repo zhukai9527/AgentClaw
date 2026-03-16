@@ -7,6 +7,9 @@
 - **每日简报启停开关**：Tasks 页面新增 toggle 开关，点击即时生效，关闭后 cron job 不创建
 - **重复工具调用防护**：同一工具+相同参数在同一 session 中调用超过 2 次自动拦截，强制模型使用已有结果，防止 agent 循环失控无限搜索
 - **聊天表格样式**：消息中的 Markdown 表格增加边框、斑马条纹、表头背景、hover 高亮、横向滚动支持
+- **表格复制按钮**：hover 表格右上角出现复制图标，一键复制完整 Markdown 表格
+- **消息复制按钮**：hover assistant 消息时元信息行出现复制图标，复制原始 Markdown 文本
+- **MCP 热更新**：新增 `/api/mcp` 系列 API（GET/POST/DELETE/reload），支持运行时动态添加、移除、重载 MCP server，无需重启 gateway
 
 ### 修复
 - **getHistory 返回最旧记录**：`ORDER BY ASC LIMIT N` 返回最旧 N 条而非最新，超 50 轮对话后 agent 完全失忆；改用子查询取最新 N 条再正排
