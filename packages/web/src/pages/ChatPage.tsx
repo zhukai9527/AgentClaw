@@ -615,6 +615,30 @@ function MdTable({ children, ...props }: React.TableHTMLAttributes<HTMLTableElem
   );
 }
 
+/** Copy button for assistant messages — shown on hover */
+function MessageCopyBtn({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  if (!text) return null;
+  return (
+    <button
+      className={`msg-copy-btn${copied ? " copied" : ""}`}
+      onClick={() => {
+        navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        });
+      }}
+      title="复制消息"
+    >
+      {copied ? (
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+      ) : (
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+      )}
+    </button>
+  );
+}
+
 const mdComponents = {
   code: CodeBlock as never,
   table: MdTable as never,
@@ -2768,6 +2792,7 @@ export function ChatPage() {
                                                   return ` \u00b7 ${m.model}`;
                                                 return "";
                                               })()}
+                                              {m.role === "assistant" && !m.streaming && <MessageCopyBtn text={parsed.text} />}
                                             </div>
                                           )}
                                         </>
@@ -2835,6 +2860,7 @@ export function ChatPage() {
                                           return ` \u00b7 ${m.model}`;
                                         return "";
                                       })()}
+                                      <MessageCopyBtn text={parsed.text} />
                                     </div>
                                   )}
                                 </div>

@@ -362,6 +362,39 @@
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.msg-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  margin-left: 4px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    color 0.15s;
+  line-height: 0;
+}
+
+.message-bubble:hover .msg-copy-btn,
+.msg-copy-btn.copied {
+  opacity: 1;
+}
+
+.msg-copy-btn:hover {
+  color: var(--accent);
+}
+
+.msg-copy-btn.copied {
+  color: var(--accent);
 }
 
 .message-row.user .message-meta {
