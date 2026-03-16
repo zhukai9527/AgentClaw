@@ -948,10 +948,11 @@ function parseSubAgentTasks(entry: ToolCallEntry): SubAgentTask[] | null {
     }
 
     // If tool_result is available, parse final results
+    // Split on ✓/✗ task markers (not \n\n, which may appear inside results)
     if (entry.toolResult) {
-      const blocks = entry.toolResult.split("\n\n");
-      for (let i = 0; i < blocks.length && i < tasks.length; i++) {
-        const block = blocks[i];
+      const taskBlocks = entry.toolResult.split(/\n\n(?=[✓✗] Task \d+:)/);
+      for (let i = 0; i < taskBlocks.length && i < tasks.length; i++) {
+        const block = taskBlocks[i].trim();
         if (block.startsWith("✓")) {
           tasks[i].status = "completed";
           const lines = block.split("\n");
