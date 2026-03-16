@@ -28,6 +28,13 @@ import {
   copyFileSync,
   unlinkSync,
 } from "node:fs";
+import {
+  buildObfuscationMap,
+  obfuscateString,
+  obfuscateMessages,
+  restoreString,
+  type ObfuscationMap,
+} from "./env-obfuscator.js";
 import { join, basename } from "node:path";
 
 /**
@@ -230,6 +237,9 @@ export class SimpleAgentLoop implements AgentLoop {
     }
     const convId = conversationId ?? generateId();
     const startTime = Date.now();
+
+    // Build env obfuscation map once per run (reused across iterations)
+    const envMap = buildObfuscationMap();
 
     // Accumulators across all LLM iterations
     let totalTokensIn = 0;
@@ -492,9 +502,13 @@ export class SimpleAgentLoop implements AgentLoop {
         },
       }));
 
+      // Obfuscate sensitive env values before sending to LLM provider
+      const safeMessages = obfuscateMessages(messages, envMap);
+      const safeSystemPrompt = obfuscateString(systemPrompt, envMap);
+
       const stream = this.provider.stream({
-        messages,
-        systemPrompt,
+        messages: safeMessages,
+        systemPrompt: safeSystemPrompt,
         tools,
         model: this._config.model,
         temperature: this._config.temperature,
@@ -594,6 +608,9 @@ export class SimpleAgentLoop implements AgentLoop {
       // 流异常时跳过工具调用，直接结束本轮循环
       if (streamError) break;
 
+      // Restore any obfuscated env placeholders in LLM text output
+      fullText = restoreString(fullText, envMap);
+
       // Build tool calls from accumulated chunks
       // Extract _intent from each tool call (Intent Tracing) — strip before execution
       const toolCalls: (ToolUseContent & { intent?: string })[] = [];
@@ -613,11 +630,16 @@ export class SimpleAgentLoop implements AgentLoop {
             : undefined;
         delete parsedInput._intent;
 
+        // Restore obfuscated env placeholders in tool args so tools get real values
+        const restoredInput = JSON.parse(
+          restoreString(JSON.stringify(parsedInput), envMap),
+        ) as Record<string, unknown>;
+
         const call: ToolUseContent & { intent?: string } = {
           type: "tool_use",
           id: tc.id,
           name: tc.name,
-          input: parsedInput,
+          input: restoredInput,
         };
         if (intent) call.intent = intent;
         toolCalls.push(call);

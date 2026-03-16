@@ -4,6 +4,7 @@
 
 ### 新功能
 - **Intent Tracing（意图追踪）**：每个工具 schema 自动注入 `_intent` 字段，LLM 调用工具时必须说明意图；intent 在执行前剥离（不传给工具），通过 WS 事件传递到前端，ToolCallCard 优先显示 intent 作为工具调用摘要，提升 agent 行为的可解释性
+- **环境变量双向混淆**：发送到 LLM 的 messages 和 systemPrompt 中，敏感环境变量值（匹配 KEY/TOKEN/SECRET/PASSWORD 模式）自动替换为 `<<$env:VAR_NAME>>` 占位符；LLM 输出和工具参数中的占位符在执行前自动还原，防止密钥泄露到 provider 训练数据
 
 ## [1.4.2] - 2026-03-16
 
