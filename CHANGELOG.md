@@ -5,6 +5,7 @@
 ### 新功能
 - **工具并行执行**：LLM 一次返回多个工具调用时，纯工具（file_read/glob/grep/web_search/web_fetch/use_skill）自动并行执行，非纯工具作为屏障串行执行；3 个 web_search 并行时延迟从 3x RTT 降至 1x RTT
 - **每日简报启停开关**：Tasks 页面新增 toggle 开关，点击即时生效，关闭后 cron job 不创建
+- **重复工具调用防护**：同一工具+相同参数在同一 session 中调用超过 2 次自动拦截，强制模型使用已有结果，防止 agent 循环失控无限搜索
 
 ### 修复
 - **getHistory 返回最旧记录**：`ORDER BY ASC LIMIT N` 返回最旧 N 条而非最新，超 50 轮对话后 agent 完全失忆；改用子查询取最新 N 条再正排

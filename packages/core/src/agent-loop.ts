@@ -374,6 +374,10 @@ export class SimpleAgentLoop implements AgentLoop {
     const toolFailCounts = new Map<string, number>();
     const MAX_TOOL_FAILURES = 2;
 
+    // Track per-tool call counts to detect repetitive calling (success or fail)
+    const toolCallCounts = new Map<string, number>();
+    const MAX_DUPLICATE_CALLS = 2; // same tool+params called >2 times → short-circuit
+
     // Skill injection is handled entirely by use_skill tool — no auto-injection.
     // This keeps the system prompt lean; LLM decides which skill to load.
     const effectiveSkillName = context?.preSelectedSkillName;
@@ -752,12 +756,22 @@ export class SimpleAgentLoop implements AgentLoop {
         const toolStart = Date.now();
 
         if (!blockedByPolicy) {
-          const failKey = buildFailKey(effectiveToolName, effectiveToolInput);
-          const priorFails = toolFailCounts.get(failKey) ?? 0;
+          const dupKey = buildFailKey(effectiveToolName, effectiveToolInput);
+          const priorCalls = toolCallCounts.get(dupKey) ?? 0;
+          toolCallCounts.set(dupKey, priorCalls + 1);
 
-          if (priorFails >= MAX_TOOL_FAILURES) {
+          // Detect repetitive calls — same tool+params called too many times
+          if (priorCalls >= MAX_DUPLICATE_CALLS) {
+            console.log(
+              `[agent-loop] Duplicate call blocked: ${effectiveToolName} (${priorCalls + 1}x)`,
+            );
             result = {
-              content: `This tool has failed ${priorFails} times in this conversation. Stop retrying and tell the user what went wrong.`,
+              content: `You have already called ${effectiveToolName} with the same parameters ${priorCalls} times. Use the results you already have. Do NOT search again — synthesize your answer from existing information.`,
+              isError: true,
+            };
+          } else if (toolFailCounts.get(dupKey) ?? 0 >= MAX_TOOL_FAILURES) {
+            result = {
+              content: `This tool has failed ${toolFailCounts.get(dupKey)} times in this conversation. Stop retrying and tell the user what went wrong.`,
               isError: true,
             };
           } else {
