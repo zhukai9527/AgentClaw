@@ -176,7 +176,7 @@ export class SimpleSubAgentManager implements SubAgentManager {
       return { entry, index: i, goal };
     });
 
-    // Run with concurrency control
+    // Run with concurrency control + cross-feed results
     let next = 0;
     const runNext = async (): Promise<void> => {
       while (next < entries.length) {
@@ -199,6 +199,16 @@ export class SimpleSubAgentManager implements SubAgentManager {
           entry.info.status,
           entry.info.result,
         );
+
+        // Cross-feed: steer still-running siblings with this result
+        if (entry.info.result && entries.length > 1) {
+          const summary = `[Sibling agent completed] Task: ${goal}\nResult: ${entry.info.result.slice(0, 500)}`;
+          for (const other of entries) {
+            if (other.entry.info.status === "running") {
+              other.entry.pendingInstructions.push(summary);
+            }
+          }
+        }
       }
     };
 
@@ -245,12 +255,15 @@ export class SimpleSubAgentManager implements SubAgentManager {
   }
 
   private async runAgent(entry: SubAgentEntry): Promise<void> {
+    const backgroundQueue: ToolExecutionContext["backgroundQueue"] = [];
+
     const subContext: ToolExecutionContext = {
       sendFile: this.parentContext?.sendFile,
       sentFiles: [],
       saveMemory: this.parentContext?.saveMemory,
       scheduler: this.parentContext?.scheduler,
       skillRegistry: this.parentContext?.skillRegistry,
+      backgroundQueue,
       // No subAgentManager — prevent sub-agent recursion
     };
 
@@ -272,6 +285,19 @@ export class SimpleSubAgentManager implements SubAgentManager {
         } else if (event.type === "thinking") {
           const data = event.data as { iteration?: number };
           if (data.iteration) iterations = data.iteration;
+
+          // Drain pending steer instructions into backgroundQueue
+          // so agent-loop picks them up as runtime hints
+          while (entry.pendingInstructions.length > 0) {
+            const instruction = entry.pendingInstructions.shift()!;
+            backgroundQueue.push({
+              id: `steer-${Date.now()}`,
+              command: "[steer from sibling agent]",
+              content: instruction,
+              isError: false,
+              completedAt: new Date(),
+            });
+          }
         }
       }
 
