@@ -176,12 +176,12 @@ export function CodeBlock({
     );
   }
 
-  /* Single-line code block without preview → lightweight render */
+  /* Single-line code block without preview → render inline like `backtick` */
   if (!code.includes("\n") && !canPreview) {
     return (
-      <div className="code-block-single">
+      <span className="code-block-single">
         <code>{code}</code>
-      </div>
+      </span>
     );
   }
 
