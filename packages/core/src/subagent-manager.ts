@@ -72,7 +72,7 @@ export class SimpleSubAgentManager implements SubAgentManager {
   ): SubAgentEntry {
     const id = generateId();
     const convId = generateId();
-    const maxIterations = options?.maxIterations ?? 8;
+    const maxIterations = options?.maxIterations ?? 15;
 
     // Build tool registry — filter if allowedTools specified, always strip blocked tools
     let toolRegistry: ToolRegistryImpl;

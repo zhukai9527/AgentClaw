@@ -33,7 +33,7 @@ export const subagentTool: Tool = {
       },
       maxIterations: {
         type: "number",
-        description: "Max iterations per sub-agent (default: 8)",
+        description: "Max iterations per sub-agent (default: 15)",
       },
       model: {
         type: "string",
