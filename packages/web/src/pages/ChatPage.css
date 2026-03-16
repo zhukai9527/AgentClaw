@@ -341,6 +341,7 @@
   background: transparent;
   color: var(--text-primary);
   padding-left: 0;
+  max-width: 100%;
 }
 
 .message-row.system .message-bubble {
