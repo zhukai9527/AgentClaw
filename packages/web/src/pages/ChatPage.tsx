@@ -602,7 +602,11 @@ function MdTable({ children, ...props }: React.TableHTMLAttributes<HTMLTableElem
         }}
         title="复制表格 Markdown"
       >
-        {copied ? "✓" : "⧉"}
+        {copied ? (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="3" ry="3" /><path d="M5 15H4a3 3 0 0 1-3-3V4a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v1" /></svg>
+        )}
       </button>
       <table ref={ref} {...props}>
         {children}
