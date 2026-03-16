@@ -549,13 +549,71 @@ function PreviewPanel({
 
 /* ── Stable ReactMarkdown components (avoid re-mount on re-render) ── */
 
+/** Extract markdown table from a <table> DOM element */
+function tableToMarkdown(table: HTMLTableElement): string {
+  const rows: string[][] = [];
+  table.querySelectorAll("tr").forEach((tr) => {
+    const cells: string[] = [];
+    tr.querySelectorAll("th, td").forEach((cell) => {
+      cells.push((cell as HTMLElement).innerText.replace(/\|/g, "\\|").trim());
+    });
+    if (cells.length > 0) rows.push(cells);
+  });
+  if (rows.length === 0) return "";
+  const colCount = Math.max(...rows.map((r) => r.length));
+  const pad = (arr: string[]) => {
+    while (arr.length < colCount) arr.push("");
+    return arr;
+  };
+  const header = `| ${pad(rows[0]).join(" | ")} |`;
+  const sep = `| ${pad(rows[0]).map(() => "---").join(" | ")} |`;
+  const body = rows
+    .slice(1)
+    .map((r) => `| ${pad(r).join(" | ")} |`)
+    .join("\n");
+  return `${header}\n${sep}\n${body}`;
+}
+
+function MdTable({ children, ...props }: React.TableHTMLAttributes<HTMLTableElement>) {
+  const ref = useRef<HTMLTableElement>(null);
+  const [copied, setCopied] = useState(false);
+  const [tapped, setTapped] = useState(false);
+
+  const handleCopy = () => {
+    if (!ref.current) return;
+    const md = tableToMarkdown(ref.current);
+    navigator.clipboard.writeText(md).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div
+      className={`table-wrapper${tapped ? " tapped" : ""}`}
+      onClick={() => setTapped(true)}
+      onMouseLeave={() => setTapped(false)}
+    >
+      <button
+        className={`table-copy-btn${copied ? " copied" : ""}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleCopy();
+        }}
+        title="复制表格 Markdown"
+      >
+        {copied ? "✓" : "⧉"}
+      </button>
+      <table ref={ref} {...props}>
+        {children}
+      </table>
+    </div>
+  );
+}
+
 const mdComponents = {
   code: CodeBlock as never,
-  table: ({ children, ...props }: React.TableHTMLAttributes<HTMLTableElement>) => (
-    <div className="table-wrapper">
-      <table {...props}>{children}</table>
-    </div>
-  ),
+  table: MdTable as never,
   img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
     <img
       src={src}
