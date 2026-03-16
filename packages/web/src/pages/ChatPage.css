@@ -1550,6 +1550,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   cursor: pointer;
+  max-width: 100%;
   transition:
     border-color 0.15s,
     background 0.15s;
@@ -1569,6 +1570,10 @@
   font-size: 14px;
   color: var(--text-primary);
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .html-preview-badge {
@@ -1578,6 +1583,8 @@
   padding: 2px 8px;
   border-radius: 10px;
   font-weight: 600;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 /* ── Chat Body (horizontal flex: main + preview panel) ── */
