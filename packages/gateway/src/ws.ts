@@ -428,17 +428,21 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
               continue;
             switch (event.type) {
               case "tool_call": {
-                const data = event.data as { name: string; input: unknown };
-                streamSend(
-                  JSON.stringify({
-                    type: "tool_call",
-                    toolName: data.name,
-                    toolInput:
-                      typeof data.input === "string"
-                        ? data.input
-                        : JSON.stringify(data.input),
-                  }),
-                );
+                const data = event.data as {
+                  name: string;
+                  input: unknown;
+                  intent?: string;
+                };
+                const msg: Record<string, unknown> = {
+                  type: "tool_call",
+                  toolName: data.name,
+                  toolInput:
+                    typeof data.input === "string"
+                      ? data.input
+                      : JSON.stringify(data.input),
+                };
+                if (data.intent) msg.intent = data.intent;
+                streamSend(JSON.stringify(msg));
                 break;
               }
               case "tool_result": {

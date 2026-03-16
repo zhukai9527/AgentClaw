@@ -475,7 +475,22 @@ export class SimpleAgentLoop implements AgentLoop {
       > = new Map();
       let toolIndex = 0;
 
-      const tools = this.toolRegistry.definitions();
+      // Inject _intent field into each tool schema for Intent Tracing.
+      // LLM must state its intent before calling a tool → improves explainability.
+      const tools = this.toolRegistry.definitions().map((t) => ({
+        ...t,
+        parameters: {
+          ...t.parameters,
+          properties: {
+            _intent: {
+              type: "string" as const,
+              description: "Why you are calling this tool (1 sentence)",
+            },
+            ...t.parameters.properties,
+          },
+          required: ["_intent", ...(t.parameters.required ?? [])],
+        },
+      }));
 
       const stream = this.provider.stream({
         messages,
@@ -580,7 +595,8 @@ export class SimpleAgentLoop implements AgentLoop {
       if (streamError) break;
 
       // Build tool calls from accumulated chunks
-      const toolCalls: ToolUseContent[] = [];
+      // Extract _intent from each tool call (Intent Tracing) — strip before execution
+      const toolCalls: (ToolUseContent & { intent?: string })[] = [];
       for (const [, tc] of pendingToolCalls) {
         let parsedInput: Record<string, unknown> = {};
         if (tc.args) {
@@ -590,12 +606,21 @@ export class SimpleAgentLoop implements AgentLoop {
             parsedInput = { _raw: tc.args };
           }
         }
-        toolCalls.push({
+        // Extract and strip _intent
+        const intent =
+          typeof parsedInput._intent === "string"
+            ? (parsedInput._intent as string)
+            : undefined;
+        delete parsedInput._intent;
+
+        const call: ToolUseContent & { intent?: string } = {
           type: "tool_use",
           id: tc.id,
           name: tc.name,
           input: parsedInput,
-        });
+        };
+        if (intent) call.intent = intent;
+        toolCalls.push(call);
       }
 
       totalToolCalls += toolCalls.length;
@@ -852,14 +877,21 @@ export class SimpleAgentLoop implements AgentLoop {
 
         // Emit tool_call events for all tools in this batch
         for (const tc of batch.calls) {
-          yield this.createEvent("tool_call", {
+          const eventData: Record<string, unknown> = {
             name: tc.name,
             input: tc.input,
-          });
+          };
+          if ((tc as { intent?: string }).intent) {
+            eventData.intent = (tc as { intent?: string }).intent;
+          }
+          yield this.createEvent("tool_call", eventData);
           trace.steps.push({
             type: "tool_call",
             name: tc.name,
             input: tc.input,
+            ...((tc as { intent?: string }).intent
+              ? { intent: (tc as { intent?: string }).intent }
+              : {}),
           } as TraceStep);
         }
 

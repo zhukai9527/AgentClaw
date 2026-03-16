@@ -77,6 +77,8 @@ interface ToolCallEntry {
   collapsed: boolean;
   durationMs?: number;
   progressLines?: string[];
+  /** Intent Tracing — LLM's stated reason for calling this tool */
+  intent?: string;
 }
 
 interface DisplayMessage {
@@ -831,7 +833,11 @@ function ToolCallCard({ entry }: { entry: ToolCallEntry }) {
   const rotationRef = useRef(0);
   const { theme } = useTheme();
   const jsonStyle = theme === "dark" ? darkStyles : defaultStyles;
-  const label = toolCallLabel(entry.toolName, entry.toolInput);
+  // Intent Tracing: prefer LLM-stated intent over heuristic label
+  const heuristic = toolCallLabel(entry.toolName, entry.toolInput);
+  const label = entry.intent
+    ? { name: heuristic.name, summary: entry.intent }
+    : heuristic;
 
   const handleToggle = () => {
     rotationRef.current += 90;
@@ -1423,6 +1429,7 @@ export function ChatPage() {
           toolName: msg.toolName ?? "unknown",
           toolInput: msg.toolInput ?? "",
           collapsed: true,
+          intent: msg.intent,
         };
         setActiveToolName(msg.toolName ?? null);
         setMessages((prev) => {
