@@ -551,6 +551,11 @@ function PreviewPanel({
 
 const mdComponents = {
   code: CodeBlock as never,
+  table: ({ children, ...props }: React.TableHTMLAttributes<HTMLTableElement>) => (
+    <div className="table-wrapper">
+      <table {...props}>{children}</table>
+    </div>
+  ),
   img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
     <img
       src={src}
