@@ -126,6 +126,7 @@ export const webFetchTool: Tool = {
   description:
     "Fetch URL content as text (HTML auto-converted). Handles JS-rendered sites (x.com, zhihu, weibo, bilibili etc.) via Playwright fallback. Use save_as to save content directly as a file (skips LLM rewriting). Combine with auto_send to deliver the file to the user in one step.",
   category: "builtin",
+  pure: true,
   parameters: {
     type: "object",
     properties: {

@@ -10,6 +10,7 @@ import type {
   ImageContent,
   ToolUseContent,
   ToolResultContent,
+  ToolResult,
   ToolExecutionContext,
   LLMProvider,
   ContextManager,
@@ -693,34 +694,30 @@ export class SimpleAgentLoop implements AgentLoop {
       };
       await this.memoryStore.addTurn(convId, assistantTurn);
 
-      // Execute tool calls
+      // Execute tool calls — pure tools run in parallel, impure tools act as barriers
       this.setState("tool_calling");
       let iterationErrorCount = 0;
       let hasAutoComplete = false;
 
-      for (const toolCall of toolCalls) {
-        if (this.aborted) break;
+      // Helper: execute a single tool call (no yielding — pure computation)
+      type ToolExecResult = {
+        toolCall: (typeof toolCalls)[0];
+        effectiveToolName: string;
+        effectiveToolInput: Record<string, unknown>;
+        result: ToolResult;
+        toolDurationMs: number;
+        blockedByPolicy: boolean;
+      };
 
-        yield this.createEvent("tool_call", {
-          name: toolCall.name,
-          input: toolCall.input,
-        });
-
-        // Record tool_call in trace
-        trace.steps.push({
-          type: "tool_call",
-          name: toolCall.name,
-          input: toolCall.input,
-        } as TraceStep);
-
-        // Mutable tool name/input — hooks may modify these
-        let effectiveToolName = toolCall.name;
-        let effectiveToolInput = toolCall.input;
-
-        // Check tool access policy
-        let result!: Awaited<ReturnType<typeof this.toolRegistry.execute>>;
+      const executeOne = async (
+        tc: (typeof toolCalls)[0],
+      ): Promise<ToolExecResult> => {
+        let effectiveToolName = tc.name;
+        let effectiveToolInput = tc.input;
+        let result!: ToolResult;
         let blockedByPolicy = false;
 
+        // Check tool access policy
         if (context?.toolPolicy) {
           const { allow, deny } = context.toolPolicy;
           const denied = deny?.includes(effectiveToolName);
@@ -755,7 +752,6 @@ export class SimpleAgentLoop implements AgentLoop {
         const toolStart = Date.now();
 
         if (!blockedByPolicy) {
-          // Check if this tool has already failed too many times across iterations
           const failKey = buildFailKey(effectiveToolName, effectiveToolInput);
           const priorFails = toolFailCounts.get(failKey) ?? 0;
 
@@ -804,114 +800,186 @@ export class SimpleAgentLoop implements AgentLoop {
         }
 
         const toolDurationMs = Date.now() - toolStart;
+        return {
+          toolCall: tc,
+          effectiveToolName,
+          effectiveToolInput,
+          result,
+          toolDurationMs,
+          blockedByPolicy,
+        };
+      };
 
-        // Update per-tool failure tracking (skip for policy/hook blocks)
-        if (!blockedByPolicy) {
-          const failKey = buildFailKey(effectiveToolName, effectiveToolInput);
-          if (result!.isError) {
-            toolFailCounts.set(failKey, (toolFailCounts.get(failKey) ?? 0) + 1);
-          } else {
-            toolFailCounts.delete(failKey);
+      // Split tool calls into batches: consecutive pure tools → parallel, impure → barrier
+      type ToolBatch = { parallel: boolean; calls: typeof toolCalls };
+      const batches: ToolBatch[] = [];
+      let pureBatch: typeof toolCalls = [];
+
+      for (const tc of toolCalls) {
+        const toolDef = this.toolRegistry.get(tc.name);
+        if (toolDef?.pure) {
+          pureBatch.push(tc);
+        } else {
+          if (pureBatch.length > 0) {
+            batches.push({ parallel: true, calls: pureBatch });
+            pureBatch = [];
           }
+          batches.push({ parallel: false, calls: [tc] });
+        }
+      }
+      if (pureBatch.length > 0) {
+        batches.push({ parallel: true, calls: pureBatch });
+      }
+
+      // Execute batches
+      let earlyReturn = false;
+      for (const batch of batches) {
+        if (this.aborted || earlyReturn) break;
+
+        // Emit tool_call events for all tools in this batch
+        for (const tc of batch.calls) {
+          yield this.createEvent("tool_call", {
+            name: tc.name,
+            input: tc.input,
+          });
+          trace.steps.push({
+            type: "tool_call",
+            name: tc.name,
+            input: tc.input,
+          } as TraceStep);
         }
 
-        if (result.autoComplete) hasAutoComplete = true;
+        // Execute: parallel for pure batches (>1), sequential otherwise
+        let execResults: ToolExecResult[];
+        if (batch.parallel && batch.calls.length > 1) {
+          console.log(
+            `[agent-loop] Executing ${batch.calls.length} pure tools in parallel: ${batch.calls.map((t) => t.name).join(", ")}`,
+          );
+          execResults = await Promise.all(
+            batch.calls.map((tc) => executeOne(tc)),
+          );
+        } else {
+          execResults = [await executeOne(batch.calls[0])];
+        }
 
-        // Handoff: signal orchestrator to switch agent
-        if (result.handoffTo) {
+        // Process results sequentially (yield events, store turns, handle handoff)
+        for (const r of execResults) {
+          // Update per-tool failure tracking
+          if (!r.blockedByPolicy) {
+            const failKey = buildFailKey(
+              r.effectiveToolName,
+              r.effectiveToolInput,
+            );
+            if (r.result.isError) {
+              toolFailCounts.set(
+                failKey,
+                (toolFailCounts.get(failKey) ?? 0) + 1,
+              );
+            } else {
+              toolFailCounts.delete(failKey);
+            }
+          }
+
+          if (r.result.autoComplete) hasAutoComplete = true;
+
+          // Handoff: signal orchestrator to switch agent
+          if (r.result.handoffTo) {
+            yield this.createEvent("tool_result", {
+              name: r.toolCall.name,
+              result: r.result,
+              durationMs: r.toolDurationMs,
+            });
+            trace.steps.push({
+              type: "tool_result",
+              name: r.toolCall.name,
+              content: r.result.content,
+              durationMs: r.toolDurationMs,
+            } as TraceStep);
+            const handoffToolResult: ToolResultContent = {
+              type: "tool_result",
+              toolUseId: r.toolCall.id,
+              content: r.result.content,
+              isError: false,
+            };
+            await this.memoryStore.addTurn(convId, {
+              id: generateId(),
+              conversationId: convId,
+              role: "tool",
+              content: JSON.stringify([handoffToolResult]),
+              toolResults: JSON.stringify([
+                {
+                  toolUseId: r.toolCall.id,
+                  ...r.result,
+                  durationMs: r.toolDurationMs,
+                },
+              ]),
+              createdAt: new Date(),
+            });
+            const hDuration = Date.now() - startTime;
+            trace.model = usedModel;
+            trace.tokensIn = totalTokensIn;
+            trace.tokensOut = totalTokensOut;
+            trace.durationMs = hDuration;
+            try {
+              await this.memoryStore.addTrace(trace);
+            } catch (e) {
+              console.error("[agent-loop] Failed to persist trace:", e);
+            }
+            yield this.createEvent("handoff", {
+              targetAgentId: r.result.handoffTo,
+              reason: r.result.content,
+              tokensIn: totalTokensIn,
+              tokensOut: totalTokensOut,
+              toolCallCount: totalToolCalls,
+              durationMs: hDuration,
+              model: usedModel,
+            });
+            this.setState("idle");
+            return;
+          }
+
           yield this.createEvent("tool_result", {
-            name: toolCall.name,
-            result,
-            durationMs: toolDurationMs,
+            name: r.toolCall.name,
+            result: r.result,
+            durationMs: r.toolDurationMs,
           });
-          // Record in trace
+
           trace.steps.push({
             type: "tool_result",
-            name: toolCall.name,
-            content: result.content,
-            durationMs: toolDurationMs,
+            name: r.toolCall.name,
+            content: r.result.content,
+            isError: r.result.isError,
+            durationMs: r.toolDurationMs,
           } as TraceStep);
-          // Store tool result turn
-          const handoffToolResult: ToolResultContent = {
+
+          // Sanitize tool output to remove lone surrogates that break JSON/API calls
+          r.result.content = sanitizeString(r.result.content);
+
+          const toolResultContent: ToolResultContent = {
             type: "tool_result",
-            toolUseId: toolCall.id,
-            content: result.content,
-            isError: false,
+            toolUseId: r.toolCall.id,
+            content: r.result.content,
+            isError: r.result.isError,
           };
-          await this.memoryStore.addTurn(convId, {
+
+          const toolTurn: ConversationTurn = {
             id: generateId(),
             conversationId: convId,
             role: "tool",
-            content: JSON.stringify([handoffToolResult]),
+            content: JSON.stringify([toolResultContent]),
             toolResults: JSON.stringify([
-              { toolUseId: toolCall.id, ...result, durationMs: toolDurationMs },
+              {
+                toolUseId: r.toolCall.id,
+                ...r.result,
+                durationMs: r.toolDurationMs,
+              },
             ]),
             createdAt: new Date(),
-          });
-          // Persist trace before handing off
-          const hDuration = Date.now() - startTime;
-          trace.model = usedModel;
-          trace.tokensIn = totalTokensIn;
-          trace.tokensOut = totalTokensOut;
-          trace.durationMs = hDuration;
-          try {
-            await this.memoryStore.addTrace(trace);
-          } catch (e) {
-            console.error("[agent-loop] Failed to persist trace:", e);
-          }
-          // Yield handoff event for orchestrator to handle
-          yield this.createEvent("handoff", {
-            targetAgentId: result.handoffTo,
-            reason: result.content,
-            tokensIn: totalTokensIn,
-            tokensOut: totalTokensOut,
-            toolCallCount: totalToolCalls,
-            durationMs: hDuration,
-            model: usedModel,
-          });
-          this.setState("idle");
-          return; // Exit agent-loop — orchestrator will continue with new agent
+          };
+          await this.memoryStore.addTurn(convId, toolTurn);
+
+          if (r.result.isError) iterationErrorCount++;
         }
-
-        yield this.createEvent("tool_result", {
-          name: toolCall.name,
-          result,
-          durationMs: toolDurationMs,
-        });
-
-        // Record tool_result in trace
-        trace.steps.push({
-          type: "tool_result",
-          name: toolCall.name,
-          content: result.content,
-          isError: result.isError,
-          durationMs: toolDurationMs,
-        } as TraceStep);
-
-        // Sanitize tool output to remove lone surrogates that break JSON/API calls
-        result.content = sanitizeString(result.content);
-
-        // Store tool result as a turn
-        const toolResultContent: ToolResultContent = {
-          type: "tool_result",
-          toolUseId: toolCall.id,
-          content: result.content,
-          isError: result.isError,
-        };
-
-        const toolTurn: ConversationTurn = {
-          id: generateId(),
-          conversationId: convId,
-          role: "tool",
-          content: JSON.stringify([toolResultContent]),
-          toolResults: JSON.stringify([
-            { toolUseId: toolCall.id, ...result, durationMs: toolDurationMs },
-          ]),
-          createdAt: new Date(),
-        };
-        await this.memoryStore.addTurn(convId, toolTurn);
-
-        if (result.isError) iterationErrorCount++;
       }
 
       // Drain sentFiles from context into accumulator (dedup by URL)

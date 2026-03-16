@@ -2,6 +2,10 @@
 
 ## [1.4.2] - 2026-03-16
 
+### 新功能
+- **工具并行执行**：LLM 一次返回多个工具调用时，纯工具（file_read/glob/grep/web_search/web_fetch/use_skill）自动并行执行，非纯工具作为屏障串行执行；3 个 web_search 并行时延迟从 3x RTT 降至 1x RTT
+- **每日简报启停开关**：Tasks 页面新增 toggle 开关，点击即时生效，关闭后 cron job 不创建
+
 ### 修复
 - **getHistory 返回最旧记录**：`ORDER BY ASC LIMIT N` 返回最旧 N 条而非最新，超 50 轮对话后 agent 完全失忆；改用子查询取最新 N 条再正排
 - **memories 表重建丢失 FTS 索引**：`rebuildMemoriesTableIfNeeded` 后 `memories_fts` 残留旧数据，全文搜索完全失效；重建后同步清理并重插 FTS

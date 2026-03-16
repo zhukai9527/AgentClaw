@@ -6,6 +6,7 @@ export const grepTool: Tool = {
   description:
     "Search file contents by regex pattern. Returns matching lines with file paths and line numbers. Use this instead of shell('grep ...') — structured parameters, cross-platform, no escaping issues.",
   category: "builtin",
+  pure: true,
   parameters: {
     type: "object",
     properties: {

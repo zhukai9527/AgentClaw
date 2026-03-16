@@ -70,6 +70,7 @@ export const useSkillTool: Tool = {
   description:
     "Load a skill's detailed instructions by name. Call this BEFORE executing a skill-related task so you know the exact commands and rules.",
   category: "builtin",
+  pure: true,
   parameters: {
     type: "object",
     properties: {

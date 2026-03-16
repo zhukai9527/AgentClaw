@@ -5,6 +5,7 @@ export const globTool: Tool = {
   description:
     "Find files by name pattern. Returns matching file paths. Use this instead of shell('find ...') — structured parameters, no escaping issues.",
   category: "builtin",
+  pure: true,
   parameters: {
     type: "object",
     properties: {

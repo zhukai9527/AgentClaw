@@ -115,6 +115,9 @@ export interface ToolExecutionContext {
 /** A tool that can be executed */
 export interface Tool extends ToolDefinition {
   category: ToolCategory;
+  /** Pure tools (read-only, no side effects) can be executed in parallel when
+   *  the LLM requests multiple tool calls in a single response. Default: false. */
+  pure?: boolean;
   execute(
     input: Record<string, unknown>,
     context?: ToolExecutionContext,

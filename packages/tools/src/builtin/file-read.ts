@@ -6,6 +6,7 @@ export const fileReadTool: Tool = {
   name: "file_read",
   description: "Read a file.",
   category: "builtin",
+  pure: true,
   parameters: {
     type: "object",
     properties: {

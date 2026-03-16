@@ -157,6 +157,7 @@ export const webSearchTool: Tool = {
   description:
     "Search the web via SearXNG/Serper. Returns titles, URLs and snippets.",
   category: "builtin",
+  pure: true,
   parameters: {
     type: "object",
     properties: {
