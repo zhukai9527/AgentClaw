@@ -640,6 +640,7 @@ function MessageCopyBtn({ text }: { text: string }) {
 }
 
 const mdComponents = {
+  pre: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   code: CodeBlock as never,
   table: MdTable as never,
   img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
