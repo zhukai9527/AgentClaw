@@ -37,6 +37,22 @@ const TOOL_ALIASES: Record<string, string> = {
  * Communication with parent via Node.js IPC (process.send / process.on).
  */
 const RUNNER_CODE = `
+/*
+ * Available async globals (all require await):
+ *   await web_search(query)        → string[] (one entry per result)
+ *   await web_fetch(url)           → string (page content as Markdown, NOT HTML)
+ *   await file_read(path)          → string (file content)
+ *   await file_write(path, content)→ string (confirmation)
+ *   await shell(command)           → string (stdout)
+ *   await glob(pattern)            → string[] (array of file paths)
+ *   await grep(pattern, {path})    → string[] (array of matching lines)
+ *   await callTool(name, inputObj) → string (raw tool result)
+ *
+ * IMPORTANT: All functions are async — always use await!
+ * web_search, glob, grep return arrays. Others return strings.
+ * Do NOT use require() or import external packages.
+ */
+
 function callTool(name, input) {
   return new Promise((resolve, reject) => {
     const id = Math.random().toString(36).slice(2);
@@ -52,10 +68,12 @@ function callTool(name, input) {
   });
 }
 
-// High-level helpers — return JS-friendly types
-// glob returns string[], others return string
-globalThis.web_search = (query, max_results) =>
-  callTool('web_search', { query, ...(max_results != null ? { max_results } : {}) });
+// Tool stubs — glob and grep return arrays, others return strings
+globalThis.web_search = async (query, max_results) => {
+  const raw = await callTool('web_search', { query, ...(max_results != null ? { max_results } : {}) });
+  // Split into per-result blocks (separated by blank lines)
+  return raw.trim().split(/\\n\\n+/).filter(Boolean);
+};
 globalThis.web_fetch = (url) => callTool('web_fetch', { url });
 globalThis.file_read = (path) => callTool('file_read', { path });
 globalThis.file_write = (path, content) => callTool('file_write', { path, content });
@@ -65,8 +83,10 @@ globalThis.glob = async (pattern, cwd) => {
   const raw = await callTool('glob', typeof cwd === 'string' ? { pattern, cwd } : { pattern });
   return raw.trim() ? raw.trim().split('\\n') : [];
 };
-globalThis.grep = (pattern, opts) =>
-  callTool('grep', typeof opts === 'object' ? { pattern, ...opts } : { pattern });
+globalThis.grep = async (pattern, opts) => {
+  const raw = await callTool('grep', typeof opts === 'object' ? { pattern, ...opts } : { pattern });
+  return raw.trim() ? raw.trim().split('\\n') : [];
+};
 
 // Low-level: call any allowed tool by name
 globalThis.callTool = callTool;
@@ -87,16 +107,14 @@ export const executeCodeTool: Tool = {
   name: "execute_code",
   description:
     "Execute JavaScript in a child process with programmatic tool access. " +
-    "ES module with top-level await. Tool functions are globals (no import needed): " +
-    "web_search(query)→string, web_fetch(url)→string(returns Markdown, not HTML!), " +
+    "ES module, top-level await. Globals (no import needed, all async — must await): " +
+    "web_search(query)→string[], web_fetch(url)→string(Markdown, not HTML!), " +
     "file_read(path)→string, file_write(path,content)→string, shell(command)→string, " +
-    "glob(pattern)→string[] (returns array!), grep(pattern,{path})→string. " +
-    "Also: callTool(name, inputObj) for raw access. " +
-    "Only console.log() output is returned to you — intermediate tool results " +
-    "stay hidden. Use for multi-step chains (search+read+summarize) to save tokens. " +
-    "IMPORTANT: Do NOT import/require external packages (cheerio, axios, etc.) — " +
-    "use the built-in tool functions above. Do NOT use require() — " +
-    "use import for Node.js built-ins only (import fs from 'fs').",
+    "glob(pattern)→string[], grep(pattern,{path})→string[]. " +
+    "callTool(name, inputObj)→string for raw access. " +
+    "Only console.log() output is returned — intermediate results stay hidden. " +
+    "Use for multi-step chains to save tokens. " +
+    "Do NOT import/require external packages — use built-in globals above.",
   category: "builtin",
   parameters: {
     type: "object",
