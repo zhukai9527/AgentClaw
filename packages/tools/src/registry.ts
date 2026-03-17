@@ -57,12 +57,33 @@ export class ToolRegistryImpl implements ToolRegistry {
   ): Promise<ToolResult> {
     const tool = this.tools.get(name);
     if (!tool) {
-      // Auto-redirect: LLM called a skill name as if it were a tool
-      const skill = context?.skillRegistry?.get(name);
-      if (skill) {
-        const useSkill = this.tools.get("use_skill");
-        if (useSkill) {
-          return useSkill.execute({ name }, context);
+      // Auto-redirect: LLM called a skill name as if it were a tool.
+      // Handles both exact match ("agent-browser") and compound names
+      // like "agent-browser snapshot" where the skill name is a prefix.
+      const skillRegistry = context?.skillRegistry;
+      if (skillRegistry) {
+        const skill =
+          skillRegistry.get(name) ??
+          skillRegistry
+            .list()
+            .find(
+              (s) =>
+                s.enabled &&
+                name.startsWith(s.name) &&
+                (name.length === s.name.length ||
+                  name[s.name.length] === " " ||
+                  name[s.name.length] === "_"),
+            );
+        if (skill) {
+          const useSkill = this.tools.get("use_skill");
+          if (useSkill) {
+            const skillName =
+              "id" in skill ? (skill as { id: string }).id : skill.name;
+            console.log(
+              `[tool-registry] Auto-redirect "${name}" → use_skill("${skillName}")`,
+            );
+            return useSkill.execute({ name: skillName }, context);
+          }
         }
       }
       return { content: `Tool "${name}" not found`, isError: true };
