@@ -17,6 +17,7 @@ import { subagentTool } from "./subagent.js";
 import { browserCdpTool } from "./browser-cdp.js";
 import { socialPostTool } from "./social-post.js";
 import { handoffTool } from "./handoff.js";
+import { executeCodeTool } from "./execute-code.js";
 import { webFetchTool } from "./web-fetch.js";
 import { webSearchTool } from "./web-search.js";
 
@@ -36,6 +37,7 @@ export { subagentTool } from "./subagent.js";
 export { browserCdpTool } from "./browser-cdp.js";
 export { socialPostTool } from "./social-post.js";
 export { handoffTool } from "./handoff.js";
+export { executeCodeTool } from "./execute-code.js";
 
 /** Options for configuring which conditional tools to include */
 export interface BuiltinToolsOptions {
@@ -75,6 +77,7 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
       browserCdpTool,
       socialPostTool,
       handoffTool,
+      executeCodeTool,
     );
   }
   if (options?.memory) {
