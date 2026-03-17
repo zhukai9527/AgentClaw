@@ -71,6 +71,9 @@ globalThis.grep = (pattern, opts) =>
 // Low-level: call any allowed tool by name
 globalThis.callTool = callTool;
 
+// Block native fetch/http — force using sandbox tools
+globalThis.fetch = () => { throw new Error('fetch() is disabled. Use web_fetch(url) instead — it returns clean Markdown.'); };
+
 try {
   await import('./_script.mjs');
   process.send({ type: 'done' });
