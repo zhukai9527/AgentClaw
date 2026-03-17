@@ -85,13 +85,15 @@ export const executeCodeTool: Tool = {
   description:
     "Execute JavaScript in a child process with programmatic tool access. " +
     "ES module with top-level await. Tool functions are globals (no import needed): " +
-    "web_search(query)→string, web_fetch(url)→string, file_read(path)→string, " +
-    "file_write(path,content)→string, shell(command)→string, " +
+    "web_search(query)→string, web_fetch(url)→string(returns Markdown, not HTML!), " +
+    "file_read(path)→string, file_write(path,content)→string, shell(command)→string, " +
     "glob(pattern)→string[] (returns array!), grep(pattern,{path})→string. " +
     "Also: callTool(name, inputObj) for raw access. " +
     "Only console.log() output is returned to you — intermediate tool results " +
     "stay hidden. Use for multi-step chains (search+read+summarize) to save tokens. " +
-    "Do NOT use require() — use import for Node.js built-ins (import fs from 'fs').",
+    "IMPORTANT: Do NOT import/require external packages (cheerio, axios, etc.) — " +
+    "use the built-in tool functions above. Do NOT use require() — " +
+    "use import for Node.js built-ins only (import fs from 'fs').",
   category: "builtin",
   parameters: {
     type: "object",
