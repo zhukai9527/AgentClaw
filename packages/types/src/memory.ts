@@ -140,6 +140,13 @@ export interface MemoryStore {
     limit?: number,
   ): Promise<ConversationTurn[]>;
 
+  /** Full-text search conversation history */
+  searchHistory?(
+    conversationId: string,
+    query: string,
+    limit?: number,
+  ): Promise<Array<{ role: string; content: string; createdAt: string }>>;
+
   /** Delete turns from a conversation starting at (inclusive) the given timestamp */
   deleteTurnsFrom?(
     conversationId: string,

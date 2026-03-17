@@ -164,6 +164,14 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
   content,
   tokenize='unicode61'
 );
+
+-- FTS5 full-text search index for conversation history (context_search tool)
+CREATE VIRTUAL TABLE IF NOT EXISTS turns_fts USING fts5(
+  id UNINDEXED,
+  conversation_id UNINDEXED,
+  content,
+  tokenize='unicode61'
+);
 `;
 
 /**
@@ -254,6 +262,15 @@ export function initDatabase(dbPath: string): DbAdapter {
   if (ftsCount === 0 && memCount > 0) {
     db.exec(
       "INSERT INTO memories_fts (id, content) SELECT id, content FROM memories",
+    );
+  }
+
+  // Migration: populate turns FTS5 index (one-time sync)
+  const turnsFtsCount = countRows(db, "turns_fts");
+  const turnsCount = countRows(db, "turns");
+  if (turnsFtsCount === 0 && turnsCount > 0) {
+    db.exec(
+      "INSERT INTO turns_fts (id, conversation_id, content) SELECT id, conversation_id, content FROM turns",
     );
   }
 

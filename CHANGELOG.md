@@ -8,6 +8,7 @@
 - **记忆内容质量过滤**：remember 工具新增 `EPHEMERAL_PATTERNS` 检测，自动拦截新闻标题、产品发布、市场数据等瞬时内容写入长期记忆，避免浪费系统提示词 token
 - **Skill 名自动重定向**：LLM 误将 skill 名当工具调用时（如 `agent-browser snapshot`），自动识别为前缀匹配并重定向到 `use_skill`，避免 "Tool not found" 错误
 - **Programmatic Tool Calling (PTC)**：新增 `execute_code` 工具，LLM 编写 JavaScript 脚本在子进程中执行，通过 IPC 调用 7 个沙箱工具（web_search/web_fetch/file_read/file_write/shell/glob/grep），中间工具结果不进入上下文窗口，仅返回 stdout；将多步工具链压缩为单轮推理，显著降低 token 消耗。沙箱工具返回 JS 友好类型（glob/grep/web_search 返回数组），禁用原生 fetch() 强制走沙箱，runner 注入完整 API 文档注释
+- **对话历史搜索（context_search）**：新增核心工具，允许 Agent 搜索被压缩/截断的早期对话历史；基于 SQLite FTS5 全文索引（turns 表），支持关键词搜索并返回匹配的消息角色、时间戳和内容摘要；FTS 不可用时自动降级为 LIKE 搜索
 
 ## [1.4.2] - 2026-03-16
 

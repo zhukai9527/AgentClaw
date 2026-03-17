@@ -463,12 +463,70 @@ export class SQLiteMemoryStore implements MemoryStore {
           : new Date().toISOString(),
       );
 
+    // Sync to FTS index
+    const turnId = turn.id || randomUUID();
+    try {
+      this.db
+        .prepare(
+          "INSERT INTO turns_fts (id, conversation_id, content) VALUES (?, ?, ?)",
+        )
+        .run(turnId, conversationId, turn.content);
+    } catch {
+      /* FTS insert failure is non-fatal */
+    }
+
     // Update conversation's updated_at timestamp
     this.db
       .prepare(
         "UPDATE conversations SET updated_at = datetime('now') WHERE id = ?",
       )
       .run(conversationId);
+  }
+
+  /**
+   * Full-text search conversation history by keyword.
+   * Searches current conversation first, falls back to LIKE if FTS fails.
+   */
+  async searchHistory(
+    conversationId: string,
+    query: string,
+    limit = 10,
+  ): Promise<Array<{ role: string; content: string; createdAt: string }>> {
+    try {
+      // FTS5 search scoped to current conversation
+      const rows = this.db
+        .prepare(
+          `SELECT t.role, t.content, t.created_at as createdAt
+           FROM turns_fts f
+           JOIN turns t ON t.id = f.id
+           WHERE turns_fts MATCH ? AND f.conversation_id = ?
+           ORDER BY rank
+           LIMIT ?`,
+        )
+        .all(query, conversationId, limit) as Array<{
+        role: string;
+        content: string;
+        createdAt: string;
+      }>;
+      if (rows.length > 0) return rows;
+    } catch {
+      /* FTS may fail on special characters, fall through to LIKE */
+    }
+
+    // Fallback: LIKE search
+    return this.db
+      .prepare(
+        `SELECT role, content, created_at as createdAt
+         FROM turns
+         WHERE conversation_id = ? AND content LIKE ?
+         ORDER BY created_at DESC
+         LIMIT ?`,
+      )
+      .all(conversationId, `%${query}%`, limit) as Array<{
+      role: string;
+      content: string;
+      createdAt: string;
+    }>;
   }
 
   async getHistory(

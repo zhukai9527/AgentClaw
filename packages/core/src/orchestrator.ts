@@ -163,6 +163,10 @@ export class SimpleOrchestrator implements Orchestrator {
           importance: 0.8,
         });
       },
+      searchHistory: memoryStore.searchHistory
+        ? (query: string, limit?: number) =>
+            memoryStore.searchHistory!(session.conversationId, query, limit)
+        : undefined,
       scheduler: this.scheduler,
       skillRegistry: this.skillRegistry,
       toolHooks: (() => {

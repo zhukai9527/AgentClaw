@@ -100,6 +100,11 @@ export interface ToolExecutionContext {
   subAgentManager?: import("./subagent.js").SubAgentManager;
   /** Available agents for handoff tool */
   agents?: Array<{ id: string; name: string; description: string }>;
+  /** Search conversation history (turns) by keyword */
+  searchHistory?: (
+    query: string,
+    limit?: number,
+  ) => Promise<Array<{ role: string; content: string; createdAt: string }>>;
   /** Source channel (web, telegram, dingtalk, etc.) — propagated to traces */
   channel?: string;
   /** Queue for background task results — shell tool pushes, agent-loop drains */
