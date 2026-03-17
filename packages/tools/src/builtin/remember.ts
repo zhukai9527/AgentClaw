@@ -38,6 +38,21 @@ const INVISIBLE_CHARS = new Set([
 ]);
 
 /**
+ * Patterns indicating ephemeral/transient content that should NOT be memorized.
+ * These waste system prompt tokens on every future request.
+ */
+const EPHEMERAL_PATTERNS: RegExp[] = [
+  // News headlines / announcements — typically contain company + verb + product
+  /(?:发布|推出|宣布|announces?|launches?|releases?|unveils?)\s*.{5,}/i,
+  // Market / financial projections
+  /(?:营收|市值|估值|revenue|valuation|stock|shares)\s*.{3,}(?:亿|万亿|billion|trillion|美元|\$)/i,
+  // Versioned product releases (GPT-X.Y, Claude X, etc.)
+  /(?:GPT|Claude|Gemini|Llama|Mistral|DeepSeek|Qwen)-?\s*\d+(?:\.\d+)?\s*(?:已发布|发布|released|launched)/i,
+  // "X defeats/surpasses Y" competitive news
+  /(?:胜率|击败|逆袭|超越|surpass|outperform|beat)\s*.{3,}(?:OpenAI|Google|Anthropic|Meta|NVIDIA)/i,
+];
+
+/**
  * Scan memory content for injection/exfiltration patterns.
  * Returns error message if blocked, null if safe.
  */
@@ -52,6 +67,12 @@ function scanMemoryContent(content: string): string | null {
   for (const [pattern, id] of MEMORY_THREAT_PATTERNS) {
     if (pattern.test(content)) {
       return `Blocked: content matches threat pattern '${id}'. Memory entries are injected into the system prompt and must not contain injection payloads.`;
+    }
+  }
+  // Check ephemeral content (news, product launches, market data)
+  for (const pattern of EPHEMERAL_PATTERNS) {
+    if (pattern.test(content)) {
+      return `Blocked: content looks like transient news/announcement. Memory is for durable personal facts, not headlines. This saves tokens on every future request.`;
     }
   }
   return null;
