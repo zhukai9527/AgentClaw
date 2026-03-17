@@ -52,16 +52,21 @@ function callTool(name, input) {
   });
 }
 
-// High-level helpers (match AgentClaw tool parameter names)
+// High-level helpers — return JS-friendly types
+// glob returns string[], others return string
 globalThis.web_search = (query, max_results) =>
-  callTool('web_search', { query, ...(max_results ? { max_results } : {}) });
+  callTool('web_search', { query, ...(max_results != null ? { max_results } : {}) });
 globalThis.web_fetch = (url) => callTool('web_fetch', { url });
 globalThis.file_read = (path) => callTool('file_read', { path });
 globalThis.file_write = (path, content) => callTool('file_write', { path, content });
-globalThis.shell = (command, opts) => callTool('bash', { command, ...opts });
-globalThis.glob = (pattern, cwd) =>
-  callTool('glob', { pattern, ...(cwd ? { cwd } : {}) });
-globalThis.grep = (pattern, opts) => callTool('grep', { pattern, ...opts });
+globalThis.shell = (command, opts) =>
+  callTool('bash', typeof opts === 'object' ? { command, ...opts } : { command });
+globalThis.glob = async (pattern, cwd) => {
+  const raw = await callTool('glob', typeof cwd === 'string' ? { pattern, cwd } : { pattern });
+  return raw.trim() ? raw.trim().split('\\n') : [];
+};
+globalThis.grep = (pattern, opts) =>
+  callTool('grep', typeof opts === 'object' ? { pattern, ...opts } : { pattern });
 
 // Low-level: call any allowed tool by name
 globalThis.callTool = callTool;
@@ -78,13 +83,15 @@ try {
 export const executeCodeTool: Tool = {
   name: "execute_code",
   description:
-    "Execute JavaScript code with programmatic tool access. " +
-    "Runs in a child process with async globals: " +
-    "web_search(query), web_fetch(url), file_read(path), file_write(path,content), " +
-    "shell(command), glob(pattern), grep(pattern,{path}). " +
+    "Execute JavaScript in a child process with programmatic tool access. " +
+    "ES module with top-level await. Tool functions are globals (no import needed): " +
+    "web_search(query)→string, web_fetch(url)→string, file_read(path)→string, " +
+    "file_write(path,content)→string, shell(command)→string, " +
+    "glob(pattern)→string[] (returns array!), grep(pattern,{path})→string. " +
     "Also: callTool(name, inputObj) for raw access. " +
-    "Only console.log() output is returned — intermediate tool results " +
-    "stay hidden, compressing multi-step chains into one round.",
+    "Only console.log() output is returned to you — intermediate tool results " +
+    "stay hidden. Use for multi-step chains (search+read+summarize) to save tokens. " +
+    "Do NOT use require() — use import for Node.js built-ins (import fs from 'fs').",
   category: "builtin",
   parameters: {
     type: "object",
@@ -138,8 +145,9 @@ export const executeCodeTool: Tool = {
         }, 50);
       };
 
+      // Always use project root as cwd (not session workDir which is an empty temp dir)
       const child: ChildProcess = fork(runnerPath, [], {
-        cwd: context?.workDir || process.cwd(),
+        cwd: process.cwd(),
         stdio: ["ignore", "pipe", "pipe", "ipc"],
         env: { ...process.env },
       });
@@ -193,9 +201,8 @@ export const executeCodeTool: Tool = {
           }
 
           try {
-            // Build isolated context: no interactive callbacks
+            // Build isolated context: no interactive callbacks, no workDir override
             const sandboxContext: ToolExecutionContext = {
-              workDir: context?.workDir,
               abortSignal: context?.abortSignal,
             };
             const result = await tool.execute(
