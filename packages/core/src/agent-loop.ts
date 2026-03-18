@@ -808,6 +808,7 @@ export class SimpleAgentLoop implements AgentLoop {
         toolDurationMs: number;
         blockedByPolicy: boolean;
         isFormatError: boolean;
+        rateLimited: boolean; // blocked by our dedup/limit guards
       };
 
       const executeOne = async (
@@ -952,6 +953,14 @@ export class SimpleAgentLoop implements AgentLoop {
             typeof result.content === "string" &&
             result.content.includes("not found")
           );
+        // Detect rate-limit blocks from our dedup/limit guards
+        const rateLimited: boolean = !!(
+          result?.isError &&
+          typeof result.content === "string" &&
+          (result.content.includes("limit") ||
+            result.content.includes("already called") ||
+            result.content.includes("Global tool call"))
+        );
         return {
           toolCall: tc,
           effectiveToolName,
@@ -960,6 +969,7 @@ export class SimpleAgentLoop implements AgentLoop {
           toolDurationMs,
           blockedByPolicy,
           isFormatError,
+          rateLimited,
         };
       };
 
@@ -1270,6 +1280,20 @@ export class SimpleAgentLoop implements AgentLoop {
         }
       } else {
         consecutiveErrors = 0;
+      }
+
+      // Rate-limit pressure: when most tool calls in this iteration were blocked
+      // by our guards, inject a hint forcing the model to output instead of
+      // wasting another ~90s LLM call trying more tools.
+      const rateLimitedCount = allExecResults.filter(
+        (r) => r.rateLimited,
+      ).length;
+      if (rateLimitedCount > 0 && rateLimitedCount >= toolCalls.length / 2) {
+        runtimeHints.push(
+          "[SYSTEM] Most of your tool calls were blocked because you have exceeded usage limits. " +
+            "You MUST respond to the user NOW using the information you have already gathered. " +
+            "Do NOT call any more tools. Synthesize your answer immediately.",
+        );
       }
 
       // use_skill is just loading instructions — don't count against iteration budget
