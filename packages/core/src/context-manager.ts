@@ -57,6 +57,9 @@ export class SimpleContextManager implements ContextManager {
     }
   >();
 
+  /** Token budget for context — compress when estimated tokens exceed this * 0.7 */
+  private contextTokenBudget: number;
+
   constructor(options: {
     systemPrompt?: string;
     memoryStore: MemoryStore;
@@ -65,6 +68,7 @@ export class SimpleContextManager implements ContextManager {
     maxHistoryTurns?: number;
     compressAfter?: number;
     freshTailCount?: number;
+    contextTokenBudget?: number;
   }) {
     this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     this.memoryStore = options.memoryStore;
@@ -73,6 +77,8 @@ export class SimpleContextManager implements ContextManager {
     this.maxHistoryTurns = options.maxHistoryTurns ?? 50;
     this.compressAfter = options.compressAfter ?? 20;
     this.freshTailCount = options.freshTailCount ?? 32;
+    // Default: 80K tokens — conservative for most models (128K context → ~60% headroom)
+    this.contextTokenBudget = options.contextTokenBudget ?? 80_000;
   }
 
   async buildContext(
@@ -94,7 +100,13 @@ export class SimpleContextManager implements ContextManager {
     );
 
     let historyMessages: Message[];
-    if (turns.length > this.compressAfter) {
+    // Predictive token management: estimate total tokens and trigger compression
+    // when either turn count or token budget is exceeded
+    const estimatedTokens = this.estimateTokens(turns);
+    const tokenThreshold = this.contextTokenBudget * 0.7;
+    const shouldCompress =
+      turns.length > this.compressAfter || estimatedTokens > tokenThreshold;
+    if (shouldCompress && turns.length > 4) {
       // Fresh Tail Protection: guarantee at least freshTailCount messages are never compressed
       const tailSize = Math.max(this.compressAfter, this.freshTailCount);
       let splitIdx = turns.length - tailSize;
@@ -371,6 +383,17 @@ export class SimpleContextManager implements ContextManager {
       const firstKey = this.summaryCache.keys().next().value;
       if (firstKey) this.summaryCache.delete(firstKey);
     }
+  }
+
+  /** Rough token estimation: ~3 chars per token for mixed CJK/English content */
+  private estimateTokens(turns: ConversationTurn[]): number {
+    let totalChars = 0;
+    for (const t of turns) {
+      totalChars += (t.content || "").length;
+      if (t.toolCalls) totalChars += t.toolCalls.length;
+      if (t.toolResults) totalChars += t.toolResults.length;
+    }
+    return Math.ceil(totalChars / 3);
   }
 
   /**

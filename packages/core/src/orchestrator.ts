@@ -531,11 +531,15 @@ export class SimpleOrchestrator implements Orchestrator {
       systemPrompt += `\n\n## Handoff\nWhen the user's request is better suited for a specialist, use the \`handoff\` tool.\nAvailable agents:\n${roster}`;
     }
 
+    // Derive token budget from provider's context window (use 60% headroom)
+    const modelContextWindow =
+      this.provider.models?.[0]?.contextWindow ?? 128_000;
     const contextManager = new SimpleContextManager({
       systemPrompt,
       memoryStore: this.memoryStore,
       skillRegistry: this.skillRegistry,
       provider: this.fastProvider ?? this.provider,
+      contextTokenBudget: Math.floor(modelContextWindow * 0.6),
     });
 
     // Agent-specific config overrides

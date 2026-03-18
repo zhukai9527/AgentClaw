@@ -394,6 +394,8 @@ export class SimpleAgentLoop implements AgentLoop {
     // Track per-tool call counts to detect repetitive calling (success or fail)
     const toolCallCounts = new Map<string, number>();
     const MAX_DUPLICATE_CALLS = 2; // same tool+params called >2 times → short-circuit
+    const MAX_CONSECUTIVE_ROLLBACKS = 3;
+    let consecutiveRollbacks = 0;
 
     // Skill injection is handled entirely by use_skill tool — no auto-injection.
     // This keeps the system prompt lean; LLM decides which skill to load.
@@ -620,14 +622,19 @@ export class SimpleAgentLoop implements AgentLoop {
 
       // Build tool calls from accumulated chunks
       // Extract _intent from each tool call (Intent Tracing) — strip before execution
-      const toolCalls: (ToolUseContent & { intent?: string })[] = [];
+      const toolCalls: (ToolUseContent & {
+        intent?: string;
+        _formatError?: boolean;
+      })[] = [];
       for (const [, tc] of pendingToolCalls) {
         let parsedInput: Record<string, unknown> = {};
+        let formatError = false;
         if (tc.args) {
           try {
             parsedInput = JSON.parse(tc.args);
           } catch {
             parsedInput = { _raw: tc.args };
+            formatError = true;
           }
         }
         // Extract and strip _intent
@@ -642,13 +649,17 @@ export class SimpleAgentLoop implements AgentLoop {
           restoreString(JSON.stringify(parsedInput), envMap),
         ) as Record<string, unknown>;
 
-        const call: ToolUseContent & { intent?: string } = {
+        const call: ToolUseContent & {
+          intent?: string;
+          _formatError?: boolean;
+        } = {
           type: "tool_use",
           id: tc.id,
           name: tc.name,
           input: restoredInput,
         };
         if (intent) call.intent = intent;
+        if (formatError) call._formatError = true;
         toolCalls.push(call);
       }
 
@@ -738,6 +749,7 @@ export class SimpleAgentLoop implements AgentLoop {
       }
 
       // Intermediate turn — store per-iteration tokens
+      const assistantTurnCreatedAt = new Date();
       const assistantTurn: ConversationTurn = {
         id: generateId(),
         conversationId: convId,
@@ -748,7 +760,7 @@ export class SimpleAgentLoop implements AgentLoop {
         tokensIn: iterTokensIn,
         tokensOut: iterTokensOut,
         traceId: trace.id,
-        createdAt: new Date(),
+        createdAt: assistantTurnCreatedAt,
       };
       await this.memoryStore.addTurn(convId, assistantTurn);
 
@@ -765,6 +777,7 @@ export class SimpleAgentLoop implements AgentLoop {
         result: ToolResult;
         toolDurationMs: number;
         blockedByPolicy: boolean;
+        isFormatError: boolean;
       };
 
       const executeOne = async (
@@ -868,6 +881,14 @@ export class SimpleAgentLoop implements AgentLoop {
         }
 
         const toolDurationMs = Date.now() - toolStart;
+        // Detect LLM format errors: JSON parse failure or tool not found
+        const isFormatError: boolean =
+          !!(tc as { _formatError?: boolean })._formatError ||
+          !!(
+            result?.isError &&
+            typeof result.content === "string" &&
+            result.content.includes("not found")
+          );
         return {
           toolCall: tc,
           effectiveToolName,
@@ -875,6 +896,7 @@ export class SimpleAgentLoop implements AgentLoop {
           result,
           toolDurationMs,
           blockedByPolicy,
+          isFormatError,
         };
       };
 
@@ -901,6 +923,7 @@ export class SimpleAgentLoop implements AgentLoop {
 
       // Execute batches
       let earlyReturn = false;
+      const allExecResults: ToolExecResult[] = [];
       for (const batch of batches) {
         if (this.aborted || earlyReturn) break;
 
@@ -936,6 +959,8 @@ export class SimpleAgentLoop implements AgentLoop {
         } else {
           execResults = [await executeOne(batch.calls[0])];
         }
+
+        allExecResults.push(...execResults);
 
         // Process results sequentially (yield events, store turns, handle handoff)
         for (const r of execResults) {
@@ -1057,6 +1082,45 @@ export class SimpleAgentLoop implements AgentLoop {
         }
       }
 
+      // Rollback: if ALL errors this iteration are format errors (JSON parse / tool not found),
+      // delete the assistant + tool result turns and retry without wasting an iteration.
+      if (
+        iterationErrorCount > 0 &&
+        iterationErrorCount === toolCalls.length &&
+        !earlyReturn &&
+        !this.aborted
+      ) {
+        const allFormatErrors =
+          allExecResults.length > 0 &&
+          allExecResults.every((r) => r.isFormatError);
+
+        if (
+          allFormatErrors &&
+          consecutiveRollbacks < MAX_CONSECUTIVE_ROLLBACKS
+        ) {
+          console.log(
+            `[agent-loop] Format error rollback (${consecutiveRollbacks + 1}/${MAX_CONSECUTIVE_ROLLBACKS}): deleting assistant + tool turns, retrying`,
+          );
+          // Delete assistant turn and all subsequent tool result turns from DB
+          if (this.memoryStore.deleteTurnsFrom) {
+            await this.memoryStore.deleteTurnsFrom(
+              convId,
+              assistantTurnCreatedAt.toISOString(),
+            );
+          }
+          // Don't count this iteration
+          iterations--;
+          this.iterationBudget?.unconsume();
+          consecutiveRollbacks++;
+          continue;
+        }
+      }
+
+      // Reset rollback counter on successful iteration (at least one non-error)
+      if (iterationErrorCount < toolCalls.length) {
+        consecutiveRollbacks = 0;
+      }
+
       // Drain sentFiles from context into accumulator (dedup by URL)
       if (context?.sentFiles && context.sentFiles.length > 0) {
         for (const f of context.sentFiles) {
@@ -1175,10 +1239,46 @@ export class SimpleAgentLoop implements AgentLoop {
     }
 
     // Store a final assistant turn with cumulative usage stats.
-    // For abort: empty content (just the stats for history). For max iterations: fallback text.
-    const fallbackContent = wasAborted
-      ? ""
-      : lastFullText || MAX_ITERATIONS_MESSAGE;
+    // For abort: empty content. For max iterations: generate failure summary via LLM.
+    let fallbackContent = "";
+    if (!wasAborted) {
+      // Try to generate a structured failure summary
+      try {
+        const toolSummary = trace.steps
+          .filter(
+            (s) =>
+              s.type === "tool_call" ||
+              (s.type === "tool_result" &&
+                (s as Record<string, unknown>).isError),
+          )
+          .slice(-10) // Last 10 entries for context
+          .map((s) => {
+            if (s.type === "tool_call")
+              return `→ ${(s as Record<string, unknown>).name}`;
+            return `  ✗ error`;
+          })
+          .join("\n");
+        let summaryText = "";
+        for await (const chunk of this.provider.stream({
+          messages: [
+            {
+              id: generateId(),
+              role: "user",
+              content: `The agent ran for ${iterations} iterations and reached the limit. Last activity:\n${toolSummary}\n\nLast response:\n${(lastFullText || "").slice(0, 500)}\n\nWrite a 2-3 sentence summary: what was accomplished, what remains, and suggest next steps. Be concise. Reply in the same language as the last response.`,
+              createdAt: new Date(),
+            },
+          ],
+          model: usedModel,
+          maxTokens: 256,
+          temperature: 0,
+        })) {
+          if (chunk.type === "text") summaryText += chunk.text;
+        }
+        fallbackContent = summaryText || MAX_ITERATIONS_MESSAGE;
+      } catch {
+        fallbackContent = lastFullText || MAX_ITERATIONS_MESSAGE;
+      }
+    }
     const fallbackTurn: ConversationTurn = {
       id: generateId(),
       conversationId: convId,
