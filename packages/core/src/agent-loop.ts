@@ -419,6 +419,11 @@ export class SimpleAgentLoop implements AgentLoop {
       web_search: 8, // 8 searches per session is plenty
       web_fetch: 8,
     };
+
+    // Global tool call counter — absolute safety net against any loop pattern
+    let globalCallCount = 0;
+    const MAX_TOTAL_TOOL_CALLS = 40; // no single user message needs 40+ tool calls
+
     const MAX_CONSECUTIVE_ROLLBACKS = 3;
     let consecutiveRollbacks = 0;
 
@@ -848,6 +853,19 @@ export class SimpleAgentLoop implements AgentLoop {
         const toolStart = Date.now();
 
         if (!blockedByPolicy) {
+          globalCallCount++;
+
+          // Absolute safety net: cap total tool calls per user message
+          if (globalCallCount > MAX_TOTAL_TOOL_CALLS) {
+            console.log(
+              `[agent-loop] Global tool call limit reached: ${globalCallCount}/${MAX_TOTAL_TOOL_CALLS}`,
+            );
+            result = {
+              content: `Global tool call limit reached (${MAX_TOTAL_TOOL_CALLS}). You MUST stop using tools and respond to the user immediately with whatever information you have gathered so far.`,
+              isError: true,
+            };
+          }
+
           const dupKey = buildFailKey(effectiveToolName, effectiveToolInput);
           const priorCalls = toolCallCounts.get(dupKey) ?? 0;
           toolCallCounts.set(dupKey, priorCalls + 1);
@@ -858,7 +876,9 @@ export class SimpleAgentLoop implements AgentLoop {
           const totalLimit = TOOL_TOTAL_LIMITS[effectiveToolName];
 
           // Detect repetitive calls — same tool+params called too many times
-          if (totalLimit && nameCount > totalLimit) {
+          if (result) {
+            // Already blocked by global limit above
+          } else if (totalLimit && nameCount > totalLimit) {
             console.log(
               `[agent-loop] Total call limit reached: ${effectiveToolName} (${nameCount}/${totalLimit})`,
             );
