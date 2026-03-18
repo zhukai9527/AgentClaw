@@ -11,6 +11,7 @@ import {
   createBuiltinTools,
   shellInfo,
   MCPManager,
+  setSearchEngines,
 } from "@agentclaw/tools";
 import { initDatabase, SQLiteMemoryStore } from "@agentclaw/memory";
 import type { LLMProvider, Orchestrator, AgentProfile } from "@agentclaw/types";
@@ -234,6 +235,11 @@ export async function bootstrap(): Promise<AppContext> {
     toolRegistry.register(tool);
   }
 
+  // Inject search engine config into web_search tool
+  if (cfg.searchEngines) {
+    setSearchEngines(cfg.searchEngines);
+  }
+
   // MCP servers (optional)
   const mcpManager = new MCPManager();
   const mcpConfigPath = resolve(process.cwd(), "data", "mcp-servers.json");
@@ -344,7 +350,7 @@ export async function bootstrap(): Promise<AppContext> {
   // 启动时运行健康检查，将结果注入系统提示词
   let healthResults: HealthCheckResult[] = [];
   try {
-    healthResults = await runHealthChecks();
+    healthResults = await runHealthChecks(cfg.searchEngines);
     const failCount = healthResults.filter((r) => !r.ok).length;
     console.log(
       `[bootstrap] Health check: ${healthResults.length - failCount} ok, ${failCount} failed (${healthResults.length} total)`,
@@ -469,7 +475,8 @@ export async function bootstrap(): Promise<AppContext> {
    * 返回状态发生变化的检查项。
    */
   const refreshHealth = async (): Promise<HealthCheckResult[]> => {
-    const results = await runHealthChecks();
+    const latestConfig = loadConfig();
+    const results = await runHealthChecks(latestConfig.searchEngines);
     const healthText = formatHealthResults(results);
 
     // 用基准提示词 + 新的 health 文本重建系统提示词

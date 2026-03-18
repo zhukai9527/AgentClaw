@@ -16,6 +16,16 @@ export interface ProviderInstance {
   enabled: boolean;
 }
 
+/** 搜索引擎实例配置 */
+export interface SearchEngineConfig {
+  id: string; // "searxng" | "serper" | "querit" | 自定义
+  type: "searxng" | "serper" | "querit";
+  name: string; // 显示名称
+  enabled: boolean;
+  url?: string; // SearXNG 实例地址
+  apiKey?: string; // Serper / Querit API Key
+}
+
 export interface AppConfig {
   // LLM — 多 Provider 实例
   providers?: ProviderInstance[];
@@ -57,6 +67,8 @@ export interface AppConfig {
     user: string;
     password: string;
   };
+  // Search engines
+  searchEngines?: SearchEngineConfig[];
   // Optional
   sentryDsn?: string;
   maxIterations?: number;
@@ -64,7 +76,7 @@ export interface AppConfig {
   ollamaModel?: string;
   disableThinking?: boolean;
   volcanoEmbeddingKey?: string;
-  searxngUrl?: string;
+  searxngUrl?: string; // 旧格式，迁移用
 }
 
 /** 环境变量名 → config 字段的映射表 */
@@ -237,6 +249,11 @@ export function loadConfig(configPath?: string): AppConfig {
     cfg.providers = migrateToProviders(cfg);
   }
 
+  // 迁移：如果没有 searchEngines[] 但有旧格式字段，自动生成
+  if (!cfg.searchEngines) {
+    cfg.searchEngines = migrateToSearchEngines(cfg);
+  }
+
   return cfg;
 }
 
@@ -286,6 +303,38 @@ function migrateToProviders(cfg: AppConfig): ProviderInstance[] {
   }
 
   return providers;
+}
+
+/**
+ * 从旧格式字段（searxngUrl / env）构建 searchEngines[] 数组。
+ */
+function migrateToSearchEngines(cfg: AppConfig): SearchEngineConfig[] {
+  const engines: SearchEngineConfig[] = [];
+  const searxngUrl = cfg.searxngUrl || process.env.SEARXNG_URL;
+  const serperKey = process.env.SERPER_API_KEY;
+
+  engines.push({
+    id: "searxng",
+    type: "searxng",
+    name: "SearXNG",
+    enabled: !!searxngUrl,
+    url: searxngUrl || "http://localhost:8888",
+  });
+  engines.push({
+    id: "serper",
+    type: "serper",
+    name: "Serper (Google)",
+    enabled: !!serperKey,
+    apiKey: serperKey,
+  });
+  engines.push({
+    id: "querit",
+    type: "querit",
+    name: "Querit",
+    enabled: false,
+  });
+
+  return engines;
 }
 
 /**
@@ -381,6 +430,11 @@ export function maskConfig(config: AppConfig): Record<string, unknown> {
       result[key] = (value as ProviderInstance[]).map((p) => ({
         ...p,
         apiKey: maskApiKey(p.apiKey),
+      }));
+    } else if (key === "searchEngines" && Array.isArray(value)) {
+      result[key] = (value as SearchEngineConfig[]).map((s) => ({
+        ...s,
+        apiKey: maskApiKey(s.apiKey),
       }));
     } else if (SENSITIVE_FIELDS.has(key) && typeof value === "string") {
       result[key] = maskApiKey(value);

@@ -1,8 +1,25 @@
 import type { Tool, ToolResult } from "@agentclaw/types";
 
-const SEARXNG_URL = process.env.SEARXNG_URL || "http://localhost:8888";
 const SERPER_URL = "https://google.serper.dev/search";
+const QUERIT_URL = "https://api.querit.io/search";
 const SEARCH_TIMEOUT = 10_000;
+
+/** Search engine config — injected at startup via setSearchEngines() */
+interface SearchEngine {
+  id: string;
+  type: "searxng" | "serper" | "querit";
+  enabled: boolean;
+  url?: string;
+  apiKey?: string;
+}
+
+/** Runtime search engine list — set by gateway bootstrap */
+let searchEngines: SearchEngine[] = [];
+
+/** Called by gateway to inject search engine config */
+export function setSearchEngines(engines: SearchEngine[]): void {
+  searchEngines = engines;
+}
 
 interface SearchResult {
   title: string;
@@ -25,10 +42,11 @@ function formatResults(results: SearchResult[]): string[] {
 
 /** Search via self-hosted SearXNG instance */
 async function searchSearXNG(
+  baseUrl: string,
   query: string,
   maxResults: number,
 ): Promise<string | null> {
-  const url = `${SEARXNG_URL}/search?q=${encodeURIComponent(query)}&format=json&language=zh-CN`;
+  const url = `${baseUrl}/search?q=${encodeURIComponent(query)}&format=json&language=zh-CN`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT);
 
@@ -77,16 +95,12 @@ async function searchSearXNG(
   }
 }
 
-/** Search via Google Serper API (paid fallback) */
+/** Search via Google Serper API */
 async function searchSerper(
+  apiKey: string,
   query: string,
   maxResults: number,
-): Promise<string> {
-  const apiKey = process.env.SERPER_API_KEY;
-  if (!apiKey) {
-    return "Error: No search backend available. Set SEARXNG_URL or SERPER_API_KEY.";
-  }
-
+): Promise<string | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
 
@@ -105,10 +119,7 @@ async function searchSerper(
       signal: controller.signal,
     });
 
-    if (!res.ok) {
-      const body = await res.text();
-      return `Search API error (${res.status}): ${body}`;
-    }
+    if (!res.ok) return null;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();
@@ -127,9 +138,7 @@ async function searchSerper(
 
     // Organic results
     const items = data.organic ?? [];
-    if (items.length === 0 && lines.length === 0) {
-      return `No results found for: ${query}`;
-    }
+    if (items.length === 0 && lines.length === 0) return null;
 
     const results: SearchResult[] = items.map(
       (item: Record<string, string>) => ({
@@ -140,15 +149,83 @@ async function searchSerper(
     );
     lines.push(...formatResults(results));
 
-    return lines.join("\n").trim();
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      return `Search timed out for: ${query}`;
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    return `Search failed: ${message}`;
+    return lines.join("\n").trim() || null;
+  } catch {
+    return null;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/** Search via Querit API */
+async function searchQuerit(
+  apiKey: string,
+  query: string,
+  maxResults: number,
+): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+
+  try {
+    const res = await fetch(QUERIT_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query,
+        max_results: Math.min(maxResults, 10),
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json();
+    const items = data.results ?? data.organic ?? [];
+    if (items.length === 0) return null;
+
+    const results: SearchResult[] = items.map(
+      (item: Record<string, string>) => ({
+        title: item.title ?? "",
+        url: item.url ?? item.link ?? "",
+        snippet: item.snippet ?? item.content,
+      }),
+    );
+
+    return formatResults(results).join("\n").trim() || null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Execute a single search engine */
+async function executeEngine(
+  engine: SearchEngine,
+  query: string,
+  maxResults: number,
+): Promise<string | null> {
+  switch (engine.type) {
+    case "searxng":
+      return searchSearXNG(
+        engine.url || "http://localhost:8888",
+        query,
+        maxResults,
+      );
+    case "serper":
+      return engine.apiKey
+        ? searchSerper(engine.apiKey, query, maxResults)
+        : null;
+    case "querit":
+      return engine.apiKey
+        ? searchQuerit(engine.apiKey, query, maxResults)
+        : null;
+    default:
+      return null;
   }
 }
 
@@ -175,14 +252,23 @@ export const webSearchTool: Tool = {
       return { content: "Error: empty search query", isError: true };
     }
 
-    // SearXNG first, Serper fallback
-    const searxResult = await searchSearXNG(query, maxResults);
-    const content = searxResult ?? (await searchSerper(query, maxResults));
+    // Try enabled engines in order (priority = array order)
+    const enabled = searchEngines.filter((e) => e.enabled);
+    for (const engine of enabled) {
+      const result = await executeEngine(engine, query, maxResults);
+      if (result) {
+        return {
+          content: result,
+          isError: false,
+          metadata: { query, maxResults, engine: engine.id },
+        };
+      }
+    }
 
     return {
-      content,
-      isError: content.startsWith("Error:"),
-      metadata: { query, maxResults },
+      content:
+        "Error: No search backend available. Configure search engines in Settings.",
+      isError: true,
     };
   },
 };

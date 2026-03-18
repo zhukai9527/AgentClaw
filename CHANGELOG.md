@@ -6,6 +6,7 @@
 - **格式错误回滚**：工具调用因 JSON 解析失败或工具名未找到而全部失败时，自动删除当前轮次的 assistant + tool turns 并重试，不浪费迭代预算；最多连续回滚 3 次，防止无限重试
 - **失败摘要**：agent 达到最大迭代次数时，额外发起一次轻量 LLM 调用生成结构化总结（已完成什么、未完成什么、建议下一步），替代固定的 "max iterations reached" 提示
 - **预测性 token 管理**：上下文压缩触发条件从纯轮数改为 token 估算 + 轮数双条件；根据 provider context window 的 60% 自动计算 token 预算，每轮 chars/3 估算 token 数，超过预算 70% 即触发压缩；短消息多轮不会过早压缩，长工具结果少轮也能及时压缩
+- **搜索引擎 WebUI 设置**：搜索引擎配置从 .env 文件迁移到 Settings 页面，支持 SearXNG / Serper / Querit 三种引擎；可视化拖拽排序优先级，启用/禁用切换，API Key 和 URL 在线编辑；保存后即时热更新，无需重启；旧 .env 变量自动迁移到 config.json
 
 ## [1.4.3] - 2026-03-17
 

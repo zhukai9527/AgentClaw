@@ -13,6 +13,7 @@ import {
   type UsageStatsInfo,
   type ToolInfo,
   type ProviderInstance,
+  type SearchEngineConfig,
 } from "../api/client";
 import {
   IconSettings,
@@ -74,9 +75,29 @@ function IconTools({ size = 16 }: { size?: number }) {
   );
 }
 
+/* ── Icon for Search (magnifying glass) ── */
+function IconSearch({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="11" cy="11" r="8" />
+      <path d="M21 21l-4.35-4.35" />
+    </svg>
+  );
+}
+
 const TABS = [
   { id: "general", icon: IconSettings },
   { id: "model", icon: IconModel },
+  { id: "search", icon: IconSearch },
   { id: "channels", icon: IconChannels },
   { id: "agents", icon: IconAgents },
   { id: "subagents", icon: IconSubAgents },
@@ -816,6 +837,171 @@ function SettingsGeneral() {
   );
 }
 
+/* ── Search tab — search engine list with enable/disable + config ── */
+function SettingsSearch() {
+  const { t } = useTranslation();
+  const [config, setConfig] = useState<AppConfigInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [localEngines, setLocalEngines] = useState<SearchEngineConfig[]>([]);
+
+  const fetchConfig = useCallback(async () => {
+    try {
+      setLoading(true);
+      const cfg = await getConfig();
+      setConfig(cfg);
+      setLocalEngines(cfg.searchEngines || []);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchConfig();
+  }, [fetchConfig]);
+
+  const hasChanges = JSON.stringify(localEngines) !== JSON.stringify(config?.searchEngines || []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      await updateAppConfig({ searchEngines: localEngines } as Partial<AppConfigInfo>);
+      setSaveMsg(t("settings.configSaved"));
+      await fetchConfig();
+    } catch (err) {
+      setSaveMsg(err instanceof Error ? err.message : t("settings.configSaveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateEngine = (id: string, updates: Partial<SearchEngineConfig>) => {
+    setLocalEngines((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, ...updates } : e)),
+    );
+  };
+
+  // Drag state for reordering
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+
+  const handleDragStart = (idx: number) => setDragIdx(idx);
+
+  const handleDrop = (targetIdx: number) => {
+    if (dragIdx === null || dragIdx === targetIdx) return;
+    setLocalEngines((prev) => {
+      const items = [...prev];
+      const [moved] = items.splice(dragIdx, 1);
+      items.splice(targetIdx, 0, moved);
+      return items;
+    });
+    setDragIdx(null);
+  };
+
+  if (loading) {
+    return <div className="settings-loading">{t("settings.loadingSettings")}</div>;
+  }
+
+  return (
+    <section className="card settings-section">
+      <h2 className="settings-section-title">{t("settings.search.title")}</h2>
+      <p className="settings-hint" style={{ color: "var(--text-secondary)", fontSize: 13, margin: "0 0 16px" }}>
+        {t("settings.search.hint")}
+      </p>
+
+      <div className="search-engines-list">
+        {localEngines.map((engine, idx) => {
+          const isConfigured =
+            engine.type === "searxng" ? !!engine.url : !!engine.apiKey;
+          return (
+            <div
+              key={engine.id}
+              className={`search-engine-card${dragIdx === idx ? " dragging" : ""}`}
+              draggable
+              onDragStart={() => handleDragStart(idx)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => handleDrop(idx)}
+            >
+              <div className="search-engine-header">
+                <span className="search-engine-drag">⠿</span>
+                <span className="search-engine-priority">{idx + 1}</span>
+                <span className="search-engine-name">{engine.name}</span>
+                <span
+                  className={`channels-status-badge${isConfigured ? " configured" : ""}`}
+                >
+                  {isConfigured
+                    ? t("settings.search.configured")
+                    : t("settings.search.notConfigured")}
+                </span>
+                <div
+                  className={`channels-toggle${engine.enabled ? " on" : ""}`}
+                  onClick={() =>
+                    updateEngine(engine.id, { enabled: !engine.enabled })
+                  }
+                >
+                  <div className="channels-toggle-knob" />
+                </div>
+              </div>
+
+              <div className="search-engine-fields">
+                {engine.type === "searxng" ? (
+                  <div className="channels-detail-field">
+                    <label className="channels-detail-label">
+                      {t("settings.search.url")}
+                    </label>
+                    <input
+                      type="text"
+                      className="config-input"
+                      placeholder="http://localhost:8888"
+                      value={engine.url || ""}
+                      onChange={(e) =>
+                        updateEngine(engine.id, { url: e.target.value })
+                      }
+                    />
+                  </div>
+                ) : (
+                  <div className="channels-detail-field">
+                    <label className="channels-detail-label">
+                      {t("settings.search.apiKey")}
+                    </label>
+                    <input
+                      type="password"
+                      className="config-input"
+                      placeholder={engine.apiKey || "sk-..."}
+                      value={engine.apiKey || ""}
+                      onChange={(e) =>
+                        updateEngine(engine.id, { apiKey: e.target.value })
+                      }
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="channels-detail-actions" style={{ marginTop: 16 }}>
+        <button
+          className="btn btn-primary"
+          disabled={!hasChanges || saving}
+          onClick={handleSave}
+        >
+          {saving ? t("settings.configSaving") : t("settings.configSave")}
+        </button>
+        {saveMsg && (
+          <span
+            className={`config-save-msg ${saveMsg === t("settings.configSaved") ? "success" : ""}`}
+          >
+            {saveMsg}
+          </span>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /* ── Tools tab ── */
 function SettingsTools() {
   const { t } = useTranslation();
@@ -906,6 +1092,8 @@ export function SettingsPage() {
         return <SettingsGeneral />;
       case "model":
         return <SettingsModel />;
+      case "search":
+        return <SettingsSearch />;
       case "channels":
         return (
           <div className="settings-embed">

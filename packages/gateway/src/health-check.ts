@@ -10,6 +10,7 @@
 
 import { createConnection } from "node:net";
 import { isExtensionConnected } from "./routes/browser-ext.js";
+import type { SearchEngineConfig } from "./config.js";
 
 export interface HealthCheckResult {
   name: string;
@@ -69,12 +70,18 @@ async function checkIMAP(): Promise<HealthCheckResult | null> {
 
 /**
  * 检查 SearXNG 搜索引擎
- * 条件：SEARXNG_URL 环境变量已设置，或默认 http://localhost:8888
+ * 从 searchEngines 配置中读取 URL
  */
-async function checkSearXNG(): Promise<HealthCheckResult | null> {
-  // 只有明确配置了 SEARXNG_URL 才检查
-  const url = process.env.SEARXNG_URL;
-  if (!url) return null;
+async function checkSearXNG(
+  searchEngines?: SearchEngineConfig[],
+): Promise<HealthCheckResult | null> {
+  // 从配置中找到启用的 SearXNG 实例
+  const searxng = searchEngines?.find(
+    (e) => e.type === "searxng" && e.enabled && e.url,
+  );
+  if (!searxng) return null;
+
+  const url = searxng.url!;
 
   try {
     const controller = new AbortController();
@@ -159,11 +166,13 @@ async function checkComfyUI(): Promise<HealthCheckResult | null> {
  * 运行所有健康检查，并发执行
  * 返回所有已配置服务的检查结果
  */
-export async function runHealthChecks(): Promise<HealthCheckResult[]> {
+export async function runHealthChecks(
+  searchEngines?: SearchEngineConfig[],
+): Promise<HealthCheckResult[]> {
   // 收集所有需要执行的检查（null 表示未配置，跳过）
   const checks = await Promise.allSettled([
     checkIMAP(),
-    checkSearXNG(),
+    checkSearXNG(searchEngines),
     Promise.resolve(checkChromeExtension()),
     checkComfyUI(),
   ]);

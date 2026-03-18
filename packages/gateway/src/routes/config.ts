@@ -7,12 +7,14 @@ import {
   maskConfig,
   type AppConfig,
   type ProviderInstance,
+  type SearchEngineConfig,
 } from "../config.js";
 import {
   ClaudeProvider,
   OpenAICompatibleProvider,
   GeminiProvider,
 } from "@agentclaw/providers";
+import { setSearchEngines } from "@agentclaw/tools";
 import type { LLMProvider } from "@agentclaw/types";
 
 /** 从 ProviderInstance 创建 LLMProvider */
@@ -179,6 +181,24 @@ export function registerConfigRoutes(
         });
       }
 
+      // 保护脱敏搜索引擎 apiKey
+      if (
+        configUpdates.searchEngines &&
+        Array.isArray(configUpdates.searchEngines)
+      ) {
+        const existingCfg = loadConfig();
+        const existingEngines = existingCfg.searchEngines || [];
+        configUpdates.searchEngines = (
+          configUpdates.searchEngines as SearchEngineConfig[]
+        ).map((s) => {
+          if (s.apiKey && s.apiKey.startsWith("****")) {
+            const existing = existingEngines.find((es) => es.id === s.id);
+            return { ...s, apiKey: existing?.apiKey || "" };
+          }
+          return s;
+        });
+      }
+
       if (Object.keys(configUpdates).length > 0) {
         saveConfig(configUpdates as Partial<AppConfig>);
       }
@@ -230,6 +250,15 @@ export function registerConfigRoutes(
       ];
       if (channelManager && channelFields.some((f) => f in configUpdates)) {
         await channelManager.refreshConfig();
+      }
+
+      // 5. 搜索引擎配置变更时热刷新 web_search 工具 + 健康检查
+      if ("searchEngines" in configUpdates && cfg.searchEngines) {
+        setSearchEngines(cfg.searchEngines);
+        // 刷新健康检查
+        const refreshHealth = (ctx as unknown as Record<string, unknown>)
+          .refreshHealth as (() => Promise<unknown>) | undefined;
+        if (refreshHealth) refreshHealth();
       }
 
       const dailyBriefTime =

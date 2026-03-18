@@ -370,6 +370,7 @@
     "tabs": {
       "general": "常规",
       "model": "模型",
+      "search": "搜索",
       "channels": "渠道",
       "agents": "智能体",
       "subagents": "子代理",
@@ -379,6 +380,19 @@
       "traces": "追踪",
       "api": "API",
       "about": "关于"
+    },
+    "search": {
+      "title": "搜索引擎",
+      "hint": "搜索引擎按顺序依次尝试，拖拽可调整优先级。",
+      "url": "地址",
+      "apiKey": "API Key",
+      "available": "可用",
+      "unavailable": "不可用",
+      "notConfigured": "未配置",
+      "configured": "已配置",
+      "testConnection": "测试",
+      "testing": "测试中...",
+      "noEngines": "未配置搜索引擎"
     },
     "about": {
       "version": "版本",

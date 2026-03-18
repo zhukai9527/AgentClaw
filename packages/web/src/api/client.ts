@@ -443,12 +443,24 @@ export interface AppConfigInfo {
     user?: string;
     password?: string;
   };
+  // Search engines
+  searchEngines?: SearchEngineConfig[];
   // Optional
   maxIterations?: number;
   ollamaBaseUrl?: string;
   ollamaModel?: string;
   volcanoEmbeddingKey?: string;
   searxngUrl?: string;
+}
+
+/** 搜索引擎配置 */
+export interface SearchEngineConfig {
+  id: string;
+  type: "searxng" | "serper" | "querit";
+  name: string;
+  enabled: boolean;
+  url?: string;
+  apiKey?: string;
 }
 
 export function getConfig(): Promise<AppConfigInfo> {

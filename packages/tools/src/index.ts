@@ -18,4 +18,5 @@ export {
   contextSearchTool,
 } from "./builtin/index.js";
 export type { BuiltinToolsOptions } from "./builtin/index.js";
+export { setSearchEngines } from "./builtin/web-search.js";
 export { MCPClient, MCPManager } from "./mcp/index.js";

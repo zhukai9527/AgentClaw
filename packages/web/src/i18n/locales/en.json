@@ -370,6 +370,7 @@
     "tabs": {
       "general": "General",
       "model": "Model",
+      "search": "Search",
       "channels": "Channels",
       "agents": "Agents",
       "subagents": "Subagents",
@@ -379,6 +380,19 @@
       "traces": "Traces",
       "api": "API",
       "about": "About"
+    },
+    "search": {
+      "title": "Search Engines",
+      "hint": "Search engines are tried in order. Drag to reorder priority.",
+      "url": "URL",
+      "apiKey": "API Key",
+      "available": "Available",
+      "unavailable": "Unavailable",
+      "notConfigured": "Not configured",
+      "configured": "Configured",
+      "testConnection": "Test",
+      "testing": "Testing...",
+      "noEngines": "No search engines configured"
     },
     "about": {
       "version": "Version",
