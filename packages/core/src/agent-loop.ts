@@ -1172,7 +1172,7 @@ export class SimpleAgentLoop implements AgentLoop {
     const fallbackContent = wasAborted
       ? ""
       : lastFullText ||
-        "I've reached the maximum number of iterations. Please try breaking your request into smaller steps.";
+        "已达到最大迭代次数，请尝试将请求拆分为更小的步骤。\nI've reached the maximum number of iterations. Please try breaking your request into smaller steps.";
     const fallbackTurn: ConversationTurn = {
       id: generateId(),
       conversationId: convId,
