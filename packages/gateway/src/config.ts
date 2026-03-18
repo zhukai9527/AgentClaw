@@ -18,12 +18,12 @@ export interface ProviderInstance {
 
 /** 搜索引擎实例配置 */
 export interface SearchEngineConfig {
-  id: string; // "searxng" | "serper" | "querit" | 自定义
-  type: "searxng" | "serper" | "querit";
+  id: string; // "searxng" | "serper" | "querit" | 自定义 ID
+  type: "searxng" | "serper" | "querit" | "custom";
   name: string; // 显示名称
   enabled: boolean;
-  url?: string; // SearXNG 实例地址
-  apiKey?: string; // Serper / Querit API Key
+  url?: string; // API 地址
+  apiKey?: string; // API Key
 }
 
 export interface AppConfig {

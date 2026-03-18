@@ -383,7 +383,7 @@
     },
     "search": {
       "title": "Search Engines",
-      "hint": "Search engines are tried in order. Drag to reorder priority.",
+      "hint": "Search engines are tried in order. Drag to reorder priority. Leave URL empty for default.",
       "url": "URL",
       "apiKey": "API Key",
       "available": "Available",
@@ -392,7 +392,10 @@
       "configured": "Configured",
       "testConnection": "Test",
       "testing": "Testing...",
-      "noEngines": "No search engines configured"
+      "noEngines": "No search engines configured",
+      "addCustom": "Custom Engine",
+      "customName": "Engine Name",
+      "customHint": "Custom engines must be compatible with SearXNG JSON API (GET ?q=...&format=json)"
     },
     "about": {
       "version": "Version",

@@ -383,7 +383,7 @@
     },
     "search": {
       "title": "搜索引擎",
-      "hint": "搜索引擎按顺序依次尝试，拖拽可调整优先级。",
+      "hint": "搜索引擎按顺序依次尝试，拖拽可调整优先级。URL 留空则使用默认地址。",
       "url": "地址",
       "apiKey": "API Key",
       "available": "可用",
@@ -392,7 +392,10 @@
       "configured": "已配置",
       "testConnection": "测试",
       "testing": "测试中...",
-      "noEngines": "未配置搜索引擎"
+      "noEngines": "未配置搜索引擎",
+      "addCustom": "自定义引擎",
+      "customName": "引擎名称",
+      "customHint": "自定义引擎需兼容 SearXNG JSON API（GET ?q=...&format=json）"
     },
     "about": {
       "version": "版本",

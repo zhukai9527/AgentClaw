@@ -456,7 +456,7 @@ export interface AppConfigInfo {
 /** 搜索引擎配置 */
 export interface SearchEngineConfig {
   id: string;
-  type: "searxng" | "serper" | "querit";
+  type: "searxng" | "serper" | "querit" | "custom";
   name: string;
   enabled: boolean;
   url?: string;

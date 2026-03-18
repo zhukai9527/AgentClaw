@@ -883,6 +883,20 @@ function SettingsSearch() {
     );
   };
 
+  const BUILTIN_IDS = new Set(["searxng", "serper", "querit"]);
+
+  const addCustomEngine = () => {
+    const id = `custom-${Date.now()}`;
+    setLocalEngines((prev) => [
+      ...prev,
+      { id, type: "custom" as const, name: "", enabled: false, url: "", apiKey: "" },
+    ]);
+  };
+
+  const removeEngine = (id: string) => {
+    setLocalEngines((prev) => prev.filter((e) => e.id !== id));
+  };
+
   // Drag state for reordering
   const [dragIdx, setDragIdx] = useState<number | null>(null);
 
@@ -899,6 +913,23 @@ function SettingsSearch() {
     setDragIdx(null);
   };
 
+  /** Helper URLs for built-in engines */
+  const engineInfoUrl: Record<string, string> = {
+    searxng: "https://github.com/searxng/searxng",
+    serper: "https://serper.dev",
+    querit: "https://querit.io",
+  };
+
+  /** Default URLs for engines that have them */
+  const defaultUrls: Record<string, string> = {
+    searxng: "http://localhost:8888",
+    serper: "https://google.serper.dev/search",
+    querit: "https://api.querit.io/search",
+  };
+
+  /** Whether an engine needs an API key */
+  const needsApiKey = (type: string) => type !== "searxng";
+
   if (loading) {
     return <div className="settings-loading">{t("settings.loadingSettings")}</div>;
   }
@@ -912,8 +943,11 @@ function SettingsSearch() {
 
       <div className="search-engines-list">
         {localEngines.map((engine, idx) => {
-          const isConfigured =
-            engine.type === "searxng" ? !!engine.url : !!engine.apiKey;
+          const isConfigured = engine.type === "searxng" || engine.type === "custom"
+            ? !!engine.url
+            : !!engine.apiKey;
+          const isBuiltin = BUILTIN_IDS.has(engine.id);
+          const infoUrl = engineInfoUrl[engine.type];
           return (
             <div
               key={engine.id}
@@ -926,7 +960,22 @@ function SettingsSearch() {
               <div className="search-engine-header">
                 <span className="search-engine-drag">⠿</span>
                 <span className="search-engine-priority">{idx + 1}</span>
-                <span className="search-engine-name">{engine.name}</span>
+                {engine.type === "custom" ? (
+                  <input
+                    type="text"
+                    className="search-engine-name-input"
+                    placeholder={t("settings.search.customName")}
+                    value={engine.name}
+                    onChange={(e) => updateEngine(engine.id, { name: e.target.value })}
+                  />
+                ) : (
+                  <span className="search-engine-name">
+                    {engine.name}
+                    {infoUrl && (
+                      <a href={infoUrl} target="_blank" rel="noopener noreferrer" className="search-engine-info-link" title={infoUrl}>↗</a>
+                    )}
+                  </span>
+                )}
                 <span
                   className={`channels-status-badge${isConfigured ? " configured" : ""}`}
                 >
@@ -934,6 +983,13 @@ function SettingsSearch() {
                     ? t("settings.search.configured")
                     : t("settings.search.notConfigured")}
                 </span>
+                {!isBuiltin && (
+                  <button
+                    className="search-engine-delete"
+                    title={t("settings.delete")}
+                    onClick={() => removeEngine(engine.id)}
+                  >×</button>
+                )}
                 <div
                   className={`channels-toggle${engine.enabled ? " on" : ""}`}
                   onClick={() =>
@@ -945,22 +1001,21 @@ function SettingsSearch() {
               </div>
 
               <div className="search-engine-fields">
-                {engine.type === "searxng" ? (
-                  <div className="channels-detail-field">
-                    <label className="channels-detail-label">
-                      {t("settings.search.url")}
-                    </label>
-                    <input
-                      type="text"
-                      className="config-input"
-                      placeholder="http://localhost:8888"
-                      value={engine.url || ""}
-                      onChange={(e) =>
-                        updateEngine(engine.id, { url: e.target.value })
-                      }
-                    />
-                  </div>
-                ) : (
+                <div className="channels-detail-field">
+                  <label className="channels-detail-label">
+                    {t("settings.search.url")}
+                  </label>
+                  <input
+                    type="text"
+                    className="config-input"
+                    placeholder={defaultUrls[engine.type] || "https://..."}
+                    value={engine.url || ""}
+                    onChange={(e) =>
+                      updateEngine(engine.id, { url: e.target.value })
+                    }
+                  />
+                </div>
+                {needsApiKey(engine.type) && (
                   <div className="channels-detail-field">
                     <label className="channels-detail-label">
                       {t("settings.search.apiKey")}
@@ -983,6 +1038,9 @@ function SettingsSearch() {
       </div>
 
       <div className="channels-detail-actions" style={{ marginTop: 16 }}>
+        <button className="btn btn-secondary" onClick={addCustomEngine} style={{ marginRight: 8 }}>
+          + {t("settings.search.addCustom")}
+        </button>
         <button
           className="btn btn-primary"
           disabled={!hasChanges || saving}

@@ -1,13 +1,13 @@
 import type { Tool, ToolResult } from "@agentclaw/types";
 
-const SERPER_URL = "https://google.serper.dev/search";
-const QUERIT_URL = "https://api.querit.io/search";
+const DEFAULT_SERPER_URL = "https://google.serper.dev/search";
+const DEFAULT_QUERIT_URL = "https://api.querit.io/search";
 const SEARCH_TIMEOUT = 10_000;
 
 /** Search engine config — injected at startup via setSearchEngines() */
 interface SearchEngine {
   id: string;
-  type: "searxng" | "serper" | "querit";
+  type: "searxng" | "serper" | "querit" | "custom";
   enabled: boolean;
   url?: string;
   apiKey?: string;
@@ -97,6 +97,7 @@ async function searchSearXNG(
 
 /** Search via Google Serper API */
 async function searchSerper(
+  url: string,
   apiKey: string,
   query: string,
   maxResults: number,
@@ -105,7 +106,7 @@ async function searchSerper(
   const timer = setTimeout(() => controller.abort(), 15_000);
 
   try {
-    const res = await fetch(SERPER_URL, {
+    const res = await fetch(url, {
       method: "POST",
       headers: {
         "X-API-KEY": apiKey,
@@ -159,6 +160,7 @@ async function searchSerper(
 
 /** Search via Querit API */
 async function searchQuerit(
+  url: string,
   apiKey: string,
   query: string,
   maxResults: number,
@@ -167,7 +169,7 @@ async function searchQuerit(
   const timer = setTimeout(() => controller.abort(), 15_000);
 
   try {
-    const res = await fetch(QUERIT_URL, {
+    const res = await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -218,12 +220,25 @@ async function executeEngine(
       );
     case "serper":
       return engine.apiKey
-        ? searchSerper(engine.apiKey, query, maxResults)
+        ? searchSerper(
+            engine.url || DEFAULT_SERPER_URL,
+            engine.apiKey,
+            query,
+            maxResults,
+          )
         : null;
     case "querit":
       return engine.apiKey
-        ? searchQuerit(engine.apiKey, query, maxResults)
+        ? searchQuerit(
+            engine.url || DEFAULT_QUERIT_URL,
+            engine.apiKey,
+            query,
+            maxResults,
+          )
         : null;
+    case "custom":
+      // Custom engines use SearXNG-compatible JSON API (GET ?q=...&format=json)
+      return engine.url ? searchSearXNG(engine.url, query, maxResults) : null;
     default:
       return null;
   }
