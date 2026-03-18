@@ -8,6 +8,9 @@
 - **预测性 token 管理**：上下文压缩触发条件从纯轮数改为 token 估算 + 轮数双条件；根据 provider context window 的 60% 自动计算 token 预算，每轮 chars/3 估算 token 数，超过预算 70% 即触发压缩；短消息多轮不会过早压缩，长工具结果少轮也能及时压缩
 - **搜索引擎 WebUI 设置**：搜索引擎配置从 .env 文件迁移到 Settings 页面，支持 SearXNG / Serper / Querit 三种引擎 + 自定义引擎；可视化拖拽排序优先级，启用/禁用切换，API Key 和 URL 在线编辑；保存后即时热更新，无需重启；旧 .env 变量自动迁移到 config.json
 
+### 优化
+- **Shell 输出 ANSI 清理**：shell 工具返回结果自动剥离 ANSI 转义序列（颜色码、光标控制等），减少无效 token 消耗
+
 ### 修复
 - **Overflow 文件死循环**：模型读 overflow 文件 → 结果再被 overflow → 新文件再被读 → 无限循环。修复：file_read 读取 overflow 文件时跳过二次 overflow，并将所有 overflow 文件读取归一化为同一个 dedup key，超过 2 次自动拦截
 - **工具调用总次数上限**：同一 session 内 web_search 和 web_fetch 各限 8 次（不同参数也计数），超限后强制模型用已有结果合成回答，防止"换个词再搜一遍"的无限搜索风暴

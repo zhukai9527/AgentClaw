@@ -110,17 +110,30 @@ const powershellConfig = {
 };
 
 /**
+ * Strip ANSI escape sequences (colors, cursor control, etc.) from text.
+ * These are pure noise for LLMs and waste tokens.
+ */
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /[\u001b\u009b][\[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]/g;
+function stripAnsi(text: string): string {
+  return text.replace(ANSI_RE, "");
+}
+
+/**
  * Decode raw bytes from child process output.
  * Try UTF-8 first; if it contains invalid sequences (common when Windows
  * native programs output GBK/CP936), fall back to GBK decoding.
+ * Also strips ANSI escape sequences — they waste LLM tokens.
  */
 function decodeOutput(buf: Buffer): string {
+  let text: string;
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(buf);
+    text = new TextDecoder("utf-8", { fatal: true }).decode(buf);
   } catch {
     // GBK / GB18030 fallback for Chinese Windows
-    return new TextDecoder("gbk").decode(buf);
+    text = new TextDecoder("gbk").decode(buf);
   }
+  return stripAnsi(text);
 }
 
 /** Exported so bootstrap.ts can read the detected shell name */
