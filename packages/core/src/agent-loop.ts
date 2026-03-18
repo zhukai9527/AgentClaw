@@ -117,10 +117,18 @@ function applyOverflow(
   },
   toolName: string,
   sessionTmpDir: string,
+  toolInput?: Record<string, unknown>,
 ): string | null {
   // Don't overflow errors (usually short and important) or short outputs
   if (result.isError || result.content.length <= OVERFLOW_THRESHOLD)
     return null;
+
+  // Never overflow file_read of an overflow file — prevents infinite loop
+  // where LLM reads overflow → result overflows → LLM reads new overflow → ...
+  if (toolName === "file_read" && typeof toolInput?.path === "string") {
+    const p = (toolInput.path as string).replace(/\\/g, "/");
+    if (p.includes("/overflow_") && p.endsWith(".txt")) return null;
+  }
 
   // Save full content to file
   const ts = Date.now();
@@ -170,6 +178,16 @@ function buildFailKey(
   if (toolName === "bash" && typeof toolInput?.command === "string") {
     return `bash:${toolInput.command.slice(0, 80)}`;
   }
+
+  // file_read on overflow files: normalize to just "overflow_read" so
+  // repeated reads of different overflow files are treated as duplicates
+  if (toolName === "file_read" && typeof toolInput?.path === "string") {
+    const p = (toolInput.path as string).replace(/\\/g, "/");
+    if (p.includes("/overflow_") && p.endsWith(".txt")) {
+      return "file_read:overflow";
+    }
+  }
+
   // For file tools, different paths or content types are different calls
   const sig = toolInput ? JSON.stringify(toolInput).slice(0, 120) : "";
   return `${toolName}:${sig}`;
@@ -394,6 +412,13 @@ export class SimpleAgentLoop implements AgentLoop {
     // Track per-tool call counts to detect repetitive calling (success or fail)
     const toolCallCounts = new Map<string, number>();
     const MAX_DUPLICATE_CALLS = 2; // same tool+params called >2 times → short-circuit
+
+    // Global per-tool-name call counter — caps total calls regardless of params
+    const toolNameCounts = new Map<string, number>();
+    const TOOL_TOTAL_LIMITS: Record<string, number> = {
+      web_search: 8, // 8 searches per session is plenty
+      web_fetch: 8,
+    };
     const MAX_CONSECUTIVE_ROLLBACKS = 3;
     let consecutiveRollbacks = 0;
 
@@ -827,8 +852,21 @@ export class SimpleAgentLoop implements AgentLoop {
           const priorCalls = toolCallCounts.get(dupKey) ?? 0;
           toolCallCounts.set(dupKey, priorCalls + 1);
 
+          // Track total calls per tool name (regardless of params)
+          const nameCount = (toolNameCounts.get(effectiveToolName) ?? 0) + 1;
+          toolNameCounts.set(effectiveToolName, nameCount);
+          const totalLimit = TOOL_TOTAL_LIMITS[effectiveToolName];
+
           // Detect repetitive calls — same tool+params called too many times
-          if (priorCalls >= MAX_DUPLICATE_CALLS) {
+          if (totalLimit && nameCount > totalLimit) {
+            console.log(
+              `[agent-loop] Total call limit reached: ${effectiveToolName} (${nameCount}/${totalLimit})`,
+            );
+            result = {
+              content: `You have called ${effectiveToolName} ${nameCount} times in this session (limit: ${totalLimit}). You have enough information — stop searching and synthesize your answer NOW from the results you already have.`,
+              isError: true,
+            };
+          } else if (priorCalls >= MAX_DUPLICATE_CALLS) {
             console.log(
               `[agent-loop] Duplicate call blocked: ${effectiveToolName} (${priorCalls + 1}x)`,
             );
@@ -877,7 +915,12 @@ export class SimpleAgentLoop implements AgentLoop {
           }
 
           // Overflow mode: large outputs → save to file, give LLM a preview
-          applyOverflow(result!, effectiveToolName, sessionTmpDir);
+          applyOverflow(
+            result!,
+            effectiveToolName,
+            sessionTmpDir,
+            effectiveToolInput,
+          );
         }
 
         const toolDurationMs = Date.now() - toolStart;
