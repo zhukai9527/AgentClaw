@@ -15,7 +15,7 @@ shell: python skills/web-search/scripts/search.py "search query" --max 3
 ```
 
 The script uses SearXNG (self-hosted, free) as primary search engine.
-If SearXNG is unavailable, it falls back to Serper API (requires SERPER_API_KEY).
-Configure SearXNG URL via SEARXNG_URL environment variable (default: http://localhost:8888).
+If SearXNG is unavailable, it falls back to Serper API.
+Search engines are configured in Settings > Search.
 
 To read a result page in detail, call `use_skill("web-fetch")`.
