@@ -8,6 +8,7 @@ import {
   useContext,
 } from "react";
 import { useTranslation } from "react-i18next";
+import i18n from "../i18n";
 import { useBackClose } from "../hooks/useBackClose";
 import { useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
@@ -227,6 +228,19 @@ interface ParsedContent {
   images: Array<{ data: string; mediaType: string }>;
 }
 
+const MAX_ITERATIONS_SENTINEL =
+  "I've reached the maximum number of iterations. Please try breaking your request into smaller steps.";
+
+function localizeContent(text: string): string {
+  if (text.includes(MAX_ITERATIONS_SENTINEL)) {
+    return text.replace(
+      MAX_ITERATIONS_SENTINEL,
+      i18n.t("chat.maxIterationsReached"),
+    );
+  }
+  return text;
+}
+
 function parseMessageContent(content: string): ParsedContent {
   try {
     const parsed = JSON.parse(content);
@@ -241,12 +255,12 @@ function parseMessageContent(content: string): ParsedContent {
           data: b.data,
           mediaType: b.mediaType,
         }));
-      return { text, images };
+      return { text: localizeContent(text), images };
     }
   } catch {
     /* not JSON */
   }
-  return { text: content, images: [] };
+  return { text: localizeContent(content), images: [] };
 }
 
 /** Try to parse JSON, return parsed object or null */

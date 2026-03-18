@@ -154,26 +154,12 @@ function applyOverflow(
   return filePath;
 }
 
-/** Detect user language from input and return localized max-iterations message */
-function maxIterationsMessage(input: string | ContentBlock[]): string {
-  const text =
-    typeof input === "string"
-      ? input
-      : (input as ContentBlock[])
-          .filter((b): b is { type: "text"; text: string } => b.type === "text")
-          .map((b) => b.text)
-          .join("");
-  // CJK characters → Chinese; Cyrillic → Russian; Japanese kana → Japanese; Korean → Korean
-  if (/[\u4e00-\u9fff]/.test(text))
-    return "已达到最大迭代次数，请尝试将请求拆分为更小的步骤。";
-  if (/[\u3040-\u309f\u30a0-\u30ff]/.test(text))
-    return "最大反復回数に達しました。リクエストをより小さなステップに分割してください。";
-  if (/[\uac00-\ud7af]/.test(text))
-    return "최대 반복 횟수에 도달했습니다. 요청을 더 작은 단계로 나누어 주세요.";
-  if (/[\u0400-\u04ff]/.test(text))
-    return "Достигнуто максимальное количество итераций. Попробуйте разбить запрос на более мелкие шаги.";
-  return "I've reached the maximum number of iterations. Please try breaking your request into smaller steps.";
-}
+/**
+ * Sentinel string for max-iterations fallback.
+ * Frontend i18n detects this exact string and replaces it with the localized version.
+ */
+const MAX_ITERATIONS_MESSAGE =
+  "I've reached the maximum number of iterations. Please try breaking your request into smaller steps.";
 
 /** Build a dedup key for per-tool failure tracking */
 function buildFailKey(
@@ -1192,7 +1178,7 @@ export class SimpleAgentLoop implements AgentLoop {
     // For abort: empty content (just the stats for history). For max iterations: fallback text.
     const fallbackContent = wasAborted
       ? ""
-      : lastFullText || maxIterationsMessage(input);
+      : lastFullText || MAX_ITERATIONS_MESSAGE;
     const fallbackTurn: ConversationTurn = {
       id: generateId(),
       conversationId: convId,

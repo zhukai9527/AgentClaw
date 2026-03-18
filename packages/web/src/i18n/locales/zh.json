@@ -77,6 +77,7 @@
     "stopVoice": "停止语音输入",
     "sendMessage": "发送消息",
     "stopGeneration": "停止生成",
+    "maxIterationsReached": "已达到最大迭代次数，请尝试将请求拆分为更小的步骤。",
     "editResend": "编辑并重发",
     "doubleClickRename": "双击重命名",
     "connectionLost": "连接已断开",
