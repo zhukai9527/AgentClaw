@@ -1,4 +1,6 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 import type {
   ContextManager,
   Message,
@@ -35,6 +37,7 @@ export class SimpleContextManager implements ContextManager {
   private provider?: LLMProvider;
   private maxHistoryTurns: number;
   private compressAfter: number;
+  private freshTailCount: number;
   private summaryCache = new Map<string, string>();
 
   /** Cached skill catalog string — built once, reused across all conversations */
@@ -61,6 +64,7 @@ export class SimpleContextManager implements ContextManager {
     provider?: LLMProvider;
     maxHistoryTurns?: number;
     compressAfter?: number;
+    freshTailCount?: number;
   }) {
     this.systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     this.memoryStore = options.memoryStore;
@@ -68,6 +72,7 @@ export class SimpleContextManager implements ContextManager {
     this.provider = options.provider;
     this.maxHistoryTurns = options.maxHistoryTurns ?? 50;
     this.compressAfter = options.compressAfter ?? 20;
+    this.freshTailCount = options.freshTailCount ?? 32;
   }
 
   async buildContext(
@@ -90,8 +95,9 @@ export class SimpleContextManager implements ContextManager {
 
     let historyMessages: Message[];
     if (turns.length > this.compressAfter) {
-      // Find the compress boundary, avoiding splitting tool_call/result pairs
-      let splitIdx = turns.length - this.compressAfter;
+      // Fresh Tail Protection: guarantee at least freshTailCount messages are never compressed
+      const tailSize = Math.max(this.compressAfter, this.freshTailCount);
+      let splitIdx = turns.length - tailSize;
       // Nothing meaningful to compress — skip compression entirely
       if (splitIdx <= 0) {
         historyMessages = turns.map((t) => this.turnToMessage(t));
@@ -100,9 +106,8 @@ export class SimpleContextManager implements ContextManager {
         while (splitIdx < turns.length && turns[splitIdx].role === "tool") {
           splitIdx++;
         }
-        // Safety: don't compress everything
-        if (splitIdx >= turns.length - 2)
-          splitIdx = turns.length - this.compressAfter;
+        // Safety: don't compress everything — keep at least 2 turns
+        if (splitIdx >= turns.length - 2) splitIdx = turns.length - tailSize;
 
         const oldTurns = turns.slice(0, splitIdx);
         const recentTurns = turns.slice(splitIdx);
@@ -152,6 +157,9 @@ export class SimpleContextManager implements ContextManager {
         if (firstKey) this.dynamicContextCache.delete(firstKey);
       }
     }
+
+    // ── 2.5. Large content extraction — persist oversized tool results to disk ──
+    historyMessages = this.extractLargeContent(historyMessages);
 
     // ── 3. Truncate old tool results to save context ──
     // Keep the last 2 tool result messages intact; older ones get a compact
@@ -365,6 +373,12 @@ export class SimpleContextManager implements ContextManager {
     }
   }
 
+  /**
+   * Three-tier compression escalation:
+   * 1. Normal LLM summarization (3-5 bullet points, 500 chars target)
+   * 2. Aggressive LLM summarization (low temperature, 200 chars target)
+   * 3. Deterministic truncation fallback (always succeeds)
+   */
   private async compressTurns(
     conversationId: string,
     turns: ConversationTurn[],
@@ -373,11 +387,10 @@ export class SimpleContextManager implements ContextManager {
     const cached = this.summaryCache.get(cacheKey);
     if (cached) return cached;
 
-    // Build raw transcript for LLM summarization
     const transcript = this.buildTranscript(turns);
 
-    // Try LLM summarization
     if (this.provider) {
+      // Tier 1: Normal LLM summarization
       try {
         const resp = await this.provider.chat({
           messages: [
@@ -394,20 +407,58 @@ export class SimpleContextManager implements ContextManager {
         });
         const text =
           typeof resp.message.content === "string" ? resp.message.content : "";
-        const summary = `[Earlier conversation summary]\n${text}`;
-        this.cacheSummary(cacheKey, summary);
-        return summary;
+        if (text.length > 0) {
+          const summary = `[Earlier conversation summary]\n${text}`;
+          this.cacheSummary(cacheKey, summary);
+          return summary;
+        }
       } catch {
-        // LLM failed, fall through to truncation
+        // Tier 1 failed, escalate
+      }
+
+      // Tier 2: Aggressive LLM summarization (low temperature, tighter target)
+      try {
+        const resp = await this.provider.chat({
+          messages: [
+            {
+              id: "sum-aggressive",
+              role: "user",
+              content: transcript,
+              createdAt: new Date(),
+            },
+          ],
+          systemPrompt:
+            "Compress this conversation into 2-3 key facts. Maximum 200 characters. Same language as user.",
+          maxTokens: 150,
+          temperature: 0.05,
+        });
+        const text =
+          typeof resp.message.content === "string" ? resp.message.content : "";
+        if (text.length > 0) {
+          const summary = `[Earlier conversation summary (compressed)]\n${text}`;
+          this.cacheSummary(cacheKey, summary);
+          return summary;
+        }
+      } catch {
+        // Tier 2 failed, fall through to deterministic truncation
       }
     }
 
-    // Fallback: simple truncation
-    const summary = `[Earlier conversation summary]\n${transcript}`;
-    const result =
-      summary.length > 2000 ? `${summary.slice(0, 2000)}\n...` : summary;
-    this.cacheSummary(cacheKey, result);
-    return result;
+    // Tier 3: Deterministic truncation (always succeeds)
+    const charLimit = 2048;
+    const truncated =
+      transcript.length > charLimit
+        ? transcript.slice(0, charLimit)
+        : transcript;
+    const turnCount = turns.length;
+    const summary =
+      `[Earlier conversation summary (deterministic fallback, ${turnCount} turns)]\n` +
+      truncated +
+      (transcript.length > charLimit
+        ? `\n... [truncated from ${transcript.length} chars]`
+        : "");
+    this.cacheSummary(cacheKey, summary);
+    return summary;
   }
 
   private buildTranscript(turns: ConversationTurn[]): string {
@@ -573,6 +624,207 @@ export class SimpleContextManager implements ContextManager {
       createdAt: turn.createdAt,
       model: turn.model,
     };
+  }
+
+  // ── Large Content Extraction ──
+
+  /**
+   * Threshold for large content extraction in historical messages.
+   * Agent-loop overflow handles >8K at execution time; this catches anything
+   * that slipped through (e.g. multi-part results, non-string content coerced
+   * to string during storage). Set at 12K to complement the 8K overflow.
+   */
+  private static LARGE_CONTENT_THRESHOLD = 12_000;
+  private static LARGE_FILES_DIR = join(
+    process.cwd(),
+    "data",
+    "tmp",
+    "lcm-files",
+  );
+
+  /**
+   * Scan tool result messages for oversized content (>100K chars).
+   * Persist to disk and replace with a structured summary.
+   */
+  private extractLargeContent(messages: Message[]): Message[] {
+    return messages.map((msg) => {
+      if (msg.role !== "tool") return msg;
+      if (!Array.isArray(msg.content)) {
+        // String content
+        if (
+          typeof msg.content === "string" &&
+          msg.content.length > SimpleContextManager.LARGE_CONTENT_THRESHOLD
+        ) {
+          const summary = this.persistAndSummarize(msg.content, msg.id);
+          return { ...msg, content: summary };
+        }
+        return msg;
+      }
+      // ContentBlock[] content
+      const blocks = msg.content as ContentBlock[];
+      let changed = false;
+      const newBlocks = blocks.map((block) => {
+        if (
+          (block as ToolResultContent).type === "tool_result" &&
+          typeof (block as ToolResultContent).content === "string" &&
+          ((block as ToolResultContent).content as string).length >
+            SimpleContextManager.LARGE_CONTENT_THRESHOLD
+        ) {
+          changed = true;
+          const content = (block as ToolResultContent).content as string;
+          const summary = this.persistAndSummarize(content, msg.id);
+          return { ...block, content: summary } as ContentBlock;
+        }
+        return block;
+      });
+      return changed ? { ...msg, content: newBlocks } : msg;
+    });
+  }
+
+  /**
+   * Persist large content to disk and return a compact summary.
+   * Supports structured data (JSON/CSV/XML), code, and plain text.
+   */
+  private persistAndSummarize(content: string, msgId: string): string {
+    // Persist to disk
+    let filePath = "";
+    try {
+      mkdirSync(SimpleContextManager.LARGE_FILES_DIR, { recursive: true });
+      const fileId = randomBytes(8).toString("hex");
+      filePath = join(SimpleContextManager.LARGE_FILES_DIR, `${fileId}.txt`);
+      writeFileSync(filePath, content, "utf-8");
+    } catch {
+      // If we can't persist, still summarize to save context
+    }
+
+    const totalChars = content.length;
+    const estimatedTokens = Math.round(totalChars / 4);
+    const contentType = this.detectContentType(content);
+    let excerpt: string;
+
+    switch (contentType) {
+      case "json":
+        excerpt = this.summarizeJson(content);
+        break;
+      case "csv":
+        excerpt = this.summarizeCsv(content);
+        break;
+      case "xml":
+        excerpt = this.summarizeXml(content);
+        break;
+      case "code":
+        excerpt = this.summarizeCode(content);
+        break;
+      default:
+        excerpt = this.summarizeText(content);
+    }
+
+    const header = `[Large content extracted — ${totalChars.toLocaleString()} chars, ~${estimatedTokens.toLocaleString()} tokens, type: ${contentType}]`;
+    const footer = filePath
+      ? `[Full content saved to: ${filePath}]`
+      : "[Could not persist to disk]";
+    return `${header}\n${excerpt}\n${footer}`;
+  }
+
+  private detectContentType(
+    content: string,
+  ): "json" | "csv" | "xml" | "code" | "text" {
+    const trimmed = content.trimStart();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        JSON.parse(trimmed.slice(0, 10000));
+        return "json";
+      } catch {
+        // Not valid JSON
+      }
+    }
+    if (trimmed.startsWith("<?xml") || trimmed.startsWith("<")) {
+      if (/<\/\w+>/.test(trimmed.slice(0, 2000))) return "xml";
+    }
+    // CSV heuristic: first 5 lines have consistent comma/tab separators
+    const firstLines = trimmed.split("\n", 5);
+    if (firstLines.length >= 3) {
+      const commas = firstLines.map((l) => (l.match(/,/g) || []).length);
+      if (commas[0] > 1 && commas.every((c) => c === commas[0])) return "csv";
+    }
+    // Code heuristic
+    if (
+      /^(import |from |const |function |class |def |pub fn |package |#include)/m.test(
+        trimmed.slice(0, 2000),
+      )
+    ) {
+      return "code";
+    }
+    return "text";
+  }
+
+  private summarizeJson(content: string): string {
+    try {
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed)) {
+        const sample = parsed[0];
+        const keys =
+          sample && typeof sample === "object" ? Object.keys(sample) : [];
+        return `Array with ${parsed.length} items. Schema: [${keys.slice(0, 10).join(", ")}]\nFirst item: ${JSON.stringify(sample).slice(0, 300)}`;
+      }
+      const keys = Object.keys(parsed);
+      return `Object with ${keys.length} keys: [${keys.slice(0, 15).join(", ")}]\nPreview: ${JSON.stringify(parsed).slice(0, 400)}`;
+    } catch {
+      return this.summarizeText(content);
+    }
+  }
+
+  private summarizeCsv(content: string): string {
+    const lines = content.split("\n");
+    const header = lines[0] || "";
+    const rowCount = lines.length - 1;
+    const sample = lines.slice(1, 4).join("\n");
+    return `CSV: ${rowCount} rows\nHeader: ${header}\nSample rows:\n${sample}`;
+  }
+
+  private summarizeXml(content: string): string {
+    // Extract root element and first-level children
+    const rootMatch = content.match(/<(\w+)[\s>]/);
+    const root = rootMatch ? rootMatch[1] : "unknown";
+    const childTags = new Set<string>();
+    const childRegex = new RegExp(`<${root}[^>]*>\\s*<(\\w+)`, "g");
+    let m: RegExpExecArray | null;
+    while ((m = childRegex.exec(content.slice(0, 5000))) !== null) {
+      childTags.add(m[1]);
+    }
+    return `XML document, root: <${root}>, child elements: [${[...childTags].slice(0, 10).join(", ")}]\nFirst 400 chars: ${content.slice(0, 400)}`;
+  }
+
+  private summarizeCode(content: string): string {
+    const lines = content.split("\n");
+    // Extract imports and function/class signatures
+    const imports = lines
+      .filter((l) => /^(import |from |#include |use )/.test(l.trimStart()))
+      .slice(0, 10);
+    const signatures = lines
+      .filter((l) =>
+        /^(export )?(function |class |const \w+ = |def |pub fn |fn |interface |type )/.test(
+          l.trimStart(),
+        ),
+      )
+      .slice(0, 15);
+    const parts: string[] = [];
+    if (imports.length > 0) parts.push(`Imports:\n${imports.join("\n")}`);
+    if (signatures.length > 0)
+      parts.push(`Signatures:\n${signatures.join("\n")}`);
+    parts.push(`Total: ${lines.length} lines`);
+    return parts.join("\n\n");
+  }
+
+  private summarizeText(content: string): string {
+    const SAMPLE = 800;
+    const start = content.slice(0, SAMPLE);
+    const mid = content.slice(
+      Math.floor(content.length / 2) - SAMPLE / 2,
+      Math.floor(content.length / 2) + SAMPLE / 2,
+    );
+    const end = content.slice(-SAMPLE);
+    return `[Start]\n${start}\n\n[Middle]\n${mid}\n\n[End]\n${end}`;
   }
 
   /**
