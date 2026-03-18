@@ -917,7 +917,7 @@ function SettingsSearch() {
   const engineInfoUrl: Record<string, string> = {
     searxng: "https://github.com/searxng/searxng",
     serper: "https://serper.dev",
-    querit: "https://querit.io",
+    querit: "https://querit.ai",
   };
 
   /** Default URLs for engines that have them */
