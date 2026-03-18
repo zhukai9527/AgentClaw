@@ -924,7 +924,7 @@ function SettingsSearch() {
   const defaultUrls: Record<string, string> = {
     searxng: "http://localhost:8888",
     serper: "https://google.serper.dev/search",
-    querit: "https://api.querit.io/search",
+    querit: "https://api.querit.ai/v1/search",
   };
 
   /** Whether an engine needs an API key */

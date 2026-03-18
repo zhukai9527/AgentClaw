@@ -1,7 +1,7 @@
 import type { Tool, ToolResult } from "@agentclaw/types";
 
 const DEFAULT_SERPER_URL = "https://google.serper.dev/search";
-const DEFAULT_QUERIT_URL = "https://api.querit.io/search";
+const DEFAULT_QUERIT_URL = "https://api.querit.ai/v1/search";
 const SEARCH_TIMEOUT = 10_000;
 
 /** Search engine config — injected at startup via setSearchEngines() */
@@ -177,7 +177,7 @@ async function searchQuerit(
       },
       body: JSON.stringify({
         query,
-        max_results: Math.min(maxResults, 10),
+        count: Math.min(maxResults, 10),
       }),
       signal: controller.signal,
     });
@@ -186,7 +186,7 @@ async function searchQuerit(
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();
-    const items = data.results ?? data.organic ?? [];
+    const items = data.results?.result ?? data.results ?? data.organic ?? [];
     if (items.length === 0) return null;
 
     const results: SearchResult[] = items.map(
