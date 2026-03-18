@@ -1275,7 +1275,8 @@ export class SimpleAgentLoop implements AgentLoop {
           if (chunk.type === "text") summaryText += chunk.text;
         }
         fallbackContent = summaryText || MAX_ITERATIONS_MESSAGE;
-      } catch {
+      } catch (e) {
+        console.error("[agent-loop] Failure summary generation failed:", e);
         fallbackContent = lastFullText || MAX_ITERATIONS_MESSAGE;
       }
     }
