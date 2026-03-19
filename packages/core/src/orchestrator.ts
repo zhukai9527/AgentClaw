@@ -233,12 +233,19 @@ export class SimpleOrchestrator implements Orchestrator {
       mergedContext.channel = session.metadata.channel as string;
     }
 
-    // Pass available agents to tools (for handoff validation — only whitelisted targets)
-    const handoffTargets = currentAgent?.handoffTargets ?? [];
-    const agentRoster = handoffTargets
-      .map((id) => this.agents.get(id))
-      .filter(Boolean)
-      .map((a) => ({ id: a!.id, name: a!.name, description: a!.description }));
+    // Pass available agents to tools (for handoff validation)
+    // API requests (hive-api channel) are fully isolated — no handoff
+    const isApiRequest = session.metadata?.channel === "hive-api";
+    const agentRoster = isApiRequest
+      ? []
+      : Array.from(this.agents.values())
+          .filter(
+            (a) =>
+              a.id !== (currentAgent?.id || "default") &&
+              a.id !== "default" &&
+              a.allowHandoff,
+          )
+          .map((a) => ({ id: a.id, name: a.name, description: a.description }));
     mergedContext.agents = agentRoster;
 
     // Pass agent metadata to context for downstream use
@@ -544,13 +551,16 @@ export class SimpleOrchestrator implements Orchestrator {
       );
     }
 
-    // Inject agent roster for handoff awareness (only whitelisted targets)
-    const targets = agent?.handoffTargets ?? [];
-    if (targets.length > 0 && systemPrompt) {
-      const roster = targets
-        .map((id) => this.agents.get(id))
-        .filter(Boolean)
-        .map((a) => `- ${a!.id}: ${a!.name} — ${a!.description}`)
+    // Inject agent roster for handoff awareness
+    // API requests are fully isolated — no handoff; others see allowHandoff agents
+    const isApiChannel = sessionMetadata?.channel === "hive-api";
+    if (!isApiChannel && systemPrompt) {
+      const currentId = agent?.id || "default";
+      const roster = Array.from(this.agents.values())
+        .filter(
+          (a) => a.id !== currentId && a.id !== "default" && a.allowHandoff,
+        )
+        .map((a) => `- ${a.id}: ${a.name} — ${a.description}`)
         .join("\n");
       if (roster) {
         systemPrompt += `\n\n## Handoff\nWhen the user's request is better suited for a specialist, use the \`handoff\` tool.\nAvailable agents:\n${roster}`;

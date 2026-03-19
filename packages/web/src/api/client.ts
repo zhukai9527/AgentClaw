@@ -238,7 +238,7 @@ export interface AgentInfo {
   rateLimits?: { requestsPerMinute?: number; requestsPerDay?: number };
   knowledgeSources?: KnowledgeSourceInfo[];
   showInChat?: boolean;
-  handoffTargets?: string[];
+  allowHandoff?: boolean;
 }
 
 export function listAgents(): Promise<AgentInfo[]> {

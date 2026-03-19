@@ -191,8 +191,8 @@ export interface AgentProfile {
   knowledgeSources?: KnowledgeSource[];
   /** Whether this agent appears in the Chat page agent selector (default true) */
   showInChat?: boolean;
-  /** Agent IDs this agent can hand off to (empty = no handoff) */
-  handoffTargets?: string[];
+  /** Whether this agent can be a handoff target for other agents (default false) */
+  allowHandoff?: boolean;
 }
 
 /* ── Workflow (deterministic orchestration) ─────────────── */

@@ -59,7 +59,7 @@ function readAgentFromFs(id: string): AgentProfile | null {
     isPublished: config.isPublished,
     rateLimits: config.rateLimits,
     showInChat: config.showInChat,
-    handoffTargets: config.handoffTargets,
+    allowHandoff: config.allowHandoff,
   };
 }
 
@@ -114,8 +114,8 @@ function writeAgentToFs(agent: AgentProfile): void {
   if (agent.isPublished !== undefined) config.isPublished = agent.isPublished;
   if (agent.rateLimits) config.rateLimits = agent.rateLimits;
   if (agent.showInChat !== undefined) config.showInChat = agent.showInChat;
-  if (agent.handoffTargets?.length)
-    config.handoffTargets = agent.handoffTargets;
+  if (agent.allowHandoff !== undefined)
+    config.allowHandoff = agent.allowHandoff;
   writeFileSync(
     resolve(dir, "config.json"),
     `${JSON.stringify(config, null, 2)}\n`,
@@ -158,7 +158,7 @@ export function registerAgentRoutes(
       isPublished?: boolean;
       rateLimits?: { requestsPerMinute?: number; requestsPerDay?: number };
       showInChat?: boolean;
-      handoffTargets?: string[];
+      allowHandoff?: boolean;
     };
   }>("/api/agents", async (req, reply) => {
     const body = req.body;
@@ -186,7 +186,7 @@ export function registerAgentRoutes(
       isPublished: body.isPublished,
       rateLimits: body.rateLimits,
       showInChat: body.showInChat,
-      handoffTargets: body.handoffTargets,
+      allowHandoff: body.allowHandoff,
     };
     writeAgentToFs(agent);
     ctx.refreshAgents();
@@ -210,7 +210,7 @@ export function registerAgentRoutes(
       isPublished?: boolean;
       rateLimits?: { requestsPerMinute?: number; requestsPerDay?: number };
       showInChat?: boolean;
-      handoffTargets?: string[];
+      allowHandoff?: boolean;
     };
   }>("/api/agents/:id", async (req, reply) => {
     const existing = readAgentFromFs(req.params.id);
