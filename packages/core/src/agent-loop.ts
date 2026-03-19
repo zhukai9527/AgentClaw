@@ -143,6 +143,66 @@ function pruneSystemPromptForTools(
   return pruned + restSection + boundary;
 }
 
+/**
+ * Micro-compact: silently replace old tool_result content with short placeholders.
+ * Keeps the most recent KEEP_RECENT tool-result turns intact; older ones get
+ * their content shrunk. Runs every iteration, no LLM involved.
+ */
+const MICRO_COMPACT_KEEP_RECENT = 3;
+const MICRO_COMPACT_MIN_LENGTH = 100;
+
+function microCompact(messages: Message[]): void {
+  // Find all tool-role messages (contain tool_result blocks)
+  const toolMsgIndices: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === "tool") toolMsgIndices.push(i);
+  }
+  // Only compact if there are enough tool messages
+  if (toolMsgIndices.length <= MICRO_COMPACT_KEEP_RECENT) return;
+
+  const toCompact = toolMsgIndices.slice(
+    0,
+    toolMsgIndices.length - MICRO_COMPACT_KEEP_RECENT,
+  );
+
+  for (const idx of toCompact) {
+    const msg = messages[idx];
+    if (typeof msg.content === "string") {
+      // Parse JSON content blocks
+      try {
+        const blocks = JSON.parse(msg.content) as ContentBlock[];
+        let changed = false;
+        for (const block of blocks) {
+          if (
+            block.type === "tool_result" &&
+            typeof (block as ToolResultContent).content === "string" &&
+            (block as ToolResultContent).content.length > MICRO_COMPACT_MIN_LENGTH
+          ) {
+            (block as ToolResultContent).content = "[previous tool result]";
+            changed = true;
+          }
+        }
+        if (changed) msg.content = JSON.stringify(blocks);
+      } catch {
+        // Not JSON — try direct string replacement
+        if (msg.content.length > MICRO_COMPACT_MIN_LENGTH) {
+          msg.content = "[previous tool result]";
+        }
+      }
+    } else if (Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if (
+          block.type === "tool_result" &&
+          typeof (block as ToolResultContent).content === "string" &&
+          (block as ToolResultContent).content.length > MICRO_COMPACT_MIN_LENGTH
+        ) {
+          (block as ToolResultContent).content = "[previous tool result]";
+        }
+      }
+    }
+  }
+}
+
 /** Stop the loop if this many consecutive iterations produce only errors */
 const MAX_CONSECUTIVE_ERRORS = 3;
 
@@ -494,6 +554,7 @@ export class SimpleAgentLoop implements AgentLoop {
     let useSkillRollbacks = 0;
     let consecutiveErrors = 0;
     let lastFullText = ""; // Keep last LLM text for fallback response
+    let roundsSinceUpdateTodo = -1; // -1 = never used todo; >=0 = rounds since last call
 
     while (iterations < this._config.maxIterations && !this.aborted) {
       // Check shared budget (parent + children share the same IterationBudget)
@@ -505,6 +566,17 @@ export class SimpleAgentLoop implements AgentLoop {
       }
       iterations++;
       this.iterationBudget?.consume();
+
+      // ── Todo nag reminder ──
+      // If agent used update_todo earlier but hasn't called it for 3+ rounds,
+      // inject a reminder to update progress. Only nags if todo was ever used
+      // in this session (roundsSinceUpdateTodo >= 0 means it was called at least once).
+      if (roundsSinceUpdateTodo > 3) {
+        runtimeHints.push(
+          "<reminder>You have an active todo list. Call update_todo to mark completed items.</reminder>",
+        );
+      }
+      if (roundsSinceUpdateTodo >= 0) roundsSinceUpdateTodo++;
 
       // ── Drain background task results ──
       // Completed background tasks are injected as runtime hints so the LLM
@@ -562,6 +634,35 @@ export class SimpleAgentLoop implements AgentLoop {
               text: hintText,
             });
           }
+        }
+      }
+
+      // ── Micro-compact: silently shrink old tool_result content ──
+      // Keep only the 3 most recent tool result turns intact; older ones get
+      // their content replaced with a short placeholder. Saves tokens every
+      // turn without LLM involvement.
+      microCompact(messages);
+
+      // ── Identity re-injection after compression ──
+      // When context was compressed (messages start with summary), the agent
+      // may lose its persona. Re-inject identity if context looks compressed.
+      if (
+        context?.agentId &&
+        context.agentId !== "default" &&
+        messages.length >= 2 &&
+        messages[0]?.id === "summary"
+      ) {
+        const agents = context.agents || [];
+        const self = agents.find((a) => a.id === context!.agentId) || {
+          name: context.agentId,
+        };
+        const identityBlock = `<identity>You are ${(self as { name: string }).name}. Stay in character.</identity>`;
+        // Inject after the summary-ack message
+        if (
+          messages[1]?.role === "assistant" &&
+          typeof messages[1].content === "string"
+        ) {
+          messages[1].content += `\n${identityBlock}`;
         }
       }
 
@@ -1126,6 +1227,9 @@ export class SimpleAgentLoop implements AgentLoop {
           }
 
           if (r.result.autoComplete) hasAutoComplete = true;
+          if (r.effectiveToolName === "update_todo") {
+            roundsSinceUpdateTodo = 0;
+          }
 
           // Handoff: signal orchestrator to switch agent
           if (r.result.handoffTo) {

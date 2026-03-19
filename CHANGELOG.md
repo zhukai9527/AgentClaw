@@ -1,5 +1,12 @@
 # 更新日志
 
+## [1.5.3] - 2026-03-20
+
+### 改进
+- **Micro-Compact（静默上下文压缩）**：每轮 LLM 调用前，自动将 3 轮之前的 tool_result 内容替换为 `[previous tool result]`（>100 字符才压缩），无需 LLM 参与，持续节省 token
+- **Identity Re-Injection（压缩后身份恢复）**：context 压缩后消息只剩摘要时，自动在摘要确认消息后注入 `<identity>` 块，防止非 default agent 在压缩后丢失人格
+- **Todo Nag Reminder（进度提醒）**：agent 调过 update_todo 后如果连续 3 轮未更新，自动注入 `<reminder>` 提醒更新进度
+
 ## [1.5.2] - 2026-03-19
 
 ### 新功能
