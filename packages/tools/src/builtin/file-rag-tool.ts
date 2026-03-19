@@ -114,8 +114,8 @@ export function chunkText(
     }
 
     chunks.push(cleaned.slice(start, end).trim());
+    if (end >= cleaned.length) break;
     start = end - overlap;
-    if (start >= cleaned.length) break;
   }
 
   return chunks.filter((c) => c.length > 0);
