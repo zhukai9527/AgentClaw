@@ -12,6 +12,8 @@ import {
   deleteAgentApiKey,
   listTools,
   listSkills,
+  createSession,
+  chatInSession,
   type AgentInfo,
   type AgentApiKeyInfo,
   type KnowledgeSourceInfo,
@@ -171,19 +173,9 @@ export function AgentDetailPage() {
     setTestMessages((prev) => [...prev, { role: "user", text: userMsg }]);
     setTestLoading(true);
     try {
-      const res = await fetch(`/api/sessions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentId: agent.id }),
-      });
-      const session = await res.json();
-      const chatRes = await fetch(`/api/sessions/${session.id}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: userMsg }),
-      });
-      const data = await chatRes.json();
-      const text = data.message?.content || data.error || "No response";
+      const session = await createSession(agent.id);
+      const data = await chatInSession(session.id, userMsg);
+      const text = data.message?.content || "No response";
       setTestMessages((prev) => [...prev, { role: "assistant", text }]);
     } catch (err) {
       setTestMessages((prev) => [

@@ -89,6 +89,16 @@ export interface SessionInfo {
   lastActiveAt: string;
 }
 
+export function chatInSession(
+  sessionId: string,
+  content: string,
+): Promise<{ message: { content: string } }> {
+  return request(`/sessions/${encodeURIComponent(sessionId)}/chat`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
+}
+
 export function createSession(
   agentId?: string,
   projectId?: string,
