@@ -270,13 +270,13 @@ export function AgentDetailPage() {
               {t.label}
             </button>
           ))}
-          <div className="agent-detail-tab-spacer" />
           <button
             className="agent-detail-test-btn"
             onClick={handleTestInChat}
           >
             💬 {d('testInChat')}
           </button>
+          <div className="agent-detail-tab-spacer" />
           <button
             className="btn-primary agent-detail-save"
             onClick={handleSave}
@@ -344,34 +344,33 @@ export function AgentDetailPage() {
                 />
               </div>
 
-              <div className="agd-field">
-                <label>{d('modelLabel')}</label>
-                <select
-                  className="agd-input"
-                  value={model}
-                  onChange={(e) => { setModel(e.target.value); markDirty(); }}
-                >
-                  <option value="">{defaultModel ? `${d('systemDefault')} (${defaultModel})` : d('systemDefault')}</option>
-                  {providers.map((p) => (
-                    <option key={p.id} value={p.model || p.id}>
-                      {p.name}{p.model ? ` — ${p.model}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="agd-row">
-                <div className="agd-field agd-field-half">
+              <div className="agd-row agd-row-thirds">
+                <div className="agd-field">
+                  <label>{d('modelLabel')}</label>
+                  <select
+                    className="agd-input"
+                    value={model}
+                    onChange={(e) => { setModel(e.target.value); markDirty(); }}
+                  >
+                    <option value="">{defaultModel ? `${d('systemDefault')} (${defaultModel})` : d('systemDefault')}</option>
+                    {providers.map((p) => (
+                      <option key={p.id} value={p.model || p.id}>
+                        {p.name}{p.model ? ` — ${p.model}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="agd-field">
                   <label>{d('tempLabel')} <span className="agd-hint">{d('tempHint')}</span></label>
                   <input
                     className="agd-input"
                     type="number" min="0" max="2" step="0.1"
                     value={temperature}
                     onChange={(e) => { setTemperature(e.target.value); markDirty(); }}
-                    placeholder="0.7"
+                    placeholder={d('tempDefault')}
                   />
                 </div>
-                <div className="agd-field agd-field-half">
+                <div className="agd-field">
                   <label>{d('maxIterLabel')} <span className="agd-hint">{d('maxIterHint')}</span></label>
                   <input
                     className="agd-input"

@@ -196,6 +196,13 @@
   display: flex;
   gap: 16px;
 }
+.agd-row-thirds > .agd-field {
+  flex: 1;
+  min-width: 0;
+}
+.agd-row-thirds > .agd-field:first-child {
+  flex: 2;
+}
 .agd-field-half {
   flex: 1;
 }
