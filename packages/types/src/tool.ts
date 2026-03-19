@@ -115,6 +115,8 @@ export interface ToolExecutionContext {
     isError: boolean;
     completedAt: Date;
   }>;
+  /** Memory namespace for per-agent isolation (Hive) */
+  memoryNamespace?: string;
 }
 
 /** A tool that can be executed */

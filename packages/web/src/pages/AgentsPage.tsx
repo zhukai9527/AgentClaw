@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { PageHeader } from "../components/PageHeader";
 import {
   listAgents,
@@ -7,7 +8,12 @@ import {
   updateAgent,
   deleteAgent,
   getConfig,
+  createAgentApiKey,
+  listAgentApiKeys,
+  deleteAgentApiKey,
   type AgentInfo,
+  type AgentApiKeyInfo,
+  type KnowledgeSourceInfo,
   type ProviderInstance,
 } from "../api/client";
 import "./AgentsPage.css";
@@ -64,6 +70,7 @@ function agentToForm(a: AgentInfo): AgentFormData {
 
 export function AgentsPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +85,12 @@ export function AgentsPage() {
   const [saving, setSaving] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showHive, setShowHive] = useState(false);
+  const [isPublished, setIsPublished] = useState(false);
+  const [apiKeys, setApiKeys] = useState<AgentApiKeyInfo[]>([]);
+  const [newKeyName, setNewKeyName] = useState("");
+  const [justCreatedKey, setJustCreatedKey] = useState<string | null>(null);
+  const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSourceInfo[]>([]);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -104,15 +117,34 @@ export function AgentsPage() {
     setModalOpen(true);
     setEmojiPickerOpen(false);
     setShowAdvanced(false);
+    setShowHive(false);
+    setIsPublished(false);
+    setApiKeys([]);
+    setJustCreatedKey(null);
+    setKnowledgeSources([]);
   };
 
-  const openEdit = (agent: AgentInfo) => {
+  const openEdit = async (agent: AgentInfo) => {
     setEditingId(agent.id);
     setForm(agentToForm(agent));
     setModalOpen(true);
     setEmojiPickerOpen(false);
-    // 如果有自定义高级设置，自动展开
     setShowAdvanced(!!(agent.temperature !== undefined || agent.maxIterations !== undefined));
+    setIsPublished(agent.isPublished ?? false);
+    setKnowledgeSources(agent.knowledgeSources ?? []);
+    setJustCreatedKey(null);
+    // Show Hive section if agent has any Hive config
+    const hasHive = !!(agent.isPublished || agent.apiKeys?.length || agent.knowledgeSources?.length);
+    setShowHive(hasHive);
+    // Load API keys (masked)
+    if (agent.id !== "default") {
+      try {
+        const keys = await listAgentApiKeys(agent.id);
+        setApiKeys(keys);
+      } catch {
+        setApiKeys([]);
+      }
+    }
   };
 
   const closeModal = () => {
@@ -128,8 +160,9 @@ export function AgentsPage() {
     }
     setSaving(true);
     try {
+      const agentId = editingId ?? form.name.trim().toLowerCase().replace(/\s+/g, "-");
       const payload: AgentInfo = {
-        id: editingId ?? form.name.trim().toLowerCase().replace(/\s+/g, "-"),
+        id: agentId,
         name: form.name.trim(),
         description: form.description.trim(),
         avatar: form.avatar,
@@ -139,6 +172,8 @@ export function AgentsPage() {
         maxIterations: form.maxIterations
           ? Number(form.maxIterations)
           : undefined,
+        isPublished: isPublished || undefined,
+        knowledgeSources: knowledgeSources.length > 0 ? knowledgeSources : undefined,
       };
       if (editingId) {
         await updateAgent(editingId, payload);
@@ -210,7 +245,7 @@ export function AgentsPage() {
               <div
                 key={agent.id}
                 className={`agent-card${agent.id === "default" ? " agent-card-default" : ""}`}
-                onClick={() => openEdit(agent)}
+                onClick={() => navigate(`/agents/${agent.id}`)}
               >
                 <div className="agent-card-top">
                   <span className="agent-card-avatar">
@@ -235,6 +270,9 @@ export function AgentsPage() {
                 </div>
                 {agent.model && (
                   <code className="agent-card-model">{agent.model}</code>
+                )}
+                {agent.isPublished && (
+                  <span className="agent-card-badge">API</span>
                 )}
               </div>
             ))}
@@ -392,6 +430,145 @@ export function AgentsPage() {
                       />
                     </div>
                   </div>
+                )}
+
+                {/* ─── Hive API Section ─── */}
+                {editingId && editingId !== "default" && (
+                  <>
+                    <button
+                      type="button"
+                      className="agents-advanced-toggle"
+                      onClick={() => setShowHive((v) => !v)}
+                    >
+                      {showHive ? "▾" : "▸"} Hive API
+                    </button>
+
+                    {showHive && (
+                      <div className="agents-hive-section">
+                        {/* Publish toggle */}
+                        <div className="agents-form-row agents-form-inline">
+                          <label className="agents-label" style={{ flex: 1 }}>
+                            Published
+                            <span className="agents-label-hint">Enable external API access</span>
+                          </label>
+                          <label className="agents-toggle">
+                            <input
+                              type="checkbox"
+                              checked={isPublished}
+                              onChange={(e) => setIsPublished(e.target.checked)}
+                            />
+                            <span className="agents-toggle-slider" />
+                          </label>
+                        </div>
+
+                        {/* API Keys */}
+                        <div className="agents-form-row">
+                          <label className="agents-label">API Keys</label>
+                          {apiKeys.length > 0 && (
+                            <div className="agents-apikeys-list">
+                              {apiKeys.map((k) => (
+                                <div key={k.keyId} className="agents-apikey-row">
+                                  <code className="agents-apikey-value">{k.key}</code>
+                                  <span className="agents-apikey-name">{k.name}</span>
+                                  <button
+                                    className="agents-apikey-delete"
+                                    onClick={async () => {
+                                      await deleteAgentApiKey(editingId, k.keyId);
+                                      setApiKeys((prev) => prev.filter((x) => x.keyId !== k.keyId));
+                                    }}
+                                    title="Revoke"
+                                  >
+                                    &times;
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {justCreatedKey && (
+                            <div className="agents-apikey-created">
+                              <strong>New key (copy now, won&apos;t show again):</strong>
+                              <code
+                                className="agents-apikey-full"
+                                onClick={() => navigator.clipboard.writeText(justCreatedKey)}
+                                title="Click to copy"
+                              >
+                                {justCreatedKey}
+                              </code>
+                            </div>
+                          )}
+                          <div className="agents-apikey-create">
+                            <input
+                              type="text"
+                              placeholder="Key name (e.g., production)"
+                              value={newKeyName}
+                              onChange={(e) => setNewKeyName(e.target.value)}
+                              className="agents-input"
+                              style={{ flex: 1 }}
+                            />
+                            <button
+                              className="btn-primary"
+                              disabled={!newKeyName.trim()}
+                              onClick={async () => {
+                                const key = await createAgentApiKey(editingId, newKeyName.trim());
+                                setApiKeys((prev) => [...prev, { ...key, key: key.key.slice(0, 12) + "..." + key.key.slice(-4) }]);
+                                setJustCreatedKey(key.key);
+                                setNewKeyName("");
+                              }}
+                            >
+                              Generate
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Knowledge Sources */}
+                        <div className="agents-form-row">
+                          <label className="agents-label">
+                            Knowledge Sources
+                            <span className="agents-label-hint">HTTP APIs the agent can query</span>
+                          </label>
+                          {knowledgeSources.map((ks, idx) => (
+                            <div key={ks.id} className="agents-ks-card">
+                              <div className="agents-ks-header">
+                                <strong>{ks.name}</strong>
+                                <span className="agents-ks-method">{ks.config.method}</span>
+                                <button
+                                  className="agents-apikey-delete"
+                                  onClick={() => setKnowledgeSources((prev) => prev.filter((_, i) => i !== idx))}
+                                >
+                                  &times;
+                                </button>
+                              </div>
+                              <code className="agents-ks-url">{ks.config.url}</code>
+                              <div className="agents-ks-desc">{ks.description}</div>
+                            </div>
+                          ))}
+                          <button
+                            className="agents-ks-add"
+                            onClick={() => {
+                              const name = prompt("Tool name (e.g., check_inventory):");
+                              if (!name) return;
+                              const desc = prompt("Description (what does this API do?):");
+                              if (!desc) return;
+                              const url = prompt("URL (use {param} for path params):");
+                              if (!url) return;
+                              const method = (prompt("Method (GET/POST):", "GET") || "GET").toUpperCase() as "GET" | "POST";
+                              const newKs: KnowledgeSourceInfo = {
+                                id: `ks_${Date.now()}`,
+                                type: "http_api",
+                                name,
+                                description: desc,
+                                config: { url, method, parameters: [], headers: {} },
+                                enabled: true,
+                              };
+                              setKnowledgeSources((prev) => [...prev, newKs]);
+                            }}
+                          >
+                            + Add API Source
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 

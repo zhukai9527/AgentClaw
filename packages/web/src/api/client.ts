@@ -167,6 +167,38 @@ export function deleteProject(id: string): Promise<void> {
 
 // ── Agents ─────────────────────────────────────────
 
+export interface AgentApiKeyInfo {
+  keyId: string;
+  key: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string;
+  expiresAt?: string;
+}
+
+export interface HttpApiParameter {
+  name: string;
+  description: string;
+  type: "string" | "number" | "boolean";
+  required: boolean;
+  in: "query" | "body" | "path";
+}
+
+export interface KnowledgeSourceInfo {
+  id: string;
+  type: "http_api";
+  name: string;
+  description: string;
+  config: {
+    url: string;
+    method: "GET" | "POST" | "PUT" | "DELETE";
+    headers?: Record<string, string>;
+    parameters: HttpApiParameter[];
+    responseMapping?: string;
+  };
+  enabled: boolean;
+}
+
 export interface AgentInfo {
   id: string;
   name: string;
@@ -178,6 +210,12 @@ export interface AgentInfo {
   maxIterations?: number;
   temperature?: number;
   sortOrder?: number;
+  apiKeys?: AgentApiKeyInfo[];
+  memoryNamespace?: string;
+  disabledSkills?: string[];
+  isPublished?: boolean;
+  rateLimits?: { requestsPerMinute?: number; requestsPerDay?: number };
+  knowledgeSources?: KnowledgeSourceInfo[];
 }
 
 export function listAgents(): Promise<AgentInfo[]> {
@@ -203,6 +241,31 @@ export function updateAgent(
 
 export function deleteAgent(id: string): Promise<void> {
   return request(`/agents/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ─── Agent API Key Management ─────────────────────────────
+export function createAgentApiKey(
+  agentId: string,
+  name: string,
+): Promise<AgentApiKeyInfo> {
+  return request(`/agents/${encodeURIComponent(agentId)}/api-keys`, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function listAgentApiKeys(agentId: string): Promise<AgentApiKeyInfo[]> {
+  return request(`/agents/${encodeURIComponent(agentId)}/api-keys`);
+}
+
+export function deleteAgentApiKey(
+  agentId: string,
+  keyId: string,
+): Promise<void> {
+  return request(
+    `/agents/${encodeURIComponent(agentId)}/api-keys/${encodeURIComponent(keyId)}`,
+    { method: "DELETE" },
+  );
 }
 
 export function listSessions(projectId?: string): Promise<SessionInfo[]> {

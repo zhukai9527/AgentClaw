@@ -43,6 +43,8 @@ export interface MemoryQuery {
   recencyWeight?: number;
   /** Weight for importance (default 0.25) */
   importanceWeight?: number;
+  /** Memory namespace for agent isolation (default: "default") */
+  namespace?: string;
 }
 
 /** Memory retrieval result with relevance score */
@@ -107,12 +109,13 @@ export interface SessionData {
 
 /** Memory store interface */
 export interface MemoryStore {
-  /** Store a new memory */
+  /** Store a new memory (namespace for per-agent isolation, defaults to "default") */
   add(
     entry: Omit<MemoryEntry, "id" | "createdAt" | "accessedAt" | "accessCount">,
+    namespace?: string,
   ): Promise<MemoryEntry>;
 
-  /** Retrieve memories by query */
+  /** Retrieve memories by query (namespace in query for per-agent isolation) */
   search(query: MemoryQuery): Promise<MemorySearchResult[]>;
 
   /** Get a specific memory by ID */
@@ -126,6 +129,7 @@ export interface MemoryStore {
     content: string,
     type: string,
     threshold?: number,
+    namespace?: string,
   ): Promise<{ entry: MemoryEntry; score: number } | null>;
 
   /** Delete a memory */

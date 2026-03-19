@@ -42,6 +42,7 @@ export { startQQBot } from "./qqbot.js";
 export type { QQBotConfig } from "./qqbot.js";
 export { startWeComBot } from "./wecom.js";
 export type { WeComConfig } from "./wecom.js";
+export { registerAgentApiRoutes } from "./routes/agent-api.js";
 export { HeartbeatManager } from "./heartbeat.js";
 export type { HeartbeatConfig, HeartbeatDeps } from "./heartbeat.js";
 export { runHealthChecks, formatHealthResults } from "./health-check.js";

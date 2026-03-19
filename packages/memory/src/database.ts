@@ -253,6 +253,21 @@ export function initDatabase(dbPath: string): DbAdapter {
     // Indexes may already exist
   }
 
+  // Hive: add namespace column for per-agent memory isolation
+  addColumnIfMissing(
+    db,
+    "memories",
+    "namespace",
+    "TEXT NOT NULL DEFAULT 'default'",
+  );
+  try {
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_memories_namespace ON memories(namespace)",
+    );
+  } catch {
+    // Index may already exist
+  }
+
   // Migration: rebuild memories table if CHECK constraint doesn't include 'identity'
   rebuildMemoriesTableIfNeeded(db);
 

@@ -1,5 +1,25 @@
 # 更新日志
 
+## [1.5.0] - 2026-03-19
+
+### 新功能（Hive — Agent-as-a-Service）
+- **Per-agent API 端点**：每个 agent 可独立发布为 API 服务，支持无状态（`POST /api/v1/agents/:id/chat`）和 Session 模式（多轮对话），SSE 流式输出
+- **Per-agent API Key**：每个 agent 生成独立的 API Key（`ac_<agentId>_<secret>`），支持生成、吊销、过期时间；`/api/v1/` 路径走 agent 自有认证，不受全局 API Key 影响
+- **Memory 命名空间隔离**：`memories` 表新增 `namespace` 列，每个 agent 的记忆读写完全隔离，互不可见；向后兼容，现有数据自动归入 `default` 命名空间
+- **HTTP API 知识源**：agent 可配置外部 HTTP API 作为实时数据源，平台自动生成 Tool 注册给 LLM；支持 path/query/body 参数、自定义 Headers、响应字段提取（dot-notation）；零代码连接业务系统
+- **Agent 详情页**（`/agents/:id`）：从弹窗升级为独立页面，5 个 Tab：
+  - Profile — 头像、名称、Soul 编辑器、模型选择、温度/迭代次数
+  - Tools & Skills — 工具白名单勾选、技能黑名单勾选
+  - Knowledge — HTTP API 知识源完整表单（名称/URL/Method/Headers/参数/响应提取）
+  - API — 发布开关、Key 管理、自动生成 curl 示例文档
+  - Test — 内嵌对话窗口，直接测试 agent 效果
+- **多语言支持**：Agent 详情页全部文字支持中英文切换（50+ 翻译键）
+
+### 改进
+- `ToolRegistryImpl` 新增 `clone()` 方法，支持 per-agent 工具注入而不污染全局注册表
+- Agent 卡片显示 "API" 标记（已发布的 agent）
+- CSS 类名前缀从 `ad-` 改为 `agd-`，避免 AdGuard 等广告拦截器误拦
+
 ## [1.4.4] - 2026-03-18
 
 ### 新功能

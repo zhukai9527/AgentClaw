@@ -67,6 +67,7 @@ export class SQLiteMemoryStore implements MemoryStore {
 
   async add(
     entry: Omit<MemoryEntry, "id" | "createdAt" | "accessedAt" | "accessCount">,
+    namespace = "default",
   ): Promise<MemoryEntry> {
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -80,8 +81,8 @@ export class SQLiteMemoryStore implements MemoryStore {
     const insertFn = this.db.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO memories (id, type, content, source_turn_id, importance, embedding, created_at, accessed_at, access_count, metadata)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+          `INSERT INTO memories (id, type, content, source_turn_id, importance, embedding, created_at, accessed_at, access_count, metadata, namespace)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
         )
         .run(
           id,
@@ -93,6 +94,7 @@ export class SQLiteMemoryStore implements MemoryStore {
           now,
           now,
           entry.metadata ? JSON.stringify(entry.metadata) : null,
+          namespace,
         );
 
       // Sync FTS5 index
@@ -126,6 +128,7 @@ export class SQLiteMemoryStore implements MemoryStore {
     const { where, params } = buildWhereClause({
       type: query.type,
       "importance >=": query.minImportance,
+      namespace: query.namespace ?? "default",
     });
 
     const limit = query.limit ?? 20;
@@ -212,6 +215,7 @@ export class SQLiteMemoryStore implements MemoryStore {
     content: string,
     _type: string,
     threshold = 0.75,
+    namespace = "default",
   ): Promise<{ entry: MemoryEntry; score: number } | null> {
     // Search across ALL types — same info stored under different types
     // (e.g. "fact" vs "entity") should still be detected as duplicate
@@ -222,6 +226,7 @@ export class SQLiteMemoryStore implements MemoryStore {
       semanticWeight: 1.0,
       recencyWeight: 0,
       importanceWeight: 0,
+      namespace,
     });
     if (results.length === 0) return null;
 

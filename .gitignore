@@ -51,3 +51,6 @@ packages/web/public/desktop.ini
 # SearXNG auto-generated
 searxng/uwsgi.ini
 .playwright-mcp/
+
+# Confidential docs
+docs/HIVE.md

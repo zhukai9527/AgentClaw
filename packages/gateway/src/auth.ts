@@ -72,6 +72,9 @@ export function registerAuth(app: FastifyInstance): void {
       return;
     }
 
+    // Hive Agent API uses per-agent API keys (handled in agent-api.ts)
+    if (url.startsWith("/api/v1/")) return;
+
     // Protect /api/*, /ws*
     if (url.startsWith("/api/") || url.startsWith("/ws")) {
       const apiKey = getApiKey();

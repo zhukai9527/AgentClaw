@@ -10,7 +10,10 @@ import type {
   AgentConfig,
   AgentProfile,
 } from "@agentclaw/types";
-import type { ToolRegistryImpl } from "@agentclaw/tools";
+import {
+  type ToolRegistryImpl,
+  createKnowledgeSourceTools,
+} from "@agentclaw/tools";
 import type { SkillRegistryImpl } from "./skills/registry.js";
 import { generateId } from "@agentclaw/providers";
 import { SimpleAgentLoop, IterationBudget } from "./agent-loop.js";
@@ -145,23 +148,34 @@ export class SimpleOrchestrator implements Orchestrator {
 
     // Merge orchestrator-provided callbacks into the context
     const memoryStore = this.memoryStore;
+    const memoryNamespace =
+      (session.metadata?.memoryNamespace as string) || "default";
     const mergedContext: ToolExecutionContext = {
       ...context,
+      memoryNamespace,
       saveMemory: async (content, type) => {
         const memType = type ?? "fact";
-        // Dedup: skip if a similar memory already exists
-        const similar = await memoryStore.findSimilar(content, memType, 0.75);
+        // Dedup: skip if a similar memory already exists (within same namespace)
+        const similar = await memoryStore.findSimilar(
+          content,
+          memType,
+          0.75,
+          memoryNamespace,
+        );
         if (similar) {
           if (0.8 > similar.entry.importance) {
             await memoryStore.update(similar.entry.id, { importance: 0.8 });
           }
           return;
         }
-        await memoryStore.add({
-          type: memType,
-          content,
-          importance: 0.8,
-        });
+        await memoryStore.add(
+          {
+            type: memType,
+            content,
+            importance: 0.8,
+          },
+          memoryNamespace,
+        );
       },
       searchHistory: memoryStore.searchHistory
         ? (query: string, limit?: number) =>
@@ -554,6 +568,17 @@ export class SimpleOrchestrator implements Orchestrator {
     if (agent?.tools) {
       const allowed = new Set(agent.tools);
       toolRegistry = this.toolRegistry.filter((t) => allowed.has(t.name));
+    }
+
+    // Inject knowledge source tools (HTTP API → dynamic tools)
+    if (agent?.knowledgeSources?.length) {
+      const ksTools = createKnowledgeSourceTools(agent.knowledgeSources);
+      if (ksTools.length > 0) {
+        toolRegistry = toolRegistry.clone();
+        for (const tool of ksTools) {
+          toolRegistry.register(tool);
+        }
+      }
     }
 
     return new SimpleAgentLoop({

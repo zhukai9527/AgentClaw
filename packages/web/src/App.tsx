@@ -6,6 +6,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { TasksPage } from "./pages/TasksPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { AutomationsPage } from "./pages/AutomationsPage";
+import { AgentDetailPage } from "./pages/AgentDetailPage";
 import { LoginPage } from "./pages/LoginPage";
 import { AuthProvider, useAuth } from "./auth";
 import { ThemeProvider } from "./components/ThemeProvider";
@@ -45,6 +46,7 @@ function AppRoutes() {
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/chat/:sessionId" element={<ChatPage />} />
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
+          <Route path="/agents/:id" element={<AgentDetailPage />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/automations" element={<AutomationsPage />} />
           <Route path="/settings" element={<SettingsPage />} />

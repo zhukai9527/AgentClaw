@@ -87,6 +87,8 @@ export class SimpleContextManager implements ContextManager {
     options?: {
       preSelectedSkillName?: string;
       reuseContext?: boolean;
+      /** Memory namespace for agent isolation */
+      memoryNamespace?: string;
     },
   ): Promise<{
     systemPrompt: string;
@@ -156,7 +158,11 @@ export class SimpleContextManager implements ContextManager {
       dynamicSuffix = cached.suffix;
       skillMatch = cached.skillMatch;
     } else {
-      const result = await this.buildDynamicContext(currentInput, options);
+      const result = await this.buildDynamicContext(
+        currentInput,
+        options,
+        options?.memoryNamespace,
+      );
       dynamicSuffix = result.suffix;
       skillMatch = result.skillMatch;
       this.dynamicContextCache.set(conversationId, {
@@ -250,6 +256,7 @@ export class SimpleContextManager implements ContextManager {
   private async buildDynamicContext(
     currentInput: string | ContentBlock[],
     options?: { preSelectedSkillName?: string },
+    memoryNamespace = "default",
   ): Promise<{
     suffix: string;
     skillMatch?: { name: string; confidence: number };
@@ -278,6 +285,7 @@ export class SimpleContextManager implements ContextManager {
         semanticWeight: 0,
         recencyWeight: 0.1,
         importanceWeight: 0.9,
+        namespace: memoryNamespace,
       });
       const prefMemories = await this.memoryStore.search({
         type: "preference" as MemoryType,
@@ -286,12 +294,14 @@ export class SimpleContextManager implements ContextManager {
         semanticWeight: 0,
         recencyWeight: 0.4,
         importanceWeight: 0.6,
+        namespace: memoryNamespace,
       });
 
       // Query-based search for contextually relevant memories (all types)
       const queryMemories = await this.memoryStore.search({
         query: searchQuery,
         limit: 8,
+        namespace: memoryNamespace,
       });
 
       // Merge and dedup by ID (identity first → preferences → query results)

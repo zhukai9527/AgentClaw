@@ -474,6 +474,7 @@ export class SimpleAgentLoop implements AgentLoop {
         await this.contextManager.buildContext(convId, input, {
           preSelectedSkillName: effectiveSkillName,
           reuseContext: iterations > 1,
+          memoryNamespace: context?.memoryNamespace,
         });
 
       // Inject runtime hints + rewrite relocated file paths in the last user message.

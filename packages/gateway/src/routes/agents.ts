@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { AgentProfile } from "@agentclaw/types";
+import type { AgentProfile, AgentApiKey } from "@agentclaw/types";
 import type { AppContext } from "../bootstrap.js";
 import {
   mkdirSync,
@@ -10,6 +10,7 @@ import {
   existsSync,
 } from "node:fs";
 import { resolve } from "node:path";
+import { randomBytes } from "node:crypto";
 
 const AGENTS_DIR = resolve(process.cwd(), "data", "agents");
 
@@ -43,6 +44,12 @@ function readAgentFromFs(id: string): AgentProfile | null {
     maxIterations: config.maxIterations,
     temperature: config.temperature,
     sortOrder: config.sortOrder ?? 0,
+    apiKeys: config.apiKeys,
+    knowledgeSources: config.knowledgeSources,
+    memoryNamespace: config.memoryNamespace,
+    disabledSkills: config.disabledSkills,
+    isPublished: config.isPublished,
+    rateLimits: config.rateLimits,
   };
 }
 
@@ -88,6 +95,14 @@ function writeAgentToFs(agent: AgentProfile): void {
   if (agent.maxIterations !== undefined)
     config.maxIterations = agent.maxIterations;
   if (agent.sortOrder) config.sortOrder = agent.sortOrder;
+  if (agent.apiKeys?.length) config.apiKeys = agent.apiKeys;
+  if (agent.knowledgeSources?.length)
+    config.knowledgeSources = agent.knowledgeSources;
+  if (agent.memoryNamespace) config.memoryNamespace = agent.memoryNamespace;
+  if (agent.disabledSkills?.length)
+    config.disabledSkills = agent.disabledSkills;
+  if (agent.isPublished !== undefined) config.isPublished = agent.isPublished;
+  if (agent.rateLimits) config.rateLimits = agent.rateLimits;
   writeFileSync(
     resolve(dir, "config.json"),
     `${JSON.stringify(config, null, 2)}\n`,
@@ -126,6 +141,9 @@ export function registerAgentRoutes(
       maxIterations?: number;
       temperature?: number;
       sortOrder?: number;
+      disabledSkills?: string[];
+      isPublished?: boolean;
+      rateLimits?: { requestsPerMinute?: number; requestsPerDay?: number };
     };
   }>("/api/agents", async (req, reply) => {
     const body = req.body;
@@ -148,6 +166,10 @@ export function registerAgentRoutes(
       maxIterations: body.maxIterations,
       temperature: body.temperature,
       sortOrder: body.sortOrder ?? 0,
+      memoryNamespace: body.id,
+      disabledSkills: body.disabledSkills,
+      isPublished: body.isPublished,
+      rateLimits: body.rateLimits,
     };
     writeAgentToFs(agent);
     ctx.refreshAgents();
@@ -167,6 +189,9 @@ export function registerAgentRoutes(
       maxIterations?: number;
       temperature?: number;
       sortOrder?: number;
+      disabledSkills?: string[];
+      isPublished?: boolean;
+      rateLimits?: { requestsPerMinute?: number; requestsPerDay?: number };
     };
   }>("/api/agents/:id", async (req, reply) => {
     const existing = readAgentFromFs(req.params.id);
@@ -197,4 +222,82 @@ export function registerAgentRoutes(
       return reply.status(204).send();
     },
   );
+
+  // ─── API Key Management ───────────────────────────────────
+
+  // POST /api/agents/:id/api-keys — Generate a new API key
+  app.post<{
+    Params: { id: string };
+    Body: { name?: string; expiresAt?: string };
+  }>("/api/agents/:id/api-keys", async (req, reply) => {
+    const agent = readAgentFromFs(req.params.id);
+    if (!agent) {
+      return reply.status(404).send({ error: "Agent not found" });
+    }
+    const keyId = randomBytes(4).toString("hex");
+    const secret = randomBytes(16).toString("hex");
+    const newKey: AgentApiKey = {
+      keyId,
+      key: `ac_${agent.id}_${secret}`,
+      name: req.body?.name || "default",
+      createdAt: new Date().toISOString(),
+      expiresAt: req.body?.expiresAt,
+    };
+    agent.apiKeys = [...(agent.apiKeys || []), newKey];
+    writeAgentToFs(agent);
+    ctx.refreshAgents();
+    // Return the full key only on creation — it won't be shown again
+    return reply.status(201).send(newKey);
+  });
+
+  // GET /api/agents/:id/api-keys — List API keys (masked)
+  app.get<{ Params: { id: string } }>(
+    "/api/agents/:id/api-keys",
+    async (req, reply) => {
+      const agent = readAgentFromFs(req.params.id);
+      if (!agent) {
+        return reply.status(404).send({ error: "Agent not found" });
+      }
+      const masked = (agent.apiKeys || []).map((k) => ({
+        ...k,
+        key: k.key.slice(0, 12) + "..." + k.key.slice(-4),
+      }));
+      return reply.send(masked);
+    },
+  );
+
+  // DELETE /api/agents/:id/api-keys/:keyId — Revoke an API key
+  app.delete<{ Params: { id: string; keyId: string } }>(
+    "/api/agents/:id/api-keys/:keyId",
+    async (req, reply) => {
+      const agent = readAgentFromFs(req.params.id);
+      if (!agent) {
+        return reply.status(404).send({ error: "Agent not found" });
+      }
+      const before = agent.apiKeys?.length || 0;
+      agent.apiKeys = (agent.apiKeys || []).filter(
+        (k) => k.keyId !== req.params.keyId,
+      );
+      if (agent.apiKeys.length === before) {
+        return reply.status(404).send({ error: "API key not found" });
+      }
+      writeAgentToFs(agent);
+      ctx.refreshAgents();
+      return reply.status(204).send();
+    },
+  );
+}
+
+/** Find an agent by API key across all agents. Returns null if not found or expired. */
+export function findAgentByApiKey(key: string): AgentProfile | null {
+  const agents = loadAgentsFromFs();
+  for (const agent of agents) {
+    if (!agent.apiKeys?.length || !agent.isPublished) continue;
+    const match = agent.apiKeys.find((k) => k.key === key);
+    if (!match) continue;
+    // Check expiration
+    if (match.expiresAt && new Date(match.expiresAt) < new Date()) continue;
+    return agent;
+  }
+  return null;
 }

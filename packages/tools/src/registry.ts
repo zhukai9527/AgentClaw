@@ -9,8 +9,8 @@ import type {
 export class ToolRegistryImpl implements ToolRegistry {
   private tools = new Map<string, Tool>();
 
-  register(tool: Tool): void {
-    if (this.tools.has(tool.name)) {
+  register(tool: Tool, overwrite = false): void {
+    if (this.tools.has(tool.name) && !overwrite) {
       throw new Error(`Tool "${tool.name}" is already registered`);
     }
     this.tools.set(tool.name, tool);
@@ -37,6 +37,11 @@ export class ToolRegistryImpl implements ToolRegistry {
       description,
       parameters,
     }));
+  }
+
+  /** Create a shallow copy of this registry */
+  clone(): ToolRegistryImpl {
+    return this.filter(() => true);
   }
 
   /** Create a filtered copy containing only tools that pass the predicate */

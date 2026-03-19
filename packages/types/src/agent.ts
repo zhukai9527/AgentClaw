@@ -83,6 +83,8 @@ export interface ContextManager {
       preSelectedSkillName?: string;
       /** Skip memory search & skill injection — reuse cached dynamic prefix (for agent loop iteration 2+) */
       reuseContext?: boolean;
+      /** Memory namespace for per-agent isolation (Hive) */
+      memoryNamespace?: string;
     },
   ): Promise<{
     systemPrompt: string;
@@ -97,6 +99,51 @@ export interface ContextManager {
 /** Session — represents a user session (alias for SessionData) */
 export type Session = SessionData;
 
+/** Per-agent API key */
+export interface AgentApiKey {
+  /** Unique key identifier */
+  keyId: string;
+  /** The actual key value (format: "ac_<agentId>_<random>") */
+  key: string;
+  /** Human-readable label (e.g., "production", "testing") */
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string;
+  expiresAt?: string;
+}
+
+/** Parameter definition for HTTP API knowledge source */
+export interface HttpApiParameter {
+  name: string;
+  description: string;
+  type: "string" | "number" | "boolean";
+  required: boolean;
+  in: "query" | "body" | "path";
+}
+
+/** HTTP API knowledge source configuration */
+export interface HttpApiSourceConfig {
+  url: string;
+  method: "GET" | "POST" | "PUT" | "DELETE";
+  headers?: Record<string, string>;
+  parameters: HttpApiParameter[];
+  /** jq/jsonpath expression to extract key fields from response */
+  responseMapping?: string;
+}
+
+/** Knowledge source — connects agent to external data */
+export interface KnowledgeSource {
+  id: string;
+  /** Source type */
+  type: "http_api";
+  /** Tool name the LLM will see (e.g., "check_inventory") */
+  name: string;
+  /** Description for the LLM to understand when to use it */
+  description: string;
+  config: HttpApiSourceConfig;
+  enabled: boolean;
+}
+
 /** Agent profile — defines a persona with custom soul, model, tools */
 export interface AgentProfile {
   id: string;
@@ -109,6 +156,21 @@ export interface AgentProfile {
   maxIterations?: number;
   temperature?: number;
   sortOrder?: number;
+  /** Per-agent API keys for Hive API access */
+  apiKeys?: AgentApiKey[];
+  /** Memory namespace for isolation (defaults to agent id) */
+  memoryNamespace?: string;
+  /** Skills to disable for this agent */
+  disabledSkills?: string[];
+  /** Whether this agent is published (API accessible) */
+  isPublished?: boolean;
+  /** Rate limits for API access */
+  rateLimits?: {
+    requestsPerMinute?: number;
+    requestsPerDay?: number;
+  };
+  /** Knowledge sources — external APIs the agent can query */
+  knowledgeSources?: KnowledgeSource[];
 }
 
 /* ── Workflow (deterministic orchestration) ─────────────── */
