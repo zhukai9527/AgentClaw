@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "../components/PageHeader";
 import { IconArrowLeft } from "../components/Icons";
+import { useSession } from "../components/SessionContext";
 import {
   listAgents,
   updateAgent,
@@ -35,6 +36,7 @@ export function AgentDetailPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const d = (key: string) => t(`agents.detail.${key}`);
+  const { refreshSessions } = useSession();
   const [agent, setAgent] = useState<AgentInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -177,6 +179,7 @@ export function AgentDetailPage() {
       const data = await chatInSession(session.id, userMsg);
       const text = data.message?.content || "No response";
       setTestMessages((prev) => [...prev, { role: "assistant", text }]);
+      refreshSessions();
     } catch (err) {
       setTestMessages((prev) => [
         ...prev,
