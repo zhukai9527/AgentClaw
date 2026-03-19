@@ -57,10 +57,12 @@ async function extractPdfContent(
   filePath: string,
 ): Promise<{ content: string; error?: string }> {
   try {
-    // Dynamic import to avoid bundling pdf-parse when unused
-    const pdfParse = (await import("pdf-parse")).default;
+    // Dynamic import — pdf-parse v1 is CJS, handle both default and module export
+    const mod = await import("pdf-parse");
+    const pdfParse = typeof mod.default === "function" ? mod.default : mod;
     const buffer = readFileSync(filePath);
-    const data = await pdfParse(buffer);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await (pdfParse as any)(buffer);
 
     const text = data.text?.trim() || "";
 
