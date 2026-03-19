@@ -475,7 +475,7 @@ export function AgentDetailPage() {
                       <span className="agd-ks-method agd-ks-method-file">FILE</span>
                       <strong>{fc.filename}</strong>
                       <div className="agd-ks-actions">
-                        <label className="agd-ks-toggle">
+                        <label className="agents-toggle">
                           <input type="checkbox" checked={ks.enabled} onChange={(e) => {
                             markDirty();
                             setKnowledgeSources((prev) => prev.map((s) => s.id === ks.id ? { ...s, enabled: e.target.checked } : s));
