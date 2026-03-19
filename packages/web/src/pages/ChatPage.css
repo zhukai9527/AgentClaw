@@ -1152,6 +1152,42 @@
   text-overflow: ellipsis;
 }
 
+/* ─── Agent indicator bar ─── */
+.agent-indicator-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: var(--accent-subtle-bg);
+  border-bottom: 1px solid var(--accent-subtle-border, var(--border));
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.agent-indicator-avatar {
+  font-size: 15px;
+  line-height: 1;
+}
+.agent-indicator-name {
+  font-weight: 600;
+  color: var(--accent);
+}
+.agent-indicator-clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  padding: 2px;
+  margin-left: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+.agent-indicator-clear:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
 .agent-menu {
   position: absolute;
   bottom: calc(100% + 6px);

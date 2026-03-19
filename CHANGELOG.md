@@ -9,6 +9,9 @@
   - 支持纯文本（.txt/.md/.csv/.json/.xml/.yaml 等直读）
 - **Agent 隔离与可见性控制**：`showInChat` 控制是否在聊天页选择器中显示；`allowHandoff` 开关控制是否允许被其他 agent 转交；API 请求完全隔离，系统提示词不注入任何 agent 信息
 
+### 改进
+- **Agent 测试体验升级**：移除 Agent 详情页内嵌的简易测试 Tab，替换为"测试对话"按钮直接跳转完整 ChatPage（流式响应、工具调用、多轮对话全支持）；ChatPage 新增 Agent 指示条，非默认 Agent 时在顶部显示当前 Agent 头像和名称
+
 ## [1.5.1] - 2026-03-19
 
 ### 新功能
@@ -27,7 +30,6 @@
   - Tools & Skills — 工具白名单勾选、技能黑名单勾选
   - Knowledge — HTTP API 知识源完整表单（名称/URL/Method/Headers/参数/响应提取）
   - API — 发布开关、Key 管理、自动生成 curl 示例文档
-  - Test — 内嵌对话窗口，直接测试 agent 效果
 - **多语言支持**：Agent 详情页全部文字支持中英文切换（50+ 翻译键）
 
 ### 改进

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "../components/PageHeader";
@@ -13,8 +14,6 @@ import {
   deleteAgentApiKey,
   listTools,
   listSkills,
-  createSession,
-  chatInSession,
   getAgentUsage,
   uploadKnowledgeFile,
   deleteKnowledgeSource,
@@ -30,7 +29,7 @@ import {
 } from "../api/client";
 import "./AgentDetailPage.css";
 
-type TabName = "profile" | "tools" | "knowledge" | "api" | "test";
+type TabName = "profile" | "tools" | "knowledge" | "api";
 
 const EMOJI_PRESETS = [
   "🤖", "💻", "✍️", "🔬", "🎨", "📊", "🧠", "🎯", "🌐", "📚",
@@ -92,11 +91,6 @@ export function AgentDetailPage() {
   const [fileUploading, setFileUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Test state
-  const [testInput, setTestInput] = useState("");
-  const [testMessages, setTestMessages] = useState<Array<{ role: string; text: string }>>([]);
-  const [testLoading, setTestLoading] = useState(false);
-  const testEndRef = useRef<HTMLDivElement>(null);
 
   const loadAgent = useCallback(async () => {
     if (!id) return;
@@ -147,10 +141,6 @@ export function AgentDetailPage() {
   }, [id, navigate]);
 
   useEffect(() => { loadAgent(); }, [loadAgent]);
-
-  useEffect(() => {
-    testEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [testMessages]);
 
   // Load usage stats when API tab is active
   useEffect(() => {
@@ -221,26 +211,12 @@ export function AgentDetailPage() {
     }
   };
 
-  const handleTest = async () => {
-    if (!testInput.trim() || !agent) return;
-    const userMsg = testInput.trim();
-    setTestInput("");
-    setTestMessages((prev) => [...prev, { role: "user", text: userMsg }]);
-    setTestLoading(true);
-    try {
-      const session = await createSession(agent.id);
-      const data = await chatInSession(session.id, userMsg);
-      const text = data.message?.content || "No response";
-      setTestMessages((prev) => [...prev, { role: "assistant", text }]);
-      refreshSessions();
-    } catch (err) {
-      setTestMessages((prev) => [
-        ...prev,
-        { role: "assistant", text: `Error: ${err instanceof Error ? err.message : String(err)}` },
-      ]);
-    } finally {
-      setTestLoading(false);
-    }
+  const { setPendingAgentId } = useSession();
+
+  const handleTestInChat = () => {
+    if (!agent) return;
+    setPendingAgentId(agent.id);
+    navigate("/chat");
   };
 
   if (loading) {
@@ -259,7 +235,6 @@ export function AgentDetailPage() {
     { key: "tools", label: d('tabTools'), icon: "🛠️" },
     { key: "knowledge", label: d('tabKnowledge'), icon: "📡" },
     { key: "api", label: d('tabApi'), icon: "🔑" },
-    { key: "test", label: d('tabTest'), icon: "💬" },
   ];
 
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
@@ -296,15 +271,19 @@ export function AgentDetailPage() {
             </button>
           ))}
           <div className="agent-detail-tab-spacer" />
-          {tab !== "test" && (
-            <button
-              className="btn-primary agent-detail-save"
-              onClick={handleSave}
-              disabled={saving || !name.trim() || !dirty}
-            >
-              {saving ? d('saving') : d('save')}
-            </button>
-          )}
+          <button
+            className="agent-detail-test-btn"
+            onClick={handleTestInChat}
+          >
+            💬 {d('testInChat')}
+          </button>
+          <button
+            className="btn-primary agent-detail-save"
+            onClick={handleSave}
+            disabled={saving || !name.trim() || !dirty}
+          >
+            {saving ? d('saving') : d('save')}
+          </button>
         </div>
 
         {/* ─── Profile Tab ─── */}
@@ -900,42 +879,6 @@ export function AgentDetailPage() {
           </div>
         )}
 
-        {/* ─── Test Tab ─── */}
-        {tab === "test" && (
-          <div className="agent-detail-content agd-test-content">
-            <div className="agd-test-messages">
-              {testMessages.length === 0 && (
-                <div className="agd-test-empty">{d('testEmpty')}</div>
-              )}
-              {testMessages.map((msg, i) => (
-                <div key={i} className={`agd-test-msg agd-test-msg-${msg.role}`}>
-                  <div className="agd-test-msg-role">{msg.role === "user" ? "You" : agent.name}</div>
-                  <div className="agd-test-msg-text">{msg.text}</div>
-                </div>
-              ))}
-              {testLoading && (
-                <div className="agd-test-msg agd-test-msg-assistant">
-                  <div className="agd-test-msg-role">{agent.name}</div>
-                  <div className="agd-test-msg-text agd-test-typing">{t('common.loading')}</div>
-                </div>
-              )}
-              <div ref={testEndRef} />
-            </div>
-            <div className="agd-test-input-row">
-              <input
-                className="agd-input agd-test-input"
-                value={testInput}
-                onChange={(e) => setTestInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleTest()}
-                placeholder={d('testPlaceholder')}
-                disabled={testLoading}
-              />
-              <button className="btn-primary" onClick={handleTest} disabled={testLoading || !testInput.trim()}>
-                {d('send')}
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </>
   );

@@ -1289,7 +1289,7 @@ export function ChatPage() {
       })
       .catch(() => {});
     listAgents()
-      .then((list) => setAgents(list.filter((a) => a.showInChat !== false)))
+      .then((list) => setAgents(list))
       .catch(() => {});
   }, []);
 
@@ -2280,11 +2280,13 @@ export function ChatPage() {
     );
   };
 
+  const chatAgents = useMemo(() => agents.filter((a) => a.showInChat !== false), [agents]);
+
   const renderAgentMenu = () => {
-    if (!agentMenuOpen || agents.length <= 1) return null;
+    if (!agentMenuOpen || chatAgents.length <= 1) return null;
     return (
       <div className="agent-menu">
-        {agents.map((a) => (
+        {chatAgents.map((a) => (
           <button
             key={a.id}
             className={`agent-menu-item${pendingAgentId === a.id ? " active" : ""}`}
@@ -2536,6 +2538,29 @@ export function ChatPage() {
             </div>
           )}
 
+          {/* Agent indicator bar — shown for non-default agents */}
+          {(() => {
+            const agentId = activeSession?.agentId || (isNewChat ? pendingAgentId : null);
+            if (!agentId || agentId === "default") return null;
+            const ag = agents.find((a) => a.id === agentId);
+            if (!ag) return null;
+            return (
+              <div className="agent-indicator-bar">
+                <span className="agent-indicator-avatar">{ag.avatar || "🤖"}</span>
+                <span className="agent-indicator-name">{ag.name}</span>
+                {isNewChat && (
+                  <button
+                    className="agent-indicator-clear"
+                    onClick={() => setPendingAgentId("default")}
+                    title={t("chat.switchToDefault")}
+                  >
+                    <IconX size={14} />
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Tool execution status */}
           {activeToolName && (
             <div className="tool-status-bar">
@@ -2613,7 +2638,7 @@ export function ChatPage() {
                           >
                             <IconPaperclip size={18} />
                           </button>
-                          {agents.length > 1 && (
+                          {chatAgents.length > 1 && (
                             <div className="agent-selector-wrap" ref={agentMenuRef}>
                               <button
                                 className="btn-agent-selector"
