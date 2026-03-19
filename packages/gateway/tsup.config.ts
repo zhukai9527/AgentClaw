@@ -30,5 +30,9 @@ export default defineConfig({
     /^sherpa-onnx-/,
     "silk-wasm",
     "opencc-js",
+    "pdf-parse",
+    "@mozilla/readability",
+    "linkedom",
+    "turndown",
   ],
 });

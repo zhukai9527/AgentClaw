@@ -18,6 +18,7 @@ import { createWriteStream } from "node:fs";
 import { resolve, extname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { ingestFile, type KnowledgeChunkStore } from "@agentclaw/tools";
+import { extractFileContent } from "../knowledge-preprocess.js";
 
 const AGENTS_DIR = resolve(process.cwd(), "data", "agents");
 
@@ -321,8 +322,14 @@ export function registerAgentRoutes(
 
       await pipeline(file.file, createWriteStream(savedPath));
 
-      // Read content for chunking
-      const content = readFileSync(savedPath, "utf-8");
+      // Extract and preprocess content (handles PDF, HTML, plain text)
+      const { content, error: extractError } = await extractFileContent(
+        savedPath,
+        ext,
+      );
+      if (extractError) {
+        return reply.status(400).send({ error: extractError });
+      }
       if (!content.trim()) {
         return reply.status(400).send({ error: "File is empty" });
       }

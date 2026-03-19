@@ -42,6 +42,10 @@
     "marked": "^17.0.3",
     "node-edge-tts": "^1.2.10",
     "opencc-js": "^1.0.5",
+    "@mozilla/readability": "^0.6.0",
+    "linkedom": "^0.18.12",
+    "pdf-parse": "^2.4.5",
+    "turndown": "^7.2.2",
     "qrcode-terminal": "^0.12.0",
     "sherpa-onnx-node": "^1.12.29",
     "sherpa-onnx-win-x64": "^1.12.28",
@@ -50,6 +54,8 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/pdf-parse": "^1.1.5",
+    "@types/turndown": "^5.0.6",
     "@types/qrcode-terminal": "^0.12.2",
     "@types/ws": "^8.18.1",
     "tsup": "^8.4.0",

@@ -501,7 +501,7 @@ export function AgentDetailPage() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".txt,.md,.csv,.json,.xml,.html,.log,.yaml,.yml"
+                  accept=".txt,.md,.csv,.json,.xml,.html,.htm,.log,.yaml,.yml,.pdf"
                   style={{ display: "none" }}
                   onChange={(e) => {
                     const file = e.target.files?.[0];
