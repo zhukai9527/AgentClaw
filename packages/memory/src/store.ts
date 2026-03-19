@@ -63,6 +63,11 @@ export class SQLiteMemoryStore implements MemoryStore {
     this.embedFn = fn;
   }
 
+  /** Get the current embedding function (for knowledge source ingestion) */
+  getEmbedFn(): EmbedFn | undefined {
+    return this.embedFn;
+  }
+
   // ─── Memory CRUD ───────────────────────────────────────────────
 
   async add(
@@ -1237,6 +1242,116 @@ export class SQLiteMemoryStore implements MemoryStore {
   }
 
   /** Get usage stats for an agent within a time period */
+  // ─── Knowledge Chunks (RAG) ──────────────────────────────
+
+  /** Store a batch of knowledge chunks with embeddings */
+  async addKnowledgeChunks(
+    chunks: Array<{
+      id: string;
+      agentId: string;
+      sourceId: string;
+      chunkIndex: number;
+      content: string;
+      embedding?: number[];
+      metadata?: Record<string, unknown>;
+    }>,
+  ): Promise<void> {
+    const insertChunk = this.db.prepare(
+      `INSERT OR REPLACE INTO knowledge_chunks (id, agent_id, source_id, chunk_index, content, embedding, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const insertMany = this.db.transaction(() => {
+      for (const chunk of chunks) {
+        const embBuf = chunk.embedding
+          ? Buffer.from(new Float64Array(chunk.embedding).buffer)
+          : null;
+        insertChunk.run(
+          chunk.id,
+          chunk.agentId,
+          chunk.sourceId,
+          chunk.chunkIndex,
+          chunk.content,
+          embBuf,
+          chunk.metadata ? JSON.stringify(chunk.metadata) : null,
+        );
+      }
+    });
+    insertMany();
+  }
+
+  /** Search knowledge chunks by vector similarity for a given agent + source */
+  async searchKnowledgeChunks(
+    agentId: string,
+    sourceIds: string[],
+    queryEmbedding: number[],
+    topK = 5,
+  ): Promise<
+    Array<{
+      content: string;
+      score: number;
+      sourceId: string;
+      chunkIndex: number;
+    }>
+  > {
+    if (sourceIds.length === 0) return [];
+
+    const placeholders = sourceIds.map(() => "?").join(",");
+    const rows = this.db
+      .prepare(
+        `SELECT id, source_id, chunk_index, content, embedding FROM knowledge_chunks
+         WHERE agent_id = ? AND source_id IN (${placeholders})`,
+      )
+      .all(agentId, ...sourceIds) as Array<{
+      id: string;
+      source_id: string;
+      chunk_index: number;
+      content: string;
+      embedding: Buffer | null;
+    }>;
+
+    // Score each chunk by cosine similarity
+    const scored = rows
+      .filter((r) => r.embedding)
+      .map((r) => {
+        const emb = Array.from(
+          new Float64Array(
+            r.embedding!.buffer,
+            r.embedding!.byteOffset,
+            r.embedding!.byteLength / 8,
+          ),
+        );
+        return {
+          content: r.content,
+          score: cosineSimilarity(queryEmbedding, emb),
+          sourceId: r.source_id,
+          chunkIndex: r.chunk_index,
+        };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK);
+
+    return scored;
+  }
+
+  /** Delete all chunks for a given knowledge source */
+  deleteKnowledgeChunks(agentId: string, sourceId: string): void {
+    this.db
+      .prepare(
+        "DELETE FROM knowledge_chunks WHERE agent_id = ? AND source_id = ?",
+      )
+      .run(agentId, sourceId);
+  }
+
+  /** Get chunk count for a knowledge source */
+  getKnowledgeChunkCount(agentId: string, sourceId: string): number {
+    const row = this.db
+      .prepare(
+        "SELECT COUNT(*) as cnt FROM knowledge_chunks WHERE agent_id = ? AND source_id = ?",
+      )
+      .get(agentId, sourceId) as { cnt: number };
+    return row.cnt;
+  }
+
   getAgentUsage(
     agentId: string,
     sinceHours = 24,

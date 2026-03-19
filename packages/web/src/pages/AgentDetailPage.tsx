@@ -16,10 +16,14 @@ import {
   createSession,
   chatInSession,
   getAgentUsage,
+  uploadKnowledgeFile,
+  deleteKnowledgeSource,
   type AgentUsageInfo,
   type AgentInfo,
   type AgentApiKeyInfo,
   type KnowledgeSourceInfo,
+  type HttpApiConfigInfo,
+  type FileSourceConfigInfo,
   type ToolInfo,
   type SkillInfo,
   type ProviderInstance,
@@ -81,6 +85,8 @@ export function AgentDetailPage() {
   // Knowledge source editor state
   const [ksEditing, setKsEditing] = useState<KnowledgeSourceInfo | null>(null);
   const [ksIsNew, setKsIsNew] = useState(false);
+  const [fileUploading, setFileUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Test state
   const [testInput, setTestInput] = useState("");
@@ -179,6 +185,33 @@ export function AgentDetailPage() {
   };
 
   const markDirty = () => setDirty(true);
+
+  const handleFileUpload = async (file: File) => {
+    if (!agent) return;
+    setFileUploading(true);
+    setError(null);
+    try {
+      const result = await uploadKnowledgeFile(agent.id, file);
+      setKnowledgeSources((prev) => [...prev, result]);
+      setSuccessMsg(`${d('fileUploaded')} (${result.chunkCount} chunks)`);
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setFileUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleDeleteKnowledgeSource = async (sourceId: string) => {
+    if (!agent) return;
+    try {
+      await deleteKnowledgeSource(agent.id, sourceId);
+      setKnowledgeSources((prev) => prev.filter((s) => s.id !== sourceId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    }
+  };
 
   const handleTest = async () => {
     if (!testInput.trim() || !agent) return;
@@ -429,6 +462,64 @@ export function AgentDetailPage() {
         {/* ─── Knowledge Tab ─── */}
         {tab === "knowledge" && (
           <div className="agent-detail-content">
+            {/* File Sources Section */}
+            <div className="agent-detail-section">
+              <h4>{d('fileSourcesTitle')}</h4>
+              <p className="agd-hint-block">{d('fileSourcesHint')}</p>
+
+              {knowledgeSources.filter((ks) => ks.type === "file").map((ks, idx) => {
+                const fc = ks.config as FileSourceConfigInfo;
+                return (
+                  <div key={ks.id} className="agd-ks-card">
+                    <div className="agd-ks-header">
+                      <span className="agd-ks-method agd-ks-method-file">FILE</span>
+                      <strong>{fc.filename}</strong>
+                      <div className="agd-ks-actions">
+                        <label className="agd-ks-toggle">
+                          <input type="checkbox" checked={ks.enabled} onChange={(e) => {
+                            markDirty();
+                            setKnowledgeSources((prev) => prev.map((s) => s.id === ks.id ? { ...s, enabled: e.target.checked } : s));
+                          }} />
+                          <span className="agents-toggle-slider" />
+                        </label>
+                        <button className="agd-ks-delete" onClick={() => handleDeleteKnowledgeSource(ks.id)}>
+                          &times;
+                        </button>
+                      </div>
+                    </div>
+                    <div className="agd-ks-desc">{ks.description}</div>
+                    <div className="agd-ks-file-meta">
+                      <span>{d('fileChunks')}: {fc.chunkCount}</span>
+                      <span>{d('fileSize')}: {fc.fileSize > 1024 ? `${(fc.fileSize / 1024).toFixed(1)} KB` : `${fc.fileSize} B`}</span>
+                      <span>{d('toolName')}: ks_{ks.name}</span>
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="agd-file-upload-area">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".txt,.md,.csv,.json,.xml,.html,.log,.yaml,.yml"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileUpload(file);
+                  }}
+                />
+                <button
+                  className="agd-ks-add"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={fileUploading}
+                >
+                  {fileUploading ? d('fileUploading') : d('addFileSource')}
+                </button>
+                <span className="agd-hint">{d('fileFormatsHint')}</span>
+              </div>
+            </div>
+
+            {/* HTTP API Sources Section */}
             <div className="agent-detail-section">
               <h4>{d('knowledgeTitle')}</h4>
               <p className="agd-hint-block">{d('knowledgeHint')}</p>
@@ -436,50 +527,53 @@ export function AgentDetailPage() {
               {/* Source list */}
               {!ksEditing && (
                 <>
-                  {knowledgeSources.map((ks, idx) => (
-                    <div key={ks.id} className="agd-ks-card">
-                      <div className="agd-ks-header">
-                        <span className="agd-ks-method">{ks.config.method}</span>
-                        <strong>{ks.name}</strong>
-                        <div className="agd-ks-actions">
-                          <button className="agd-ks-edit-btn" onClick={() => { setKsEditing(ks); setKsIsNew(false); }}>
-                            ✎
-                          </button>
-                          <label className="agd-ks-toggle">
-                            <input type="checkbox" checked={ks.enabled} onChange={(e) => {
-                              markDirty();
-                              setKnowledgeSources((prev) => prev.map((s, i) => i === idx ? { ...s, enabled: e.target.checked } : s));
-                            }} />
-                            <span className="agents-toggle-slider" />
-                          </label>
-                          <button className="agd-ks-delete" onClick={() => { setKnowledgeSources((prev) => prev.filter((_, i) => i !== idx)); markDirty(); }}>
-                            &times;
-                          </button>
+                  {knowledgeSources.filter((ks) => ks.type === "http_api").map((ks, idx) => {
+                    const hc = ks.config as HttpApiConfigInfo;
+                    return (
+                      <div key={ks.id} className="agd-ks-card">
+                        <div className="agd-ks-header">
+                          <span className="agd-ks-method">{hc.method}</span>
+                          <strong>{ks.name}</strong>
+                          <div className="agd-ks-actions">
+                            <button className="agd-ks-edit-btn" onClick={() => { setKsEditing(ks); setKsIsNew(false); }}>
+                              ✎
+                            </button>
+                            <label className="agd-ks-toggle">
+                              <input type="checkbox" checked={ks.enabled} onChange={(e) => {
+                                markDirty();
+                                setKnowledgeSources((prev) => prev.map((s) => s.id === ks.id ? { ...s, enabled: e.target.checked } : s));
+                              }} />
+                              <span className="agents-toggle-slider" />
+                            </label>
+                            <button className="agd-ks-delete" onClick={() => { setKnowledgeSources((prev) => prev.filter((s) => s.id !== ks.id)); markDirty(); }}>
+                              &times;
+                            </button>
+                          </div>
                         </div>
+                        <code className="agd-ks-url">{hc.url}</code>
+                        <div className="agd-ks-desc">{ks.description}</div>
+                        {hc.parameters.length > 0 && (
+                          <div className="agd-ks-params">
+                            {hc.parameters.map((p) => (
+                              <span key={p.name} className="agd-ks-param">
+                                {p.name}{p.required ? "*" : ""}: {p.type} ({p.in})
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {hc.responseMapping && (
+                          <div className="agd-ks-mapping">&rarr; {hc.responseMapping}</div>
+                        )}
                       </div>
-                      <code className="agd-ks-url">{ks.config.url}</code>
-                      <div className="agd-ks-desc">{ks.description}</div>
-                      {ks.config.parameters.length > 0 && (
-                        <div className="agd-ks-params">
-                          {ks.config.parameters.map((p) => (
-                            <span key={p.name} className="agd-ks-param">
-                              {p.name}{p.required ? "*" : ""}: {p.type} ({p.in})
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {ks.config.responseMapping && (
-                        <div className="agd-ks-mapping">→ {ks.config.responseMapping}</div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                   <button className="agd-ks-add" onClick={() => {
                     setKsEditing({
                       id: `ks_${Date.now()}`,
                       type: "http_api",
                       name: "",
                       description: "",
-                      config: { url: "", method: "GET", parameters: [], headers: {} },
+                      config: { url: "", method: "GET", parameters: [], headers: {} } as HttpApiConfigInfo,
                       enabled: true,
                     });
                     setKsIsNew(true);
@@ -490,7 +584,9 @@ export function AgentDetailPage() {
               )}
 
               {/* Source editor form */}
-              {ksEditing && (
+              {ksEditing && (() => {
+                const ec = ksEditing.config as HttpApiConfigInfo;
+                return (
                 <div className="agd-ks-editor">
                   <h4>{ksIsNew ? d('ksNewTitle') : d('ksEditTitle')}</h4>
 
@@ -502,8 +598,8 @@ export function AgentDetailPage() {
                     </div>
                     <div className="agd-field agd-field-half">
                       <label>{d('ksMethod')}</label>
-                      <select className="agd-input" value={ksEditing.config.method}
-                        onChange={(e) => setKsEditing({ ...ksEditing, config: { ...ksEditing.config, method: e.target.value as "GET" | "POST" | "PUT" | "DELETE" } })}>
+                      <select className="agd-input" value={ec.method}
+                        onChange={(e) => setKsEditing({ ...ksEditing, config: { ...ec, method: e.target.value as "GET" | "POST" | "PUT" | "DELETE" } })}>
                         <option value="GET">GET</option>
                         <option value="POST">POST</option>
                         <option value="PUT">PUT</option>
@@ -520,38 +616,38 @@ export function AgentDetailPage() {
 
                   <div className="agd-field">
                     <label>{d('ksUrl')} <span className="agd-hint">{d('ksUrlHint')}</span></label>
-                    <input className="agd-input" value={ksEditing.config.url} placeholder={d('ksUrlPlaceholder')}
-                      onChange={(e) => setKsEditing({ ...ksEditing, config: { ...ksEditing.config, url: e.target.value } })} />
+                    <input className="agd-input" value={ec.url} placeholder={d('ksUrlPlaceholder')}
+                      onChange={(e) => setKsEditing({ ...ksEditing, config: { ...ec, url: e.target.value } })} />
                   </div>
 
                   {/* Headers */}
                   <div className="agd-field">
                     <label>{d('ksHeaders')}</label>
-                    {Object.entries(ksEditing.config.headers || {}).map(([hKey, hVal], hi) => (
+                    {Object.entries(ec.headers || {}).map(([hKey, hVal], hi) => (
                       <div key={hi} className="agd-ks-header-row">
                         <input className="agd-input" value={hKey} placeholder={d('ksHeaderKeyPlaceholder')}
                           onChange={(e) => {
-                            const headers = { ...ksEditing.config.headers };
+                            const headers = { ...ec.headers };
                             const entries = Object.entries(headers);
                             entries[hi] = [e.target.value, hVal];
-                            setKsEditing({ ...ksEditing, config: { ...ksEditing.config, headers: Object.fromEntries(entries) } });
+                            setKsEditing({ ...ksEditing, config: { ...ec, headers: Object.fromEntries(entries) } });
                           }} />
                         <input className="agd-input" value={hVal} placeholder={d('ksHeaderValuePlaceholder')}
                           onChange={(e) => {
-                            const headers = { ...ksEditing.config.headers };
+                            const headers = { ...ec.headers };
                             headers[hKey] = e.target.value;
-                            setKsEditing({ ...ksEditing, config: { ...ksEditing.config, headers } });
+                            setKsEditing({ ...ksEditing, config: { ...ec, headers } });
                           }} />
                         <button className="agd-ks-delete" onClick={() => {
-                          const headers = { ...ksEditing.config.headers };
+                          const headers = { ...ec.headers };
                           delete headers[hKey];
-                          setKsEditing({ ...ksEditing, config: { ...ksEditing.config, headers } });
+                          setKsEditing({ ...ksEditing, config: { ...ec, headers } });
                         }}>&times;</button>
                       </div>
                     ))}
                     <button className="agd-ks-add-inline" onClick={() => {
-                      const headers = { ...ksEditing.config.headers, "": "" };
-                      setKsEditing({ ...ksEditing, config: { ...ksEditing.config, headers } });
+                      const headers = { ...ec.headers, "": "" };
+                      setKsEditing({ ...ksEditing, config: { ...ec, headers } });
                     }}>{d('ksAddHeader')}</button>
                   </div>
 
@@ -559,7 +655,7 @@ export function AgentDetailPage() {
                   <div className="agd-field">
                     <label>{d('ksParams')}</label>
                     <div className="agd-ks-param-table">
-                      {ksEditing.config.parameters.length > 0 && (
+                      {ec.parameters.length > 0 && (
                         <div className="agd-ks-param-header-row">
                           <span>{d('ksParamName')}</span>
                           <span>{d('ksParamDesc')}</span>
@@ -569,25 +665,25 @@ export function AgentDetailPage() {
                           <span />
                         </div>
                       )}
-                      {ksEditing.config.parameters.map((param, pi) => (
+                      {ec.parameters.map((param, pi) => (
                         <div key={pi} className="agd-ks-param-row">
                           <input className="agd-input" value={param.name} placeholder="name"
                             onChange={(e) => {
-                              const params = [...ksEditing.config.parameters];
+                              const params = [...ec.parameters];
                               params[pi] = { ...param, name: e.target.value };
-                              setKsEditing({ ...ksEditing, config: { ...ksEditing.config, parameters: params } });
+                              setKsEditing({ ...ksEditing, config: { ...ec, parameters: params } });
                             }} />
                           <input className="agd-input" value={param.description} placeholder="description"
                             onChange={(e) => {
-                              const params = [...ksEditing.config.parameters];
+                              const params = [...ec.parameters];
                               params[pi] = { ...param, description: e.target.value };
-                              setKsEditing({ ...ksEditing, config: { ...ksEditing.config, parameters: params } });
+                              setKsEditing({ ...ksEditing, config: { ...ec, parameters: params } });
                             }} />
                           <select className="agd-input" value={param.type}
                             onChange={(e) => {
-                              const params = [...ksEditing.config.parameters];
+                              const params = [...ec.parameters];
                               params[pi] = { ...param, type: e.target.value as "string" | "number" | "boolean" };
-                              setKsEditing({ ...ksEditing, config: { ...ksEditing.config, parameters: params } });
+                              setKsEditing({ ...ksEditing, config: { ...ec, parameters: params } });
                             }}>
                             <option value="string">string</option>
                             <option value="number">number</option>
@@ -595,9 +691,9 @@ export function AgentDetailPage() {
                           </select>
                           <select className="agd-input" value={param.in}
                             onChange={(e) => {
-                              const params = [...ksEditing.config.parameters];
+                              const params = [...ec.parameters];
                               params[pi] = { ...param, in: e.target.value as "query" | "body" | "path" };
-                              setKsEditing({ ...ksEditing, config: { ...ksEditing.config, parameters: params } });
+                              setKsEditing({ ...ksEditing, config: { ...ec, parameters: params } });
                             }}>
                             <option value="query">query</option>
                             <option value="path">path</option>
@@ -605,34 +701,34 @@ export function AgentDetailPage() {
                           </select>
                           <input type="checkbox" checked={param.required}
                             onChange={(e) => {
-                              const params = [...ksEditing.config.parameters];
+                              const params = [...ec.parameters];
                               params[pi] = { ...param, required: e.target.checked };
-                              setKsEditing({ ...ksEditing, config: { ...ksEditing.config, parameters: params } });
+                              setKsEditing({ ...ksEditing, config: { ...ec, parameters: params } });
                             }} />
                           <button className="agd-ks-delete" onClick={() => {
-                            const params = ksEditing.config.parameters.filter((_, i) => i !== pi);
-                            setKsEditing({ ...ksEditing, config: { ...ksEditing.config, parameters: params } });
+                            const params = ec.parameters.filter((_, i) => i !== pi);
+                            setKsEditing({ ...ksEditing, config: { ...ec, parameters: params } });
                           }}>&times;</button>
                         </div>
                       ))}
                     </div>
                     <button className="agd-ks-add-inline" onClick={() => {
-                      const params = [...ksEditing.config.parameters, { name: "", description: "", type: "string" as const, in: "query" as const, required: false }];
-                      setKsEditing({ ...ksEditing, config: { ...ksEditing.config, parameters: params } });
+                      const params = [...ec.parameters, { name: "", description: "", type: "string" as const, in: "query" as const, required: false }];
+                      setKsEditing({ ...ksEditing, config: { ...ec, parameters: params } });
                     }}>{d('ksAddParam')}</button>
                   </div>
 
                   {/* Response mapping */}
                   <div className="agd-field">
                     <label>{d('ksResponseMapping')} <span className="agd-hint">{d('ksResponseMappingHint')}</span></label>
-                    <input className="agd-input" value={ksEditing.config.responseMapping || ""} placeholder={d('ksResponseMappingPlaceholder')}
-                      onChange={(e) => setKsEditing({ ...ksEditing, config: { ...ksEditing.config, responseMapping: e.target.value || undefined } })} />
+                    <input className="agd-input" value={ec.responseMapping || ""} placeholder={d('ksResponseMappingPlaceholder')}
+                      onChange={(e) => setKsEditing({ ...ksEditing, config: { ...ec, responseMapping: e.target.value || undefined } })} />
                   </div>
 
                   {/* Actions */}
                   <div className="agd-ks-editor-actions">
                     <button className="agd-ks-cancel-btn" onClick={() => setKsEditing(null)}>{d('ksCancel')}</button>
-                    <button className="btn-primary" disabled={!ksEditing.name.trim() || !ksEditing.config.url.trim()}
+                    <button className="btn-primary" disabled={!ksEditing.name.trim() || !ec.url.trim()}
                       onClick={() => {
                         if (ksIsNew) {
                           setKnowledgeSources((prev) => [...prev, ksEditing]);
@@ -646,7 +742,8 @@ export function AgentDetailPage() {
                     </button>
                   </div>
                 </div>
-              )}
+                );
+              })()}
             </div>
           </div>
         )}

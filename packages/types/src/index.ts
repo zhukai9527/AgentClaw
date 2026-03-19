@@ -63,6 +63,7 @@ export type {
   AgentApiKey,
   HttpApiParameter,
   HttpApiSourceConfig,
+  FileSourceConfig,
   KnowledgeSource,
   WorkflowStep,
   WorkflowDefinition,

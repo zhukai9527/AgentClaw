@@ -133,16 +133,32 @@ export interface HttpApiSourceConfig {
   responseMapping?: string;
 }
 
+/** File-based knowledge source configuration (RAG) */
+export interface FileSourceConfig {
+  /** Original filename */
+  filename: string;
+  /** Stored file path (relative to agent knowledge dir) */
+  storedPath: string;
+  /** File size in bytes */
+  fileSize: number;
+  /** Number of chunks after processing */
+  chunkCount: number;
+  /** Chunk size in characters */
+  chunkSize?: number;
+  /** Top-K results to return per query */
+  topK?: number;
+}
+
 /** Knowledge source — connects agent to external data */
 export interface KnowledgeSource {
   id: string;
   /** Source type */
-  type: "http_api";
+  type: "http_api" | "file";
   /** Tool name the LLM will see (e.g., "check_inventory") */
   name: string;
   /** Description for the LLM to understand when to use it */
   description: string;
-  config: HttpApiSourceConfig;
+  config: HttpApiSourceConfig | FileSourceConfig;
   enabled: boolean;
 }
 

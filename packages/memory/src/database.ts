@@ -254,6 +254,9 @@ export function initDatabase(dbPath: string): DbAdapter {
     // Indexes may already exist
   }
 
+  // Hive: knowledge_chunks table for static file RAG
+  ensureKnowledgeChunksTable(db);
+
   // Hive: add namespace column for per-agent memory isolation
   addColumnIfMissing(
     db,
@@ -379,6 +382,23 @@ function countRows(db: DbAdapter, table: string): number {
   return (
     db.prepare(`SELECT COUNT(*) AS cnt FROM ${table}`).get() as { cnt: number }
   ).cnt;
+}
+
+/** Ensure the knowledge_chunks table exists (for static file RAG) */
+function ensureKnowledgeChunksTable(db: DbAdapter): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS knowledge_chunks (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      embedding BLOB,
+      metadata TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_kc_agent_source ON knowledge_chunks(agent_id, source_id);
+  `);
 }
 
 /** Add a column to a table if it doesn't already exist */

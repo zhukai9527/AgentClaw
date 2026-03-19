@@ -13,6 +13,7 @@ import type {
 import {
   type ToolRegistryImpl,
   createKnowledgeSourceTools,
+  createFileRagTools,
 } from "@agentclaw/tools";
 import type { SkillRegistryImpl } from "./skills/registry.js";
 import { generateId } from "@agentclaw/providers";
@@ -576,12 +577,23 @@ export class SimpleOrchestrator implements Orchestrator {
       toolRegistry = this.toolRegistry.filter((t) => allowed.has(t.name));
     }
 
-    // Inject knowledge source tools (HTTP API → dynamic tools)
+    // Inject knowledge source tools (HTTP API → dynamic tools, File → RAG search tools)
     if (agent?.knowledgeSources?.length) {
-      const ksTools = createKnowledgeSourceTools(agent.knowledgeSources);
-      if (ksTools.length > 0) {
+      const httpTools = createKnowledgeSourceTools(agent.knowledgeSources);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const store = this.memoryStore as any;
+      const ragTools = store
+        ? createFileRagTools(
+            agent.knowledgeSources,
+            agent.id,
+            store,
+            store.getEmbedFn?.(),
+          )
+        : [];
+      const allKsTools = [...httpTools, ...ragTools];
+      if (allKsTools.length > 0) {
         toolRegistry = toolRegistry.clone();
-        for (const tool of ksTools) {
+        for (const tool of allKsTools) {
           toolRegistry.register(tool);
         }
       }

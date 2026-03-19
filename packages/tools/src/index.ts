@@ -22,5 +22,13 @@ export {
   createHttpApiTool,
   createKnowledgeSourceTools,
 } from "./builtin/http-api-tool.js";
+export {
+  createFileRagTool,
+  createFileRagTools,
+  chunkText,
+  ingestFile,
+  type KnowledgeChunkStore,
+  type EmbedFn as RagEmbedFn,
+} from "./builtin/file-rag-tool.js";
 export { setSearchEngines } from "./builtin/web-search.js";
 export { MCPClient, MCPManager } from "./mcp/index.js";

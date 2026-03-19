@@ -9,6 +9,7 @@ import type {
   Tool,
   ToolResult,
   KnowledgeSource,
+  HttpApiSourceConfig,
   HttpApiParameter,
   ToolParameterSchema,
 } from "@agentclaw/types";
@@ -52,7 +53,7 @@ function extractFromResponse(data: unknown, path?: string): unknown {
  * Convert a KnowledgeSource into a callable Tool.
  */
 export function createHttpApiTool(source: KnowledgeSource): Tool {
-  const { config } = source;
+  const config = source.config as HttpApiSourceConfig;
 
   // Build parameter schema for LLM
   const properties: Record<string, { type: string; description?: string }> = {};

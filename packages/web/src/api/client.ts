@@ -194,18 +194,29 @@ export interface HttpApiParameter {
   in: "query" | "body" | "path";
 }
 
+export interface FileSourceConfigInfo {
+  filename: string;
+  storedPath: string;
+  fileSize: number;
+  chunkCount: number;
+  chunkSize?: number;
+  topK?: number;
+}
+
+export interface HttpApiConfigInfo {
+  url: string;
+  method: "GET" | "POST" | "PUT" | "DELETE";
+  headers?: Record<string, string>;
+  parameters: HttpApiParameter[];
+  responseMapping?: string;
+}
+
 export interface KnowledgeSourceInfo {
   id: string;
-  type: "http_api";
+  type: "http_api" | "file";
   name: string;
   description: string;
-  config: {
-    url: string;
-    method: "GET" | "POST" | "PUT" | "DELETE";
-    headers?: Record<string, string>;
-    parameters: HttpApiParameter[];
-    responseMapping?: string;
-  };
+  config: HttpApiConfigInfo | FileSourceConfigInfo;
   enabled: boolean;
 }
 
@@ -274,6 +285,42 @@ export function deleteAgentApiKey(
 ): Promise<void> {
   return request(
     `/agents/${encodeURIComponent(agentId)}/api-keys/${encodeURIComponent(keyId)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ─── Knowledge Source File Upload ─────────────────────────────
+export async function uploadKnowledgeFile(
+  agentId: string,
+  file: File,
+): Promise<KnowledgeSourceInfo & { chunkCount: number }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const headers: Record<string, string> = {};
+  const apiKey = getStoredApiKey();
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  // Note: do NOT set Content-Type — browser sets it with boundary for multipart
+  const resp = await fetch(
+    `${BASE.replace(/\/api$/, "")}/api/agents/${encodeURIComponent(agentId)}/knowledge/upload`,
+    {
+      method: "POST",
+      headers,
+      body: formData,
+    },
+  );
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: resp.statusText }));
+    throw new Error(err.error || resp.statusText);
+  }
+  return resp.json();
+}
+
+export function deleteKnowledgeSource(
+  agentId: string,
+  sourceId: string,
+): Promise<void> {
+  return request(
+    `/agents/${encodeURIComponent(agentId)}/knowledge/${encodeURIComponent(sourceId)}`,
     { method: "DELETE" },
   );
 }

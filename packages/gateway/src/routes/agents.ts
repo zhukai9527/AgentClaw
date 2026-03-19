@@ -1,5 +1,9 @@
 import type { FastifyInstance } from "fastify";
-import type { AgentProfile, AgentApiKey } from "@agentclaw/types";
+import type {
+  AgentProfile,
+  AgentApiKey,
+  FileSourceConfig,
+} from "@agentclaw/types";
 import type { AppContext } from "../bootstrap.js";
 import {
   mkdirSync,
@@ -9,8 +13,11 @@ import {
   rmSync,
   existsSync,
 } from "node:fs";
-import { resolve } from "node:path";
+import { pipeline } from "node:stream/promises";
+import { createWriteStream } from "node:fs";
+import { resolve, extname } from "node:path";
 import { randomBytes } from "node:crypto";
+import { ingestFile, type KnowledgeChunkStore } from "@agentclaw/tools";
 
 const AGENTS_DIR = resolve(process.cwd(), "data", "agents");
 
@@ -283,6 +290,133 @@ export function registerAgentRoutes(
       }
       writeAgentToFs(agent);
       ctx.refreshAgents();
+      return reply.status(204).send();
+    },
+  );
+
+  // ─── Knowledge Source File Upload ───────────────────────────
+
+  // POST /api/agents/:id/knowledge/upload — Upload file and ingest as RAG chunks
+  app.post<{ Params: { id: string } }>(
+    "/api/agents/:id/knowledge/upload",
+    async (req, reply) => {
+      const agent = readAgentFromFs(req.params.id);
+      if (!agent) {
+        return reply.status(404).send({ error: "Agent not found" });
+      }
+
+      const file = await req.file();
+      if (!file) {
+        return reply.status(400).send({ error: "No file uploaded" });
+      }
+
+      // Store file in agent knowledge directory
+      const knowledgeDir = resolve(AGENTS_DIR, req.params.id, "knowledge");
+      mkdirSync(knowledgeDir, { recursive: true });
+
+      const ext = extname(file.filename) || ".txt";
+      const fileId = randomBytes(8).toString("hex");
+      const savedName = `${fileId}${ext}`;
+      const savedPath = resolve(knowledgeDir, savedName);
+
+      await pipeline(file.file, createWriteStream(savedPath));
+
+      // Read content for chunking
+      const content = readFileSync(savedPath, "utf-8");
+      if (!content.trim()) {
+        return reply.status(400).send({ error: "File is empty" });
+      }
+
+      // Generate a source ID
+      const sourceId = `ks_file_${fileId}`;
+      const toolName = file.filename
+        .replace(/\.[^.]+$/, "")
+        .replace(/[^a-zA-Z0-9_\u4e00-\u9fff]/g, "_")
+        .slice(0, 40);
+
+      // Get embed function from memory store
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const store = ctx.memoryStore as any;
+      const embedFn = store.getEmbedFn?.();
+
+      // Ingest: chunk → embed → store
+      const chunkCount = await ingestFile(
+        req.params.id,
+        sourceId,
+        content,
+        store as KnowledgeChunkStore,
+        embedFn,
+      );
+
+      // Build knowledge source config
+      const ksConfig: FileSourceConfig = {
+        filename: file.filename,
+        storedPath: savedName,
+        fileSize: content.length,
+        chunkCount,
+      };
+
+      const ks = {
+        id: sourceId,
+        type: "file" as const,
+        name: toolName,
+        description: `Search the document "${file.filename}" for relevant information`,
+        config: ksConfig,
+        enabled: true,
+      };
+
+      // Append to agent's knowledge sources and save
+      agent.knowledgeSources = [...(agent.knowledgeSources || []), ks];
+      writeAgentToFs(agent);
+      ctx.refreshAgents();
+
+      return reply.status(201).send({
+        ...ks,
+        chunkCount,
+      });
+    },
+  );
+
+  // DELETE /api/agents/:id/knowledge/:sourceId — Remove a file knowledge source
+  app.delete<{ Params: { id: string; sourceId: string } }>(
+    "/api/agents/:id/knowledge/:sourceId",
+    async (req, reply) => {
+      const agent = readAgentFromFs(req.params.id);
+      if (!agent) {
+        return reply.status(404).send({ error: "Agent not found" });
+      }
+
+      const source = agent.knowledgeSources?.find(
+        (s) => s.id === req.params.sourceId,
+      );
+      if (!source) {
+        return reply.status(404).send({ error: "Knowledge source not found" });
+      }
+
+      // Delete chunks from DB
+      ctx.memoryStore.deleteKnowledgeChunks(req.params.id, req.params.sourceId);
+
+      // Delete stored file if it's a file type
+      if (source.type === "file") {
+        const fc = source.config as FileSourceConfig;
+        const filePath = resolve(
+          AGENTS_DIR,
+          req.params.id,
+          "knowledge",
+          fc.storedPath,
+        );
+        if (existsSync(filePath)) {
+          rmSync(filePath);
+        }
+      }
+
+      // Remove from agent config
+      agent.knowledgeSources = (agent.knowledgeSources || []).filter(
+        (s) => s.id !== req.params.sourceId,
+      );
+      writeAgentToFs(agent);
+      ctx.refreshAgents();
+
       return reply.status(204).send();
     },
   );
