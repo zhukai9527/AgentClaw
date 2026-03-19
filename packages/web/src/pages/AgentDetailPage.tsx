@@ -292,7 +292,7 @@ export function AgentDetailPage() {
             <button
               className="btn-primary agent-detail-save"
               onClick={handleSave}
-              disabled={saving || !name.trim()}
+              disabled={saving || !name.trim() || !dirty}
             >
               {saving ? d('saving') : d('save')}
             </button>
