@@ -74,6 +74,11 @@ export function AgentDetailPage() {
   // Knowledge state
   const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSourceInfo[]>([]);
 
+  // Visibility & handoff state
+  const [showInChat, setShowInChat] = useState(true);
+  const [handoffTargets, setHandoffTargets] = useState<string[]>([]);
+  const [allAgents, setAllAgents] = useState<AgentInfo[]>([]);
+
   // API state
   const [isPublished, setIsPublished] = useState(false);
   const [apiKeys, setApiKeys] = useState<AgentApiKeyInfo[]>([]);
@@ -120,6 +125,9 @@ export function AgentDetailPage() {
       setSelectedTools(found.tools ?? []);
       setDisabledSkills(found.disabledSkills ?? []);
       setKnowledgeSources(found.knowledgeSources ?? []);
+      setShowInChat(found.showInChat !== false);
+      setHandoffTargets(found.handoffTargets ?? []);
+      setAllAgents(agents.filter((a) => a.id !== id));
       setIsPublished(found.isPublished ?? false);
       setDefaultModel(config.model || "");
       setProviders((config.providers || []).filter((p: ProviderInstance) => p.enabled && p.apiKey));
@@ -172,6 +180,8 @@ export function AgentDetailPage() {
         disabledSkills: disabledSkills.length > 0 ? disabledSkills : undefined,
         knowledgeSources: knowledgeSources.length > 0 ? knowledgeSources : undefined,
         isPublished: isPublished || undefined,
+        showInChat,
+        handoffTargets: handoffTargets.length > 0 ? handoffTargets : undefined,
       };
       await updateAgent(agent.id, payload);
       setDirty(false);
@@ -393,6 +403,40 @@ export function AgentDetailPage() {
                     onChange={(e) => { setMaxIterations(e.target.value); markDirty(); }}
                     placeholder="25"
                   />
+                </div>
+              </div>
+
+              {/* Visibility & Handoff */}
+              <div className="agd-field-row" style={{ marginTop: 16 }}>
+                <div className="agd-field agd-field-half">
+                  <label>{d('showInChatLabel')}</label>
+                  <p className="agd-hint-block" style={{ marginBottom: 8 }}>{d('showInChatHint')}</p>
+                  <label className="agents-toggle">
+                    <input type="checkbox" checked={showInChat} onChange={(e) => { setShowInChat(e.target.checked); markDirty(); }} />
+                    <span className="agents-toggle-slider" />
+                  </label>
+                </div>
+                <div className="agd-field agd-field-half">
+                  <label>{d('handoffLabel')}</label>
+                  <p className="agd-hint-block" style={{ marginBottom: 8 }}>{d('handoffHint')}</p>
+                  <div className="agd-checkbox-grid agd-checkbox-grid-compact">
+                    {allAgents.map((a) => (
+                      <label key={a.id} className="agd-checkbox-item">
+                        <input
+                          type="checkbox"
+                          checked={handoffTargets.includes(a.id)}
+                          onChange={(e) => {
+                            markDirty();
+                            setHandoffTargets((prev) =>
+                              e.target.checked ? [...prev, a.id] : prev.filter((x) => x !== a.id),
+                            );
+                          }}
+                        />
+                        <span>{a.avatar || "🤖"} {a.name}</span>
+                      </label>
+                    ))}
+                    {allAgents.length === 0 && <span className="agd-hint">{d('noOtherAgents')}</span>}
+                  </div>
                 </div>
               </div>
             </div>

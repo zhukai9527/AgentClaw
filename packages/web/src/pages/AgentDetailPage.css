@@ -249,6 +249,9 @@
   gap: 4px;
   margin-bottom: 8px;
 }
+.agd-checkbox-grid-compact {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
 .agd-checkbox-item {
   display: flex;
   align-items: center;

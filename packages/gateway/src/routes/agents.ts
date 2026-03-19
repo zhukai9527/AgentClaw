@@ -58,6 +58,8 @@ function readAgentFromFs(id: string): AgentProfile | null {
     disabledSkills: config.disabledSkills,
     isPublished: config.isPublished,
     rateLimits: config.rateLimits,
+    showInChat: config.showInChat,
+    handoffTargets: config.handoffTargets,
   };
 }
 
@@ -111,6 +113,9 @@ function writeAgentToFs(agent: AgentProfile): void {
     config.disabledSkills = agent.disabledSkills;
   if (agent.isPublished !== undefined) config.isPublished = agent.isPublished;
   if (agent.rateLimits) config.rateLimits = agent.rateLimits;
+  if (agent.showInChat !== undefined) config.showInChat = agent.showInChat;
+  if (agent.handoffTargets?.length)
+    config.handoffTargets = agent.handoffTargets;
   writeFileSync(
     resolve(dir, "config.json"),
     `${JSON.stringify(config, null, 2)}\n`,
@@ -152,6 +157,8 @@ export function registerAgentRoutes(
       disabledSkills?: string[];
       isPublished?: boolean;
       rateLimits?: { requestsPerMinute?: number; requestsPerDay?: number };
+      showInChat?: boolean;
+      handoffTargets?: string[];
     };
   }>("/api/agents", async (req, reply) => {
     const body = req.body;
@@ -178,6 +185,8 @@ export function registerAgentRoutes(
       disabledSkills: body.disabledSkills,
       isPublished: body.isPublished,
       rateLimits: body.rateLimits,
+      showInChat: body.showInChat,
+      handoffTargets: body.handoffTargets,
     };
     writeAgentToFs(agent);
     ctx.refreshAgents();
@@ -200,6 +209,8 @@ export function registerAgentRoutes(
       disabledSkills?: string[];
       isPublished?: boolean;
       rateLimits?: { requestsPerMinute?: number; requestsPerDay?: number };
+      showInChat?: boolean;
+      handoffTargets?: string[];
     };
   }>("/api/agents/:id", async (req, reply) => {
     const existing = readAgentFromFs(req.params.id);

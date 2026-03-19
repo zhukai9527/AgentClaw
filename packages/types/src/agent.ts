@@ -189,6 +189,10 @@ export interface AgentProfile {
   };
   /** Knowledge sources — external APIs the agent can query */
   knowledgeSources?: KnowledgeSource[];
+  /** Whether this agent appears in the Chat page agent selector (default true) */
+  showInChat?: boolean;
+  /** Agent IDs this agent can hand off to (empty = no handoff) */
+  handoffTargets?: string[];
 }
 
 /* ── Workflow (deterministic orchestration) ─────────────── */

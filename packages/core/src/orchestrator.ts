@@ -233,10 +233,12 @@ export class SimpleOrchestrator implements Orchestrator {
       mergedContext.channel = session.metadata.channel as string;
     }
 
-    // Pass available agents to tools (for handoff validation)
-    const agentRoster = Array.from(this.agents.values())
-      .filter((a) => a.id !== "default")
-      .map((a) => ({ id: a.id, name: a.name, description: a.description }));
+    // Pass available agents to tools (for handoff validation — only whitelisted targets)
+    const handoffTargets = currentAgent?.handoffTargets ?? [];
+    const agentRoster = handoffTargets
+      .map((id) => this.agents.get(id))
+      .filter(Boolean)
+      .map((a) => ({ id: a!.id, name: a!.name, description: a!.description }));
     mergedContext.agents = agentRoster;
 
     // Pass agent metadata to context for downstream use
@@ -542,14 +544,17 @@ export class SimpleOrchestrator implements Orchestrator {
       );
     }
 
-    // Inject agent roster for handoff awareness (skip current agent)
-    const currentId = agent?.id || "default";
-    const roster = Array.from(this.agents.values())
-      .filter((a) => a.id !== currentId && a.id !== "default")
-      .map((a) => `- ${a.id}: ${a.name} — ${a.description}`)
-      .join("\n");
-    if (roster && systemPrompt) {
-      systemPrompt += `\n\n## Handoff\nWhen the user's request is better suited for a specialist, use the \`handoff\` tool.\nAvailable agents:\n${roster}`;
+    // Inject agent roster for handoff awareness (only whitelisted targets)
+    const targets = agent?.handoffTargets ?? [];
+    if (targets.length > 0 && systemPrompt) {
+      const roster = targets
+        .map((id) => this.agents.get(id))
+        .filter(Boolean)
+        .map((a) => `- ${a!.id}: ${a!.name} — ${a!.description}`)
+        .join("\n");
+      if (roster) {
+        systemPrompt += `\n\n## Handoff\nWhen the user's request is better suited for a specialist, use the \`handoff\` tool.\nAvailable agents:\n${roster}`;
+      }
     }
 
     // Derive token budget from provider's context window (use 60% headroom)

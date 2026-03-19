@@ -1289,7 +1289,7 @@ export function ChatPage() {
       })
       .catch(() => {});
     listAgents()
-      .then((list) => setAgents(list))
+      .then((list) => setAgents(list.filter((a) => a.showInChat !== false)))
       .catch(() => {});
   }, []);
 

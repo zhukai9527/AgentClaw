@@ -7,6 +7,7 @@
   - 支持 PDF（pdf-parse 提取文字层，扫描件自动提示不支持）
   - 支持 HTML（Readability + Turndown 清洗，与 web_fetch 同管道）
   - 支持纯文本（.txt/.md/.csv/.json/.xml/.yaml 等直读）
+- **Agent 隔离与 Handoff 白名单**：每个 agent 独立配置可转交的目标 agent 列表，系统提示词只注入白名单内的 agent 信息；`showInChat` 控制是否在聊天页选择器中显示；API 请求完全隔离，无法访问未授权的 agent
 
 ## [1.5.1] - 2026-03-19
 
