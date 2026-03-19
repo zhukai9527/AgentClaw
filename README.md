@@ -2,27 +2,29 @@
 
 > 你的 24/7 AI 指挥官——理解意图、规划任务、调度工具、记住一切的智能调度中心。
 
-AgentClaw 是一个指挥官级别的个人 AI 助理。它自己不写代码（调用编程技能），自己不搜索（调用搜索技能），但它理解你的意图、规划复杂任务、调度合适的工具和技能，并通过 Web UI / Telegram / WhatsApp / 钉钉 / 飞书 / QQ 全天候待命。内置 TaskManager 任务管理引擎，自动捕获、分诊、执行任务，需要你决策时推送提醒，每日定时发送简报。
+AgentClaw 是一个指挥官级别的个人 AI 助理，同时也是一个 **Agent 托管平台（Hive）**。它自己不写代码（调用编程技能），自己不搜索（调用搜索技能），但它理解你的意图、规划复杂任务、调度合适的工具和技能，并通过 Web UI / Telegram / WhatsApp / 钉钉 / 飞书 / QQ 全天候待命。
+
+**Hive 模式**下，任何人都可以创建、配置、发布独立 Agent，获得即用的 API 端点——定义 Soul，选择 Tools，导入知识，拿到 Key，上线。每个 Agent 拥有独立的记忆空间、工具白名单、技能黑名单、知识库和 API Key。
 
 ## 架构
 
 ```
-你（老板）
+你（老板）/ 外部系统（API 调用）
   │
   ▼
-AgentClaw（指挥官）
-  ├── LLM 提供商 (Claude, OpenAI, Gemini, DeepSeek, Kimi, Qwen...)
+AgentClaw Hive（Agent 托管平台）
+  │
+  ├── Agent 1 (Soul + Tools + Skills + Memory + Knowledge + API Key)
+  ├── Agent 2 ...
+  ├── Agent N ...  ← 完全隔离，独立认证
+  │
+  ├── LLM 提供商 (Claude, OpenAI, Gemini, DeepSeek, Kimi, Qwen, Doubao...)
   ├── 智能路由 (自动故障切换, Fast Provider 路由)
   ├── 核心工具 (shell, file_read, file_write, file_edit, glob, grep, ask_user, web_fetch, web_search)
-  ├── 条件工具 (send_file, schedule, remember, use_skill, sandbox, subagent, browser_cdp...)
-  ├── 记忆 (对话历史 + 长期记忆 + 自动压缩)
-  ├── 规划器 (任务分解 → 步骤依赖 → 执行监控)
-  ├── 任务管理 (捕获→分诊→执行→决策→每日简报)
+  ├── 条件工具 (send_file, schedule, remember, use_skill, execute_code, sandbox, subagent, browser_cdp...)
+  ├── 记忆 (对话历史 + 长期记忆 + 自动压缩 + namespace 隔离)
   ├── 技能 x16 (browser, gws-calendar/gmail/drive/sheets/tasks, pdf, docx, xlsx, pptx...)
-  ├── 多 Agent (AgentClaw/Coder/Writer/Analyst/Researcher)
   ├── 子代理 (并行任务派发与汇总)
-  ├── 确定性工作流 (Sequential/Parallel 编排，零 LLM 消耗)
-  ├── Trajectory 评估 (黄金测试集，7 维度自动评估)
   ├── 工具钩子 (before/after 拦截 + allow/deny 策略)
   └── MCP 集成 (外部工具服务器)
 ```
@@ -47,15 +49,15 @@ agentclaw/
 │   ├── providers/   — LLM 适配器 (Claude, OpenAI兼容, Gemini) + FailoverProvider
 │   ├── tools/       — 工具注册表 + 分层内置工具 + MCP 客户端
 │   ├── memory/      — SQLite 持久化 (会话/消息/记忆/Traces/Token日志)
-│   ├── core/        — Agent Loop + Orchestrator + Planner + ContextManager + SkillRegistry + WorkflowRunner + Eval
-│   ├── gateway/     — Fastify HTTP/WS + Telegram/WhatsApp/DingTalk/Feishu/QQ Bot + 定时调度 + TaskManager
+│   ├── core/        — Agent Loop + Orchestrator + Planner + ContextManager + SkillRegistry
+│   ├── gateway/     — Fastify HTTP/WS + 多渠道 Bot + 定时调度 + TaskManager
 │   ├── cli/         — 终端交互式对话
 │   ├── web/         — React 19 + Vite 前端
 │   └── desktop/     — Tauri v2 桌面客户端 (Windows/macOS/Linux)
 ├── skills/          — 16 个技能定义 (SKILL.md)
 ├── docs/            — 架构文档 + 路线图
 └── data/            — 运行时数据 (部分 gitignored)
-    └── agents/      — Agent 人格配置 (config.json + SOUL.md，纳入 git)
+    └── agents/      — Agent 人格配置 (config.json + SOUL.md)
 ```
 
 ## 快速开始
@@ -115,6 +117,31 @@ npm run cli          # 终端交互模式
 
 ## 核心功能
 
+### Hive — Agent-as-a-Service
+
+创建独立 Agent，每个 Agent 拥有完全隔离的配置和运行环境：
+
+| 能力 | 说明 |
+|------|------|
+| **Soul** | 独立人格定义、行为准则、知识边界 |
+| **Tools 白名单** | 从全局工具池中选取可用工具，系统提示词自动裁剪不可用工具的规则 |
+| **Skills 黑名单** | 禁用特定技能，catalog 过滤 + 执行时拦截双重保护 |
+| **Memory 隔离** | 按 agentId 自动隔离记忆命名空间，agent 间记忆完全不可见 |
+| **知识库（RAG）** | 上传文档自动切片 → embedding → 向量索引，LLM 按语义检索 |
+| **HTTP API 知识源** | UI 表单配置外部 API，自动生成 Tool 注册给 agent，零代码 |
+| **Per-Agent API** | 独立 API Key + 端点，Stateless / Session / SSE 三种模式 |
+| **Per-Agent 模型** | 可覆盖全局模型，按 agent 选择性价比最优模型 |
+| **用量统计** | 按 agent 统计调用次数、token 消耗、平均延迟 |
+| **Rate Limiting** | per-agent 速率限制（每分钟 + 每天），超限 429 |
+
+**Agent API 端点**：
+```
+POST /api/v1/agents/:id/chat              # 无状态对话
+POST /api/v1/agents/:id/chat/stream       # SSE 流式
+POST /api/v1/agents/:id/sessions          # 创建会话
+POST /api/v1/agents/:id/sessions/:sid/chat # 会话内对话
+```
+
 ### 多通道接入
 - **Web UI** — 现代化聊天界面，Light/Dark 主题，文件上传/拖拽，视频/音频播放器嵌入，多模态图片理解
 - **Telegram Bot** — 支持文字/图片/文档/语音/视频消息
@@ -132,12 +159,10 @@ npm run cli          # 终端交互模式
 - **Shell 沙箱**：拦截不可逆破坏性命令（`rm -rf /`、`shutdown`、`format`、fork bomb 等），`SHELL_SANDBOX=false` 可禁用
 - **Docker 沙箱**：`sandbox` 工具在 Docker 容器内执行命令，资源限制（512MB/1CPU），超时控制，自动清理
 - **Memory 内容审查**：remember 工具写入前扫描 prompt injection、隐形 unicode 和凭证窃取 payload，拦截恶意记忆注入
-
-### 多 Agent 人格
-支持创建多个 Agent，每个 Agent 拥有独立的 Soul（人格/行为指令）、可选的 Model、Temperature、Max Iterations、Tools 过滤。5 个预设 Agent：AgentClaw（默认通用助理）、Coder（编程专家）、Writer（写作助手）、Analyst（数据分析师）、Researcher（研究员）。配置存储在 `data/agents/<id>/`，创建会话时可指定 Agent。
+- **系统提示词裁剪**：agent 有工具白名单时，自动移除提示词中引用不可用工具的规则，防止 LLM 从提示词"发现"不可用工具
 
 ### Agent Handoff（代理交接）
-对话中 Agent 可通过 `handoff` 工具将对话交给更合适的专家 Agent 继续处理。例如通用助理遇到编程任务时自动交接给 Coder，遇到数据分析时交接给 Analyst。交接后保留完整对话历史，目标 Agent 使用自己的人格、模型和工具集继续响应。最多 3 次连续交接防止循环，前端显示交接通知气泡。
+对话中 Agent 可通过 `handoff` 工具将对话交给更合适的专家 Agent 继续处理。交接后保留完整对话历史，目标 Agent 使用自己的人格、模型和工具集继续响应。最多 3 次连续交接防止循环。
 
 ### 子代理编排
 `subagent` 工具可派生独立子 agent 并行执行任务，拥有独立 agent-loop 和会话上下文。支持 spawn/spawn_and_wait/result/kill/list 操作，`mode: "explore"` 只读模式仅加载搜索/阅读工具子集。安全机制：工具黑名单（6 个危险工具始终禁止）、IterationBudget 父子共享迭代预算池防止无限消耗。
@@ -148,41 +173,16 @@ npm run cli          # 终端交互模式
 - **分诊** — 自动判断 agent/human 执行者，按优先级排队
 - **执行** — 队列调度，自动执行 agent 任务，记录 trace
 - **决策** — 需要用户拍板时推送决策卡片，heartbeat 定期提醒（不消耗 LLM token）
-- **每日简报** — 定时推送（默认 09:00，可在页面配置），汇总待办/进行中/等决策任务
-- **Web UI** — Today/All Tasks/Decisions/Automations 四个标签页
+- **每日简报** — 定时推送，汇总待办/进行中/等决策任务
 
-### 确定性工作流编排
-WorkflowRunner 引擎支持将固定流程硬编码为 WorkflowDefinition，**零 LLM 调用、零 token 消耗**执行：
-- **Sequential** — 步骤串行执行，前一步结果通过 `{{stepId.content}}` 模板传给下一步
-- **Parallel** — 子步骤并行执行（Promise.all），结果合并后继续
-- 支持条件执行、错误处理策略（stop/continue）、AbortSignal 中断
-
-### Trajectory 自动评估
-基于 Google AgentOps 三层评估框架，验证 agent 的推理路径是否正确：
-- 定义"黄金测试集"（JSON 格式，prompt + 期望工具调用序列 + 约束条件）
-- 7 个评估维度：工具选择、参数正确性、错误状态、禁用工具、响应内容匹配、模型、耗时
-- `evaluateBatch()` 批量评估 + `formatEvalReport()` 生成可读报告
-
-### Traces 工具调用统计
-Traces 页面顶部可展开的统计面板：
-- 总调用数、成功率、错误数、工具种类数
-- 按工具名分组的详细表格（调用次数、成功率、平均耗时）
-- 同一会话的多轮 trace 自动分组，显示总 token/耗时/轮次
+### 长期记忆
+自动从对话中提取事实、偏好、实体、经验，去重存储，上下文中自动注入相关记忆。按 agent 命名空间隔离，Web UI 支持按 agent 筛选管理。
 
 ### 对话压缩
 超过 20 轮对话后自动调用 LLM 生成摘要，减少 token 消耗。压缩时自动保护 tool_call/tool_result 配对完整性，防止 API 报错。
 
-### Frozen Snapshot
-Session 内冻结系统提示词中的动态上下文（记忆 + 技能目录），memory 写入持久化但不改变当前 session 的系统提示词，提高 Anthropic prompt cache 命中率。
-
-### 渠道格式提示
-不同消息渠道自动注入格式指导到系统提示词（如 Telegram 不用 Markdown、钉钉/飞书支持 Markdown 等），LLM 输出自动适配各渠道格式限制。
-
 ### TTS 语音回复
 用户发语音时 AI 以语音回复，支持 edge-tts 和 vibevoice 引擎。
-
-### 长期记忆
-自动从对话中提取事实、偏好、实体、经验，去重存储，上下文中自动注入相关记忆。
 
 ## 工具系统
 
@@ -199,6 +199,7 @@ Session 内冻结系统提示词中的动态上下文（记忆 + 技能目录）
 | 核心 | `ask_user` | 向用户提问 |
 | 核心 | `web_fetch` | 抓取网页内容（Readability 正文提取 + SPA 自动降级 Playwright） |
 | 核心 | `web_search` | 搜索互联网（SearXNG + Serper fallback） |
+| 条件 | `execute_code` | 沙箱执行 JS/Python 脚本（Programmatic Tool Calling） |
 | 条件 | `send_file` | 发送文件给用户 |
 | 条件 | `schedule` | 创建定时任务 |
 | 条件 | `update_todo` | 实时进度追踪 |
@@ -268,8 +269,6 @@ LLM 自主判断是否需要技能，通过 `use_skill` 工具调用。支持在
 | `TTS_PROVIDER` / `TTS_VOICE` | 否 | TTS 引擎配置 |
 | `SHELL_SANDBOX` | 否 | 设为 false 禁用 Shell 沙箱 |
 | `PUBLIC_URL` | 否 | 大文件下载链接的外部地址 |
-| `EMAIL_IMAP_HOST` / `EMAIL_SMTP_HOST` | 否 | 邮件服务器 (启用 email 技能) |
-| `EMAIL_USER` / `EMAIL_PASSWORD` | 否 | 邮箱账号和应用专用密码 |
 | `DINGTALK_APP_KEY` / `DINGTALK_APP_SECRET` | 否 | 启用钉钉 Bot |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 否 | 启用飞书 Bot |
 | `QQ_BOT_APP_ID` / `QQ_BOT_APP_SECRET` | 否 | 启用 QQ Bot |
@@ -279,12 +278,15 @@ LLM 自主判断是否需要技能，通过 `use_skill` 工具调用。支持在
 
 现代化 Web 界面，支持 Light/Dark 主题切换：
 
-- **聊天** — WebSocket 流式输出、工具调用卡片（SubAgent 以 Mem 风格单卡片展示）、文件上传/拖拽、视频/音频播放器、多模态图片、消息重新生成、对话导出、Agent 选择
-- **任务** — Today/All Tasks/Decisions/Automations 四标签页，快速添加、决策卡片、每日简报时间配置、Task Runner 统计
-- **设置** — 二级菜单结构：LLM Provider N 选 1 卡片切换、用量统计、外观/主题/语言、渠道、Agents、子代理、记忆、工具、技能、Traces、API 参考
+- **聊天** — WebSocket 流式输出、工具调用卡片、文件上传/拖拽、视频/音频播放器、Agent 选择器、Agent 指示条
+- **任务** — Today/All Tasks/Decisions/Automations 四标签页
+- **代理** — Agent 详情页：Profile / Tools & Skills / Knowledge / API 四个 Tab，测试按钮跳转 ChatPage
+- **记忆** — 按 Agent 命名空间筛选、按类型和重要性排序
+- **设置** — LLM Provider 配置、用量统计、外观/主题/语言、渠道、Traces
 
 ## 文档
 
+- [Hive 设计文档](docs/HIVE.md) — Agent-as-a-Service 平台架构与路线图
 - [架构设计](docs/ARCHITECTURE.md)
 - [路线图](docs/ROADMAP.md)
 - [更新日志](CHANGELOG.md)
