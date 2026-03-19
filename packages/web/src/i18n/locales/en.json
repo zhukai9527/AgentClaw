@@ -251,6 +251,8 @@
       "handoffLabel": "Handoff Targets",
       "handoffHint": "This agent can hand off conversations to the selected agents. None checked = no handoff",
       "noOtherAgents": "No other agents available",
+      "handoffSearchPlaceholder": "Search agent name or ID...",
+      "noMatchingAgents": "No matching agents",
       "toolsWhitelist": "Tools Whitelist",
       "toolsHint": "Select which tools this agent can use. Leave all unchecked to allow all tools.",
       "clearWhitelist": "Clear whitelist (allow all)",

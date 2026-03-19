@@ -251,6 +251,8 @@
       "handoffLabel": "Handoff 目标",
       "handoffHint": "此 Agent 可以转交对话给以下 Agent。未勾选则不能 Handoff",
       "noOtherAgents": "暂无其他 Agent",
+      "handoffSearchPlaceholder": "搜索 Agent 名称或 ID...",
+      "noMatchingAgents": "没有匹配的 Agent",
       "toolsWhitelist": "工具白名单",
       "toolsHint": "选择此代理可以使用的工具。全部不选则允许使用所有工具。",
       "clearWhitelist": "清除白名单（允许全部）",

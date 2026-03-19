@@ -78,6 +78,7 @@ export function AgentDetailPage() {
   const [showInChat, setShowInChat] = useState(true);
   const [handoffTargets, setHandoffTargets] = useState<string[]>([]);
   const [allAgents, setAllAgents] = useState<AgentInfo[]>([]);
+  const [handoffSearch, setHandoffSearch] = useState("");
 
   // API state
   const [isPublished, setIsPublished] = useState(false);
@@ -407,8 +408,8 @@ export function AgentDetailPage() {
               </div>
 
               {/* Visibility & Handoff */}
-              <div className="agd-field-row" style={{ marginTop: 16 }}>
-                <div className="agd-field agd-field-half">
+              {agent?.id !== "default" && (
+                <div className="agd-field" style={{ marginTop: 16 }}>
                   <label>{d('showInChatLabel')}</label>
                   <p className="agd-hint-block" style={{ marginBottom: 8 }}>{d('showInChatHint')}</p>
                   <label className="agents-toggle">
@@ -416,28 +417,61 @@ export function AgentDetailPage() {
                     <span className="agents-toggle-slider" />
                   </label>
                 </div>
-                <div className="agd-field agd-field-half">
-                  <label>{d('handoffLabel')}</label>
-                  <p className="agd-hint-block" style={{ marginBottom: 8 }}>{d('handoffHint')}</p>
-                  <div className="agd-checkbox-grid agd-checkbox-grid-compact">
-                    {allAgents.map((a) => (
-                      <label key={a.id} className="agd-checkbox-item">
-                        <input
-                          type="checkbox"
-                          checked={handoffTargets.includes(a.id)}
-                          onChange={(e) => {
-                            markDirty();
-                            setHandoffTargets((prev) =>
-                              e.target.checked ? [...prev, a.id] : prev.filter((x) => x !== a.id),
-                            );
-                          }}
-                        />
-                        <span>{a.avatar || "🤖"} {a.name}</span>
-                      </label>
-                    ))}
-                    {allAgents.length === 0 && <span className="agd-hint">{d('noOtherAgents')}</span>}
+              )}
+
+              <div className="agd-field" style={{ marginTop: 16 }}>
+                <label>{d('handoffLabel')}</label>
+                <p className="agd-hint-block" style={{ marginBottom: 8 }}>{d('handoffHint')}</p>
+                {handoffTargets.length > 0 && (
+                  <div className="agd-handoff-tags">
+                    {handoffTargets.map((tid) => {
+                      const ta = allAgents.find((a) => a.id === tid);
+                      return (
+                        <span key={tid} className="agd-handoff-tag">
+                          {ta?.avatar || "🤖"} {ta?.name || tid}
+                          <button onClick={() => { setHandoffTargets((prev) => prev.filter((x) => x !== tid)); markDirty(); }}>&times;</button>
+                        </span>
+                      );
+                    })}
                   </div>
-                </div>
+                )}
+                {allAgents.length > 0 ? (
+                  <div className="agd-handoff-search">
+                    <input
+                      className="agd-input"
+                      value={handoffSearch}
+                      onChange={(e) => setHandoffSearch(e.target.value)}
+                      placeholder={d('handoffSearchPlaceholder')}
+                    />
+                    {handoffSearch && (
+                      <div className="agd-handoff-dropdown">
+                        {allAgents
+                          .filter((a) => !handoffTargets.includes(a.id) && (
+                            a.name.toLowerCase().includes(handoffSearch.toLowerCase()) ||
+                            a.id.toLowerCase().includes(handoffSearch.toLowerCase())
+                          ))
+                          .slice(0, 10)
+                          .map((a) => (
+                            <button key={a.id} className="agd-handoff-option" onClick={() => {
+                              setHandoffTargets((prev) => [...prev, a.id]);
+                              setHandoffSearch("");
+                              markDirty();
+                            }}>
+                              {a.avatar || "🤖"} {a.name} <span className="agd-hint">({a.id})</span>
+                            </button>
+                          ))}
+                        {allAgents.filter((a) => !handoffTargets.includes(a.id) && (
+                          a.name.toLowerCase().includes(handoffSearch.toLowerCase()) ||
+                          a.id.toLowerCase().includes(handoffSearch.toLowerCase())
+                        )).length === 0 && (
+                          <div className="agd-handoff-empty">{d('noMatchingAgents')}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <span className="agd-hint">{d('noOtherAgents')}</span>
+                )}
               </div>
             </div>
           </div>
