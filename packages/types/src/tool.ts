@@ -121,6 +121,8 @@ export interface ToolExecutionContext {
   disabledSkills?: string[];
   /** Agent ID for trace tracking (Hive) */
   agentId?: string;
+  /** Force-compress conversation context (for compact tool) */
+  compactContext?: () => Promise<{ deleted: number; summary: string }>;
 }
 
 /** A tool that can be executed */

@@ -256,6 +256,16 @@ export class SimpleOrchestrator implements Orchestrator {
       mergedContext.disabledSkills = currentAgent.disabledSkills;
     }
 
+    // Compact tool callback: force-compress conversation context on demand
+    const compactContextManager = new SimpleContextManager({
+      systemPrompt: this.systemPrompt,
+      memoryStore: this.memoryStore,
+      skillRegistry: this.skillRegistry,
+      provider: this.provider,
+    });
+    mergedContext.compactContext = () =>
+      compactContextManager.forceCompress(session.conversationId);
+
     let currentInput: string | ContentBlock[] = input;
     let isHandoffContinuation = false;
 

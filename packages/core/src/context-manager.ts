@@ -438,6 +438,65 @@ export class SimpleContextManager implements ContextManager {
    * 2. Aggressive LLM summarization (low temperature, 200 chars target)
    * 3. Deterministic truncation fallback (always succeeds)
    */
+  /**
+   * Force-compress conversation history: summarize all but the last `keepRecent`
+   * turns, delete the old ones from DB, keep the summary as a synthetic turn.
+   * Called by the `compact` tool when LLM proactively manages context size.
+   */
+  async forceCompress(
+    conversationId: string,
+    keepRecent = 6,
+  ): Promise<{ deleted: number; summary: string }> {
+    const turns = await this.memoryStore.getHistory(
+      conversationId,
+      this.maxHistoryTurns,
+    );
+    if (turns.length <= keepRecent + 2) {
+      return {
+        deleted: 0,
+        summary: "Context is already small, no compression needed.",
+      };
+    }
+
+    const splitIdx = turns.length - keepRecent;
+    const oldTurns = turns.slice(0, splitIdx);
+    const summary = await this.compressTurns(conversationId, oldTurns);
+
+    // Delete old turns from DB (delete from the start up to the split point)
+    if (this.memoryStore.deleteTurnsFrom) {
+      // deleteTurnsFrom deletes turns >= given timestamp.
+      // We want to delete oldTurns, so use the first old turn's timestamp
+      // and then re-insert recent ones. But that's destructive.
+      // Simpler: delete ALL turns, then re-insert summary + recent.
+      const allTimestamp = turns[0].createdAt.toISOString();
+      await this.memoryStore.deleteTurnsFrom(conversationId, allTimestamp);
+
+      // Re-insert summary as a synthetic user turn
+      await this.memoryStore.addTurn(conversationId, {
+        id: "compact-summary",
+        conversationId,
+        role: "user",
+        content: summary,
+        createdAt: oldTurns[0].createdAt,
+      });
+      await this.memoryStore.addTurn(conversationId, {
+        id: "compact-ack",
+        conversationId,
+        role: "assistant",
+        content: "Understood, I have the conversation context.",
+        createdAt: oldTurns[0].createdAt,
+      });
+
+      // Re-insert recent turns
+      const recentTurns = turns.slice(splitIdx);
+      for (const turn of recentTurns) {
+        await this.memoryStore.addTurn(conversationId, turn);
+      }
+    }
+
+    return { deleted: oldTurns.length, summary };
+  }
+
   private async compressTurns(
     conversationId: string,
     turns: ConversationTurn[],

@@ -19,6 +19,7 @@ import { socialPostTool } from "./social-post.js";
 import { handoffTool } from "./handoff.js";
 import { executeCodeTool } from "./execute-code.js";
 import { contextSearchTool } from "./context-search.js";
+import { compactTool } from "./compact.js";
 import { webFetchTool } from "./web-fetch.js";
 import { webSearchTool } from "./web-search.js";
 
@@ -40,6 +41,7 @@ export { socialPostTool } from "./social-post.js";
 export { handoffTool } from "./handoff.js";
 export { executeCodeTool } from "./execute-code.js";
 export { contextSearchTool } from "./context-search.js";
+export { compactTool } from "./compact.js";
 
 /** Options for configuring which conditional tools to include */
 export interface BuiltinToolsOptions {
@@ -67,6 +69,7 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
     webFetchTool,
     webSearchTool,
     contextSearchTool,
+    compactTool,
   ];
 
   // Conditional tools — loaded based on configuration
