@@ -8,8 +8,12 @@ steps.json
 dist/
 *.tsbuildinfo
 
-# Runtime data
-data/
+# Runtime data (only keep default agent config)
+data/*
+!data/agents/
+data/agents/*
+!data/agents/default/
+data/agents/default/knowledge/
 *.db
 *.db-shm
 *.db-wal
