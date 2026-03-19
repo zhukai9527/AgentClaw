@@ -133,7 +133,7 @@ export class SQLiteMemoryStore implements MemoryStore {
     const { where, params } = buildWhereClause({
       type: query.type,
       "importance >=": query.minImportance,
-      namespace: query.namespace ?? "default",
+      namespace: query.namespace,
     });
 
     const limit = query.limit ?? 20;

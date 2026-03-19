@@ -390,26 +390,38 @@ export interface MemoryInfo {
   type: string;
   content: string;
   importance: number;
+  namespace?: string;
   createdAt: string;
   accessedAt: string;
   accessCount: number;
+}
+
+export interface MemoryNamespaceInfo {
+  namespace: string;
+  count: number;
 }
 
 export function searchMemories(
   query?: string,
   type?: string,
   limit?: number,
+  namespace?: string,
 ): Promise<MemoryInfo[]> {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
   if (type) params.set("type", type);
   if (limit) params.set("limit", String(limit));
+  if (namespace) params.set("namespace", namespace);
   const qs = params.toString();
   return request(`/memories${qs ? `?${qs}` : ""}`);
 }
 
 export function deleteMemory(id: string): Promise<void> {
   return request(`/memories/${id}`, { method: "DELETE" });
+}
+
+export function getMemoryNamespaces(): Promise<MemoryNamespaceInfo[]> {
+  return request("/memories/namespaces");
 }
 
 // ── Tools & Skills ──────────────────────────────────

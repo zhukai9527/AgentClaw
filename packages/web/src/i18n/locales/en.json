@@ -333,6 +333,8 @@
     "title": "Memory",
     "searchPlaceholder": "Search memories...",
     "allTypes": "All Types",
+    "allAgents": "All Agents",
+    "nsDefault": "Default",
     "types": {
       "identity": "Identity",
       "fact": "Fact",

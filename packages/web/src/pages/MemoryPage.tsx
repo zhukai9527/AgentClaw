@@ -1,7 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "../components/PageHeader";
-import { searchMemories, deleteMemory, type MemoryInfo } from "../api/client";
+import {
+  searchMemories,
+  deleteMemory,
+  getMemoryNamespaces,
+  listAgents,
+  type MemoryInfo,
+  type MemoryNamespaceInfo,
+  type AgentInfo,
+} from "../api/client";
 import { formatDateTime } from "../utils/format";
 import "./MemoryPage.css";
 
@@ -45,29 +53,53 @@ export function MemoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [namespaceFilter, setNamespaceFilter] = useState("all");
+  const [namespaces, setNamespaces] = useState<MemoryNamespaceInfo[]>([]);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [sortMode, setSortMode] = useState<SortMode>("importance");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchMemories = useCallback(async (q: string, tp: string) => {
-    try {
-      setLoading(true);
-      const typeParam = tp === "all" ? undefined : tp;
-      const data = await searchMemories(q || undefined, typeParam, 100);
-      setMemories(data);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load memories");
-    } finally {
-      setLoading(false);
-    }
+  // Load namespaces and agents on mount
+  useEffect(() => {
+    getMemoryNamespaces()
+      .then(setNamespaces)
+      .catch(() => {});
+    listAgents()
+      .then(setAgents)
+      .catch(() => {});
   }, []);
 
+  const fetchMemories = useCallback(
+    async (q: string, tp: string, ns: string) => {
+      try {
+        setLoading(true);
+        const typeParam = tp === "all" ? undefined : tp;
+        const nsParam = ns === "all" ? undefined : ns;
+        const data = await searchMemories(
+          q || undefined,
+          typeParam,
+          100,
+          nsParam,
+        );
+        setMemories(data);
+        setError(null);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to load memories",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
-    fetchMemories(query, typeFilter);
-  }, [typeFilter, fetchMemories, query]);
+    fetchMemories(query, typeFilter, namespaceFilter);
+  }, [typeFilter, namespaceFilter, fetchMemories, query]);
 
   const handleQueryChange = (value: string) => {
     setQuery(value);
@@ -75,7 +107,7 @@ export function MemoryPage() {
       clearTimeout(debounceRef.current);
     }
     debounceRef.current = setTimeout(() => {
-      fetchMemories(value, typeFilter);
+      fetchMemories(value, typeFilter, namespaceFilter);
     }, 300);
   };
 
@@ -108,6 +140,13 @@ export function MemoryPage() {
     setConfirmDeleteId(null);
   };
 
+  // Resolve namespace to agent name for display
+  const nsLabel = (ns: string) => {
+    if (ns === "default") return t("memory.nsDefault");
+    const ag = agents.find((a) => a.id === ns);
+    return ag ? `${ag.avatar || "🤖"} ${ag.name}` : ns;
+  };
+
   const sortedMemories = [...memories].sort((a, b) => {
     if (sortMode === "importance") {
       return b.importance - a.importance;
@@ -128,6 +167,20 @@ export function MemoryPage() {
               value={query}
               onChange={(e) => handleQueryChange(e.target.value)}
             />
+            {namespaces.length > 1 && (
+              <select
+                className="memory-ns-select"
+                value={namespaceFilter}
+                onChange={(e) => setNamespaceFilter(e.target.value)}
+              >
+                <option value="all">{t("memory.allAgents")}</option>
+                {namespaces.map((ns) => (
+                  <option key={ns.namespace} value={ns.namespace}>
+                    {nsLabel(ns.namespace)} ({ns.count})
+                  </option>
+                ))}
+              </select>
+            )}
             <select
               className="memory-type-select"
               value={typeFilter}
@@ -182,6 +235,13 @@ export function MemoryPage() {
                   <span className={typeBadgeClass(mem.type)}>
                     {t(`memory.types.${mem.type}`, mem.type)}
                   </span>
+                  {mem.namespace &&
+                    mem.namespace !== "default" &&
+                    namespaceFilter === "all" && (
+                      <span className="memory-ns-tag">
+                        {nsLabel(mem.namespace)}
+                      </span>
+                    )}
                   <span
                     className="memory-importance"
                     title={`Importance: ${mem.importance}`}

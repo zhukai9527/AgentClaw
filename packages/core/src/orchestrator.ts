@@ -150,7 +150,9 @@ export class SimpleOrchestrator implements Orchestrator {
     // Merge orchestrator-provided callbacks into the context
     const memoryStore = this.memoryStore;
     const memoryNamespace =
-      (session.metadata?.memoryNamespace as string) || "default";
+      (session.metadata?.memoryNamespace as string) ||
+      (session.metadata?.agentId as string) ||
+      "default";
     const mergedContext: ToolExecutionContext = {
       ...context,
       memoryNamespace,

@@ -7,28 +7,31 @@ export function registerMemoryRoutes(
   ctx: AppContext,
 ): void {
   // GET /api/memories - Search memories
-  app.get<{ Querystring: { q?: string; type?: string; limit?: string } }>(
+  app.get<{
+    Querystring: { q?: string; type?: string; limit?: string; namespace?: string };
+  }>(
     "/api/memories",
     {
       schema: {
-        // 校验查询参数：q/type/limit 均可选
         querystring: {
           type: "object",
           properties: {
             q: { type: "string" },
             type: { type: "string" },
             limit: { type: "string", pattern: "^[0-9]+$" },
+            namespace: { type: "string" },
           },
         },
       },
     },
     async (req, reply) => {
       try {
-        const { q, type, limit } = req.query;
+        const { q, type, limit, namespace } = req.query;
         const results = await ctx.memoryStore.search({
           query: q || undefined,
           type: type ? (type as MemoryType) : undefined,
           limit: limit ? parseInt(limit, 10) : 10,
+          namespace: namespace || undefined,
         });
 
         const memories = results.map((r) => ({
@@ -36,6 +39,7 @@ export function registerMemoryRoutes(
           type: r.entry.type,
           content: r.entry.content,
           importance: r.entry.importance,
+          namespace: (r.entry as Record<string, unknown>).namespace || "default",
           createdAt: r.entry.createdAt.toISOString(),
           accessedAt: r.entry.accessedAt.toISOString(),
           accessCount: r.entry.accessCount,
@@ -48,6 +52,30 @@ export function registerMemoryRoutes(
       }
     },
   );
+
+  // GET /api/memories/namespaces - List all namespaces with counts
+  app.get("/api/memories/namespaces", async (_req, reply) => {
+    try {
+      const store = ctx.memoryStore as Record<string, unknown>;
+      if (typeof store.db === "object" && store.db !== null) {
+        const db = store.db as {
+          prepare: (sql: string) => {
+            all: () => Array<{ namespace: string; count: number }>;
+          };
+        };
+        const rows = db
+          .prepare(
+            "SELECT namespace, COUNT(*) as count FROM memories GROUP BY namespace ORDER BY count DESC",
+          )
+          .all();
+        return reply.send(rows);
+      }
+      return reply.send([{ namespace: "default", count: 0 }]);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
 
   // POST /api/memories/reindex - Regenerate all embeddings
   app.post("/api/memories/reindex", async (_req, reply) => {
@@ -65,7 +93,6 @@ export function registerMemoryRoutes(
     "/api/memories/:id",
     {
       schema: {
-        // 校验路径参数：id 不能为空
         params: {
           type: "object",
           required: ["id"],

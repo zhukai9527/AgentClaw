@@ -12,6 +12,7 @@
 ### 改进
 - **Agent 测试体验升级**：移除 Agent 详情页内嵌的简易测试 Tab，替换为"测试对话"按钮直接跳转完整 ChatPage（流式响应、工具调用、多轮对话全支持）；ChatPage 新增 Agent 指示条，非默认 Agent 时在顶部显示当前 Agent 头像和名称
 - **Agent 系统提示词裁剪**：当 agent 有工具白名单时，自动移除系统提示词中引用不可用工具的规则行（如 `execute_code`、`schedule`、`claude_code` 等），末尾追加明确的工具边界声明；防止 LLM 从提示词中"发现"不可用工具名并尝试调用；tool registry 的"not found"错误信息改为列出全部可用工具
+- **记忆 namespace 隔离生效**：agent 的记忆空间按 agentId 自动隔离（orchestrator 用 agentId 作为 memoryNamespace），非 default agent 不再看到全局记忆；Memory 页面新增 namespace 下拉筛选器，支持按 agent 查看/管理记忆；新增 `GET /api/memories/namespaces` 接口
 
 ## [1.5.1] - 2026-03-19
 

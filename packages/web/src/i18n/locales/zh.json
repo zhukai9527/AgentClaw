@@ -333,6 +333,8 @@
     "title": "记忆",
     "searchPlaceholder": "搜索记忆...",
     "allTypes": "全部类型",
+    "allAgents": "全部代理",
+    "nsDefault": "默认",
     "types": {
       "identity": "身份",
       "fact": "事实",

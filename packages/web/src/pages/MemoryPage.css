@@ -29,8 +29,30 @@
   min-width: 140px;
 }
 
-.memory-type-select:focus {
+.memory-type-select:focus,
+.memory-ns-select:focus {
   border-color: var(--accent);
+}
+
+.memory-ns-select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  min-width: 140px;
+}
+
+.memory-ns-tag {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--accent-subtle-bg);
+  color: var(--accent);
+  font-weight: 500;
 }
 
 .memory-sort-row {
