@@ -1184,8 +1184,8 @@ export class SQLiteMemoryStore implements MemoryStore {
   async addTrace(trace: Trace): Promise<void> {
     this.db
       .prepare(
-        `INSERT INTO traces (id, conversation_id, user_input, system_prompt, skill_match, steps, response, model, channel, tokens_in, tokens_out, cache_creation_tokens, cache_read_tokens, duration_ms, error, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO traces (id, conversation_id, user_input, system_prompt, skill_match, steps, response, model, channel, agent_id, tokens_in, tokens_out, cache_creation_tokens, cache_read_tokens, duration_ms, error, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         trace.id,
@@ -1197,6 +1197,7 @@ export class SQLiteMemoryStore implements MemoryStore {
         trace.response ?? null,
         trace.model ?? null,
         trace.channel ?? null,
+        trace.agentId ?? "default",
         trace.tokensIn,
         trace.tokensOut,
         trace.cacheCreationTokens ?? 0,

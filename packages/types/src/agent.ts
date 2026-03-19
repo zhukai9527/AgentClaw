@@ -85,6 +85,8 @@ export interface ContextManager {
       reuseContext?: boolean;
       /** Memory namespace for per-agent isolation (Hive) */
       memoryNamespace?: string;
+      /** Skills to exclude from catalog (Hive per-agent blacklist) */
+      disabledSkills?: string[];
     },
   ): Promise<{
     systemPrompt: string;

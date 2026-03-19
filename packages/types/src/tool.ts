@@ -117,6 +117,10 @@ export interface ToolExecutionContext {
   }>;
   /** Memory namespace for per-agent isolation (Hive) */
   memoryNamespace?: string;
+  /** Skills disabled for this agent (Hive per-agent blacklist) */
+  disabledSkills?: string[];
+  /** Agent ID for trace tracking (Hive) */
+  agentId?: string;
 }
 
 /** A tool that can be executed */

@@ -285,6 +285,7 @@ export class SimpleAgentLoop implements AgentLoop {
       userInput: typeof input === "string" ? input : JSON.stringify(input),
       steps: [],
       channel: context?.channel,
+      agentId: context?.agentId,
       tokensIn: 0,
       tokensOut: 0,
       durationMs: 0,
@@ -475,6 +476,7 @@ export class SimpleAgentLoop implements AgentLoop {
           preSelectedSkillName: effectiveSkillName,
           reuseContext: iterations > 1,
           memoryNamespace: context?.memoryNamespace,
+          disabledSkills: context?.disabledSkills,
         });
 
       // Inject runtime hints + rewrite relocated file paths in the last user message.

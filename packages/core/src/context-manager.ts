@@ -89,6 +89,8 @@ export class SimpleContextManager implements ContextManager {
       reuseContext?: boolean;
       /** Memory namespace for agent isolation */
       memoryNamespace?: string;
+      /** Skills to exclude from catalog (Hive per-agent blacklist) */
+      disabledSkills?: string[];
     },
   ): Promise<{
     systemPrompt: string;
@@ -162,6 +164,7 @@ export class SimpleContextManager implements ContextManager {
         currentInput,
         options,
         options?.memoryNamespace,
+        options?.disabledSkills,
       );
       dynamicSuffix = result.suffix;
       skillMatch = result.skillMatch;
@@ -257,6 +260,7 @@ export class SimpleContextManager implements ContextManager {
     currentInput: string | ContentBlock[],
     options?: { preSelectedSkillName?: string },
     memoryNamespace = "default",
+    disabledSkills?: string[],
   ): Promise<{
     suffix: string;
     skillMatch?: { name: string; confidence: number };
@@ -349,21 +353,43 @@ export class SimpleContextManager implements ContextManager {
           }
         }
 
-        if (this.skillCatalogCache === undefined) {
-          const allSkills = this.skillRegistry.list().filter((s) => s.enabled);
-          if (allSkills.length > 0) {
-            const catalog = allSkills
+        const hasBlacklist = disabledSkills && disabledSkills.length > 0;
+        if (hasBlacklist) {
+          // Per-agent blacklist: build filtered catalog (skip global cache)
+          const blocked = new Set(disabledSkills);
+          const filteredSkills = this.skillRegistry
+            .list()
+            .filter((s) => s.enabled && !blocked.has(s.id));
+          if (filteredSkills.length > 0) {
+            const catalog = filteredSkills
               .map((s) =>
                 s.description ? `${s.name}: ${s.description}` : s.name,
               )
               .join("\n- ");
-            this.skillCatalogCache = `Skills (call use_skill(name) to activate):\n- ${catalog}`;
-          } else {
-            this.skillCatalogCache = "";
+            parts.push(
+              `Skills (call use_skill(name) to activate):\n- ${catalog}`,
+            );
           }
-        }
-        if (this.skillCatalogCache) {
-          parts.push(this.skillCatalogCache);
+        } else {
+          // No blacklist: use global cache
+          if (this.skillCatalogCache === undefined) {
+            const allSkills = this.skillRegistry
+              .list()
+              .filter((s) => s.enabled);
+            if (allSkills.length > 0) {
+              const catalog = allSkills
+                .map((s) =>
+                  s.description ? `${s.name}: ${s.description}` : s.name,
+                )
+                .join("\n- ");
+              this.skillCatalogCache = `Skills (call use_skill(name) to activate):\n- ${catalog}`;
+            } else {
+              this.skillCatalogCache = "";
+            }
+          }
+          if (this.skillCatalogCache) {
+            parts.push(this.skillCatalogCache);
+          }
         }
       } catch {
         // Skill catalog failed — continue without it

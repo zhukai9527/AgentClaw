@@ -96,6 +96,14 @@ export const useSkillTool: Tool = {
       return { content: "Error: skill registry not available", isError: true };
     }
 
+    // Check per-agent skill blacklist
+    if (context?.disabledSkills?.includes(name)) {
+      return {
+        content: `Skill "${name}" is disabled for this agent.`,
+        isError: true,
+      };
+    }
+
     const skill = registry.get(name);
     if (!skill) {
       const available = registry

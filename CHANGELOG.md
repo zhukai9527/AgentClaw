@@ -20,6 +20,12 @@
 - Agent 卡片显示 "API" 标记（已发布的 agent）
 - CSS 类名前缀从 `ad-` 改为 `agd-`，避免 AdGuard 等广告拦截器误拦
 
+### 修复
+- **Skill 黑名单生效**：`disabledSkills` 从 UI 配置 → context-manager 过滤 skill catalog → use_skill 工具拦截，全链路生效；有黑名单时跳过全局 skillCatalogCache，确保 per-agent 过滤
+- **Trace agentId 追踪**：traces 表新增 `agent_id` 列，agent-loop 创建 trace 时自动从 context 获取 agentId，支持 per-agent 用量统计
+- **API Key lastUsedAt 更新**：每次 key 验证通过后自动更新 `lastUsedAt` 时间戳到 config.json
+- **use_skill 黑名单拦截**：use_skill 工具执行时检查 `disabledSkills`，被禁用的 skill 返回错误而非执行
+
 ## [1.4.4] - 2026-03-18
 
 ### 新功能

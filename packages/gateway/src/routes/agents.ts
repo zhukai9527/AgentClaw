@@ -297,6 +297,13 @@ export function findAgentByApiKey(key: string): AgentProfile | null {
     if (!match) continue;
     // Check expiration
     if (match.expiresAt && new Date(match.expiresAt) < new Date()) continue;
+    // Update lastUsedAt (fire-and-forget, don't block auth)
+    match.lastUsedAt = new Date().toISOString();
+    try {
+      writeAgentToFs(agent);
+    } catch {
+      /* best-effort */
+    }
     return agent;
   }
   return null;

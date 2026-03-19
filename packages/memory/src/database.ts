@@ -231,8 +231,9 @@ export function initDatabase(dbPath: string): DbAdapter {
   addColumnIfMissing(db, "tasks", "completed_at", "TEXT");
   addColumnIfMissing(db, "tasks", "metadata", "TEXT");
 
-  // Traces: add channel column
+  // Traces: add channel and agent_id columns
   addColumnIfMissing(db, "traces", "channel", "TEXT");
+  addColumnIfMissing(db, "traces", "agent_id", "TEXT DEFAULT 'default'");
   // Traces: add prompt cache token columns
   addColumnIfMissing(
     db,

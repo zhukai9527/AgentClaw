@@ -238,6 +238,12 @@ export class SimpleOrchestrator implements Orchestrator {
       .map((a) => ({ id: a.id, name: a.name, description: a.description }));
     mergedContext.agents = agentRoster;
 
+    // Pass agent metadata to context for downstream use
+    mergedContext.agentId = (session.metadata?.agentId as string) || "default";
+    if (currentAgent?.disabledSkills?.length) {
+      mergedContext.disabledSkills = currentAgent.disabledSkills;
+    }
+
     let currentInput: string | ContentBlock[] = input;
     let isHandoffContinuation = false;
 

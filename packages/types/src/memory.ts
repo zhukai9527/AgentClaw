@@ -71,6 +71,8 @@ export interface Trace {
   model?: string;
   /** Source channel: web, telegram, dingtalk, feishu, qq, whatsapp, wecom, api */
   channel?: string;
+  /** Agent ID for per-agent usage tracking (Hive) */
+  agentId?: string;
   tokensIn: number;
   tokensOut: number;
   cacheCreationTokens?: number;
