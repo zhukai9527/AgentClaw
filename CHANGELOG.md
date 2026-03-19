@@ -1,5 +1,11 @@
 # 更新日志
 
+## [1.5.1] - 2026-03-19
+
+### 新功能
+- **用量统计**：Traces 页新增 Agent 下拉筛选器，按 agent 过滤追踪记录；Agent 详情页 API Tab 显示 24h / 7d 用量摘要（调用次数、token 消耗、平均延迟）；新增 `GET /api/agents/:id/usage` 接口
+- **Rate Limiting**：per-agent 速率限制，支持每分钟和每天两个维度；超限返回 `429 Too Many Requests`；内存滑动窗口计数器，自动重置
+
 ## [1.5.0] - 2026-03-19
 
 ### 新功能（Hive — Agent-as-a-Service）

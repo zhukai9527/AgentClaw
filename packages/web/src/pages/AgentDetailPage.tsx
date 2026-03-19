@@ -15,6 +15,8 @@ import {
   listSkills,
   createSession,
   chatInSession,
+  getAgentUsage,
+  type AgentUsageInfo,
   type AgentInfo,
   type AgentApiKeyInfo,
   type KnowledgeSourceInfo,
@@ -73,6 +75,8 @@ export function AgentDetailPage() {
   const [apiKeys, setApiKeys] = useState<AgentApiKeyInfo[]>([]);
   const [newKeyName, setNewKeyName] = useState("");
   const [justCreatedKey, setJustCreatedKey] = useState<string | null>(null);
+  const [usage24h, setUsage24h] = useState<AgentUsageInfo | null>(null);
+  const [usage7d, setUsage7d] = useState<AgentUsageInfo | null>(null);
 
   // Knowledge source editor state
   const [ksEditing, setKsEditing] = useState<KnowledgeSourceInfo | null>(null);
@@ -135,6 +139,14 @@ export function AgentDetailPage() {
   useEffect(() => {
     testEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [testMessages]);
+
+  // Load usage stats when API tab is active
+  useEffect(() => {
+    if (tab === "api" && id) {
+      getAgentUsage(id, 24).then(setUsage24h).catch(() => setUsage24h(null));
+      getAgentUsage(id, 168).then(setUsage7d).catch(() => setUsage7d(null));
+    }
+  }, [tab, id]);
 
   const handleSave = async () => {
     if (!agent) return;
@@ -642,6 +654,31 @@ export function AgentDetailPage() {
         {/* ─── API Tab ─── */}
         {tab === "api" && (
           <div className="agent-detail-content">
+            {/* Usage stats */}
+            {(usage24h || usage7d) && (
+              <div className="agent-detail-section">
+                <h4>{d('usageTitle')}</h4>
+                <div className="agd-usage-grid">
+                  {usage24h && (
+                    <div className="agd-usage-card">
+                      <div className="agd-usage-period">{d('usage24h')}</div>
+                      <div className="agd-usage-stat"><strong>{usage24h.requests}</strong> {d('usageRequests')}</div>
+                      <div className="agd-usage-stat">{(usage24h.tokensIn + usage24h.tokensOut).toLocaleString()} tokens</div>
+                      <div className="agd-usage-stat">{Math.round(usage24h.avgDurationMs / 1000 * 10) / 10}s {d('usageAvgLatency')}</div>
+                    </div>
+                  )}
+                  {usage7d && (
+                    <div className="agd-usage-card">
+                      <div className="agd-usage-period">{d('usage7d')}</div>
+                      <div className="agd-usage-stat"><strong>{usage7d.requests}</strong> {d('usageRequests')}</div>
+                      <div className="agd-usage-stat">{(usage7d.tokensIn + usage7d.tokensOut).toLocaleString()} tokens</div>
+                      <div className="agd-usage-stat">{Math.round(usage7d.avgDurationMs / 1000 * 10) / 10}s {d('usageAvgLatency')}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="agent-detail-section">
               <h4>{d('publishTitle')}</h4>
               <div className="agd-publish-row">

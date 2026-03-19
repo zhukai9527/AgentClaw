@@ -296,7 +296,12 @@
       "ksSave": "Save Source",
       "ksCancel": "Cancel",
       "ksEditTitle": "Edit API Source",
-      "ksNewTitle": "New API Source"
+      "ksNewTitle": "New API Source",
+      "usageTitle": "Usage",
+      "usage24h": "Last 24 hours",
+      "usage7d": "Last 7 days",
+      "usageRequests": "requests",
+      "usageAvgLatency": "avg latency"
     }
   },
   "channels": {
@@ -379,6 +384,7 @@
   "traces": {
     "title": "Traces",
     "tracesCount": "{{count}} traces",
+    "allAgents": "All Agents",
     "noTraces": "No traces yet",
     "input": "Input",
     "errorLabel": "Error",

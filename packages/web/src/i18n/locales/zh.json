@@ -296,7 +296,12 @@
       "ksSave": "保存知识源",
       "ksCancel": "取消",
       "ksEditTitle": "编辑 API 源",
-      "ksNewTitle": "新增 API 源"
+      "ksNewTitle": "新增 API 源",
+      "usageTitle": "用量统计",
+      "usage24h": "最近 24 小时",
+      "usage7d": "最近 7 天",
+      "usageRequests": "次调用",
+      "usageAvgLatency": "平均延迟"
     }
   },
   "channels": {
@@ -379,6 +384,7 @@
   "traces": {
     "title": "追踪",
     "tracesCount": "{{count}} 条追踪",
+    "allAgents": "全部 Agent",
     "noTraces": "暂无追踪记录",
     "input": "输入",
     "errorLabel": "错误",

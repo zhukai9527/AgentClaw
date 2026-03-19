@@ -16,6 +16,57 @@ import { copyFileSync, mkdirSync } from "node:fs";
 import { findAgentByApiKey } from "./agents.js";
 import { extractText } from "../utils.js";
 
+// ─── Simple in-memory rate limiter ───────────────────────
+interface RateBucket {
+  minuteCount: number;
+  minuteReset: number;
+  dayCount: number;
+  dayReset: number;
+}
+const rateBuckets = new Map<string, RateBucket>();
+
+function checkRateLimit(agent: AgentProfile, reply: FastifyReply): boolean {
+  const limits = agent.rateLimits;
+  if (!limits?.requestsPerMinute && !limits?.requestsPerDay) return true;
+
+  const now = Date.now();
+  let bucket = rateBuckets.get(agent.id);
+  if (!bucket) {
+    bucket = {
+      minuteCount: 0,
+      minuteReset: now + 60_000,
+      dayCount: 0,
+      dayReset: now + 86_400_000,
+    };
+    rateBuckets.set(agent.id, bucket);
+  }
+  // Reset windows
+  if (now >= bucket.minuteReset) {
+    bucket.minuteCount = 0;
+    bucket.minuteReset = now + 60_000;
+  }
+  if (now >= bucket.dayReset) {
+    bucket.dayCount = 0;
+    bucket.dayReset = now + 86_400_000;
+  }
+
+  bucket.minuteCount++;
+  bucket.dayCount++;
+
+  if (
+    limits.requestsPerMinute &&
+    bucket.minuteCount > limits.requestsPerMinute
+  ) {
+    reply.status(429).send({ error: "Rate limit exceeded (per minute)" });
+    return false;
+  }
+  if (limits.requestsPerDay && bucket.dayCount > limits.requestsPerDay) {
+    reply.status(429).send({ error: "Rate limit exceeded (per day)" });
+    return false;
+  }
+  return true;
+}
+
 /** Extract Bearer token from request */
 function extractBearer(req: FastifyRequest): string | undefined {
   const h = req.headers.authorization;
@@ -88,6 +139,7 @@ export function registerAgentApiRoutes(
   }>("/api/v1/agents/:agentId/chat", async (req, reply) => {
     const agent = authenticateAgent(req, reply);
     if (!agent) return;
+    if (!checkRateLimit(agent, reply)) return;
 
     const { input } = req.body || {};
     if (!input) {
@@ -131,6 +183,7 @@ export function registerAgentApiRoutes(
   }>("/api/v1/agents/:agentId/chat/stream", async (req, reply) => {
     const agent = authenticateAgent(req, reply);
     if (!agent) return;
+    if (!checkRateLimit(agent, reply)) return;
 
     const { input, sessionId } = req.body || {};
     if (!input) {
@@ -205,6 +258,7 @@ export function registerAgentApiRoutes(
   }>("/api/v1/agents/:agentId/sessions/:sessionId/chat", async (req, reply) => {
     const agent = authenticateAgent(req, reply);
     if (!agent) return;
+    if (!checkRateLimit(agent, reply)) return;
 
     const { input } = req.body || {};
     if (!input) {

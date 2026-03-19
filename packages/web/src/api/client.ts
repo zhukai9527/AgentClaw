@@ -643,8 +643,27 @@ interface TracesResponse {
   total: number;
 }
 
-export function getTraces(limit = 20, offset = 0): Promise<TracesResponse> {
-  return request(`/traces?limit=${limit}&offset=${offset}`);
+export function getTraces(
+  limit = 20,
+  offset = 0,
+  agentId?: string,
+): Promise<TracesResponse> {
+  const qs = agentId ? `&agentId=${encodeURIComponent(agentId)}` : "";
+  return request(`/traces?limit=${limit}&offset=${offset}${qs}`);
+}
+
+export interface AgentUsageInfo {
+  requests: number;
+  tokensIn: number;
+  tokensOut: number;
+  avgDurationMs: number;
+}
+
+export function getAgentUsage(
+  agentId: string,
+  hours = 24,
+): Promise<AgentUsageInfo> {
+  return request(`/agents/${encodeURIComponent(agentId)}/usage?hours=${hours}`);
 }
 
 // ── Scheduled Tasks ─────────────────────────────────

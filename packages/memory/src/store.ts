@@ -1218,16 +1218,48 @@ export class SQLiteMemoryStore implements MemoryStore {
   async getTraces(
     limit = 20,
     offset = 0,
+    agentId?: string,
   ): Promise<{ items: Trace[]; total: number }> {
+    const where = agentId ? "WHERE agent_id = ?" : "";
+    const params = agentId ? [agentId] : [];
+
     const { total } = this.db
-      .prepare("SELECT COUNT(*) AS total FROM traces")
-      .get() as { total: number };
+      .prepare(`SELECT COUNT(*) AS total FROM traces ${where}`)
+      .get(...params) as { total: number };
 
     const rows = this.db
-      .prepare("SELECT * FROM traces ORDER BY created_at DESC LIMIT ? OFFSET ?")
-      .all(limit, offset) as TraceRow[];
+      .prepare(
+        `SELECT * FROM traces ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      )
+      .all(...params, limit, offset) as TraceRow[];
 
     return { items: rows.map(rowToTrace), total };
+  }
+
+  /** Get usage stats for an agent within a time period */
+  getAgentUsage(
+    agentId: string,
+    sinceHours = 24,
+  ): {
+    requests: number;
+    tokensIn: number;
+    tokensOut: number;
+    avgDurationMs: number;
+  } {
+    const since = new Date(Date.now() - sinceHours * 3600_000).toISOString();
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) as requests, COALESCE(SUM(tokens_in), 0) as tokensIn,
+         COALESCE(SUM(tokens_out), 0) as tokensOut, COALESCE(AVG(duration_ms), 0) as avgDurationMs
+         FROM traces WHERE agent_id = ? AND created_at >= ?`,
+      )
+      .get(agentId, since) as {
+      requests: number;
+      tokensIn: number;
+      tokensOut: number;
+      avgDurationMs: number;
+    };
+    return row;
   }
 
   /** Aggregate stats for background (hidden) sessions within a date range */

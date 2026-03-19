@@ -13,8 +13,14 @@
 .traces-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 16px;
+}
+
+.traces-agent-filter {
+  padding: 6px 10px;
+  font-size: 14px;
+  min-width: 140px;
 }
 
 .traces-total {

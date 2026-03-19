@@ -5,19 +5,19 @@ export function registerTraceRoutes(
   app: FastifyInstance,
   ctx: AppContext,
 ): void {
-  // List traces (summary)
+  // List traces (summary, optional agentId filter)
   app.get<{
-    Querystring: { limit?: string; offset?: string };
+    Querystring: { limit?: string; offset?: string; agentId?: string };
   }>(
     "/api/traces",
     {
       schema: {
-        // 校验查询参数：limit/offset 可选，数字字符串
         querystring: {
           type: "object",
           properties: {
             limit: { type: "string", pattern: "^[0-9]+$" },
             offset: { type: "string", pattern: "^[0-9]+$" },
+            agentId: { type: "string" },
           },
         },
       },
@@ -29,7 +29,8 @@ export function registerTraceRoutes(
           200,
         );
         const offset = Math.max(parseInt(req.query.offset || "0", 10) || 0, 0);
-        const result = await ctx.memoryStore.getTraces(limit, offset);
+        const agentId = req.query.agentId || undefined;
+        const result = await ctx.memoryStore.getTraces(limit, offset, agentId);
         return reply.send(result);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -37,6 +38,21 @@ export function registerTraceRoutes(
       }
     },
   );
+
+  // Per-agent usage stats
+  app.get<{
+    Params: { agentId: string };
+    Querystring: { hours?: string };
+  }>("/api/agents/:agentId/usage", async (req, reply) => {
+    try {
+      const hours = Math.max(parseInt(req.query.hours || "24", 10) || 24, 1);
+      const usage = ctx.memoryStore.getAgentUsage(req.params.agentId, hours);
+      return reply.send(usage);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
 
   // Get latest trace
   app.get("/api/traces/latest", async (_req, reply) => {

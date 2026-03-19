@@ -547,12 +547,31 @@ export function TracesPage() {
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filterAgent, setFilterAgent] = useState("");
+  const [agentOptions, setAgentOptions] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
 
-  const fetchPage = useCallback(async (p: number) => {
+  // Load agent list for filter dropdown
+  useEffect(() => {
+    import("../api/client").then(({ listAgents }) =>
+      listAgents()
+        .then((agents) =>
+          setAgentOptions(agents.map((a) => ({ id: a.id, name: a.name }))),
+        )
+        .catch(() => {}),
+    );
+  }, []);
+
+  const fetchPage = useCallback(async (p: number, agentId?: string) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await getTraces(PAGE_SIZE, p * PAGE_SIZE);
+      const res = await getTraces(
+        PAGE_SIZE,
+        p * PAGE_SIZE,
+        agentId || undefined,
+      );
       setItems(res.items);
       setTotal(res.total);
     } catch (err) {
@@ -563,8 +582,8 @@ export function TracesPage() {
   }, []);
 
   useEffect(() => {
-    fetchPage(page);
-  }, [page, fetchPage]);
+    fetchPage(page, filterAgent);
+  }, [page, filterAgent, fetchPage]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -575,6 +594,21 @@ export function TracesPage() {
         {error && <div className="traces-error">{error}</div>}
 
         <div className="traces-toolbar">
+          <select
+            className="traces-agent-filter"
+            value={filterAgent}
+            onChange={(e) => {
+              setFilterAgent(e.target.value);
+              setPage(0);
+            }}
+          >
+            <option value="">{t("traces.allAgents")}</option>
+            {agentOptions.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
           <span className="traces-total">
             {t("traces.tracesCount", { count: formatNumber(total) })}
           </span>
