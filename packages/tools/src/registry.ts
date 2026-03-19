@@ -91,7 +91,13 @@ export class ToolRegistryImpl implements ToolRegistry {
           }
         }
       }
-      return { content: `Tool "${name}" not found`, isError: true };
+      const available = this.list()
+        .map((t) => t.name)
+        .join(", ");
+      return {
+        content: `Tool "${name}" does not exist. You can ONLY use: ${available}`,
+        isError: true,
+      };
     }
     try {
       return await tool.execute(input, context);

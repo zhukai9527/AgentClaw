@@ -90,6 +90,82 @@ function sanitizeString(s: string): string {
     "\uFFFD",
   );
 }
+/**
+ * All known builtin tool names — used to detect tool references in system prompt.
+ */
+const ALL_TOOL_NAMES = new Set([
+  "shell",
+  "file_read",
+  "file_write",
+  "file_edit",
+  "glob",
+  "grep",
+  "ask_user",
+  "web_fetch",
+  "web_search",
+  "execute_code",
+  "send_file",
+  "schedule",
+  "remember",
+  "use_skill",
+  "claude_code",
+  "sandbox",
+  "subagent",
+  "browser_cdp",
+  "update_todo",
+  "social_post",
+]);
+
+/**
+ * Prune system prompt to avoid mentioning tools that are not available.
+ * 1. In the rules/instructions area (before memory section), remove lines that
+ *    reference any known tool name not in the agent's whitelist.
+ * 2. Append an explicit tool boundary declaration so the LLM knows its limits.
+ *
+ * Memory entries and skill catalog are left untouched (factual, not instructional).
+ * When all tools are available (no whitelist), returns the prompt unchanged.
+ */
+function pruneSystemPromptForTools(
+  prompt: string,
+  availableTools: Set<string>,
+): string {
+  // Heuristic: if the agent has most tools, no whitelist is active
+  if (availableTools.size >= ALL_TOOL_NAMES.size - 2) return prompt;
+
+  // Split prompt into rules section (before memory) and rest (memory + skills)
+  // Memory section starts with "你的长期记忆：" or "Your long-term memory:"
+  const memorySplit =
+    prompt.indexOf("\n你的长期记忆：") !== -1
+      ? prompt.indexOf("\n你的长期记忆：")
+      : prompt.indexOf("\nYour long-term memory:");
+  const rulesSection = memorySplit !== -1 ? prompt.slice(0, memorySplit) : prompt;
+  const restSection = memorySplit !== -1 ? prompt.slice(memorySplit) : "";
+
+  // Build set of unavailable tool names
+  const unavailable = new Set<string>();
+  for (const name of ALL_TOOL_NAMES) {
+    if (!availableTools.has(name)) unavailable.add(name);
+  }
+
+  // Phase 1: remove lines in rules section that reference unavailable tools
+  // Match tool names both in backticks (`tool_name`) and bare (tool_name)
+  const pruned = rulesSection
+    .split("\n")
+    .filter((line) => {
+      for (const name of unavailable) {
+        if (line.includes(name)) return false;
+      }
+      return true;
+    })
+    .join("\n");
+
+  // Phase 2: append tool boundary declaration
+  const toolList = Array.from(availableTools).sort().join(", ");
+  const boundary = `\n[可用工具：${toolList}]\n你只能使用上述工具，不要调用任何不在列表中的工具。`;
+
+  return pruned + restSection + boundary;
+}
+
 /** Stop the loop if this many consecutive iterations produce only errors */
 const MAX_CONSECUTIVE_ERRORS = 3;
 
@@ -508,14 +584,6 @@ export class SimpleAgentLoop implements AgentLoop {
         }
       }
 
-      // Record trace metadata on first iteration
-      if (iterations === 1) {
-        trace.systemPrompt = systemPrompt;
-        if (skillMatch) {
-          trace.skillMatch = JSON.stringify(skillMatch);
-        }
-      }
-
       // Notify thinking
       yield this.createEvent("thinking", { iteration: iterations });
 
@@ -546,7 +614,23 @@ export class SimpleAgentLoop implements AgentLoop {
 
       // Obfuscate sensitive env values before sending to LLM provider
       const safeMessages = obfuscateMessages(messages, envMap);
-      const safeSystemPrompt = obfuscateString(systemPrompt, envMap);
+      let safeSystemPrompt = obfuscateString(systemPrompt, envMap);
+
+      // Agent-specific system prompt pruning: remove rules referencing tools
+      // not in this agent's whitelist, and append an explicit tool boundary.
+      const availableToolNames = new Set(tools.map((t) => t.name));
+      safeSystemPrompt = pruneSystemPromptForTools(
+        safeSystemPrompt,
+        availableToolNames,
+      );
+
+      // Record trace metadata on first iteration (after pruning so trace reflects actual prompt)
+      if (iterations === 1) {
+        trace.systemPrompt = safeSystemPrompt;
+        if (skillMatch) {
+          trace.skillMatch = JSON.stringify(skillMatch);
+        }
+      }
 
       const stream = this.provider.stream({
         messages: safeMessages,
