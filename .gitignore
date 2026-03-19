@@ -8,9 +8,8 @@ steps.json
 dist/
 *.tsbuildinfo
 
-# Runtime data (keep data/agents/ tracked as config)
-data/*
-!data/agents/
+# Runtime data
+data/
 *.db
 *.db-shm
 *.db-wal
@@ -20,6 +19,9 @@ skills-bak/
 .env
 .env.local
 .env.*.local
+
+# Claude Code local config
+.claude/
 
 # IDE
 .vscode/
