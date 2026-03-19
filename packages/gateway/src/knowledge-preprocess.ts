@@ -57,8 +57,9 @@ async function extractPdfContent(
   filePath: string,
 ): Promise<{ content: string; error?: string }> {
   try {
-    // Dynamic import — pdf-parse v1 is CJS, handle both default and module export
-    const mod = await import("pdf-parse");
+    // Import from lib/ to avoid pdf-parse v1 index.js loading a test PDF on import
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mod = await import("pdf-parse/lib/pdf-parse.js" as any);
     const pdfParse = typeof mod.default === "function" ? mod.default : mod;
     const buffer = readFileSync(filePath);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
