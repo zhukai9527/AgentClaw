@@ -138,25 +138,28 @@ export async function ingestFile(
   const textChunks = chunkText(content, chunkSize);
   if (textChunks.length === 0) return 0;
 
-  let embeddings: number[][];
-  if (embedFn) {
-    embeddings = await embedFn(textChunks);
-  } else {
-    const fallback = new FallbackEmbedder();
-    embeddings = fallback.embedBatch(textChunks);
+  const fallback = embedFn ? null : new FallbackEmbedder();
+  const BATCH = 10;
+
+  for (let i = 0; i < textChunks.length; i += BATCH) {
+    const batch = textChunks.slice(i, i + BATCH);
+    const embeddings = embedFn
+      ? await embedFn(batch)
+      : fallback!.embedBatch(batch);
+
+    const chunks = batch.map((text, j) => ({
+      id: `${sourceId}_chunk_${i + j}`,
+      agentId,
+      sourceId,
+      chunkIndex: i + j,
+      content: text,
+      embedding: embeddings[j],
+    }));
+
+    await store.addKnowledgeChunks(chunks);
   }
 
-  const chunks = textChunks.map((text, i) => ({
-    id: `${sourceId}_chunk_${i}`,
-    agentId,
-    sourceId,
-    chunkIndex: i,
-    content: text,
-    embedding: embeddings[i],
-  }));
-
-  await store.addKnowledgeChunks(chunks);
-  return chunks.length;
+  return textChunks.length;
 }
 
 /**
