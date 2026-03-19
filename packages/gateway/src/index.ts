@@ -146,6 +146,19 @@ async function main(): Promise<void> {
     }
   });
 
+  // 每天凌晨 3 点整合记忆：衰减 → 去重 → 清理
+  const memoryConsolidationJob = new Cron("0 3 * * *", async () => {
+    try {
+      const store = ctx.memoryStore as { consolidate?: (ns?: string) => Promise<unknown> };
+      if (store.consolidate) {
+        const result = await store.consolidate();
+        console.log("[memory-consolidation] Daily run:", result);
+      }
+    } catch (err) {
+      console.error("[memory-consolidation] Failed:", errorMessage(err));
+    }
+  });
+
   // TaskManager: 捕获、分诊、执行、决策的统一任务管理
   const taskManager = new TaskManager(
     ctx.memoryStore,
@@ -215,6 +228,7 @@ async function main(): Promise<void> {
 
     heartbeat.stop();
     healthJob.stop();
+    memoryConsolidationJob.stop();
     if (dailyBriefJob) dailyBriefJob.stop();
     taskManager.stopScanner();
     channelManager.stopAll();

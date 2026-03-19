@@ -8,7 +8,12 @@ export function registerMemoryRoutes(
 ): void {
   // GET /api/memories - Search memories
   app.get<{
-    Querystring: { q?: string; type?: string; limit?: string; namespace?: string };
+    Querystring: {
+      q?: string;
+      type?: string;
+      limit?: string;
+      namespace?: string;
+    };
   }>(
     "/api/memories",
     {
@@ -39,7 +44,8 @@ export function registerMemoryRoutes(
           type: r.entry.type,
           content: r.entry.content,
           importance: r.entry.importance,
-          namespace: (r.entry as Record<string, unknown>).namespace || "default",
+          namespace:
+            (r.entry as Record<string, unknown>).namespace || "default",
           createdAt: r.entry.createdAt.toISOString(),
           accessedAt: r.entry.accessedAt.toISOString(),
           accessCount: r.entry.accessCount,
@@ -87,6 +93,30 @@ export function registerMemoryRoutes(
       return reply.status(500).send({ error: message });
     }
   });
+
+  // POST /api/memories/consolidate - Decay, dedup, prune memories
+  app.post<{ Querystring: { namespace?: string } }>(
+    "/api/memories/consolidate",
+    async (req, reply) => {
+      try {
+        const store = ctx.memoryStore as {
+          consolidate?: (ns?: string) => Promise<unknown>;
+        };
+        if (!store.consolidate) {
+          return reply
+            .status(501)
+            .send({ error: "Consolidation not supported" });
+        }
+        const result = await store.consolidate(
+          req.query.namespace || undefined,
+        );
+        return reply.send(result);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
 
   // DELETE /api/memories/:id - Delete memory
   app.delete<{ Params: { id: string } }>(

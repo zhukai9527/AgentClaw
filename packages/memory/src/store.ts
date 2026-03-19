@@ -609,6 +609,158 @@ export class SQLiteMemoryStore implements MemoryStore {
       .run(platform, targetId);
   }
 
+  // ─── Consolidation ───────────────────────────────────────────
+
+  /**
+   * Consolidate memories: decay importance, merge duplicates, prune stale entries.
+   *
+   * 1. Importance decay: memories not accessed in a while lose importance
+   *    (half-life = 30 days, floor = 0.1 to never fully forget identity/pref)
+   * 2. Dedup merge: find semantically similar pairs (>0.85), keep the longer one
+   * 3. Prune: delete memories with importance < 0.15 and accessCount = 0
+   *
+   * Returns stats about what was changed.
+   */
+  async consolidate(namespace?: string): Promise<{
+    decayed: number;
+    merged: number;
+    pruned: number;
+  }> {
+    const nsFilter = namespace ? "WHERE namespace = ?" : "";
+    const nsParams = namespace ? [namespace] : [];
+
+    // ── Phase 1: Importance decay ──
+    // Half-life: 30 days. identity/preference have a floor of 0.3 (always relevant).
+    const HALF_LIFE_MS = 30 * 86_400_000;
+    const FLOOR_IMPORTANT = 0.3; // identity, preference
+    const FLOOR_OTHER = 0.1;
+
+    const allRows = this.db
+      .prepare(
+        `SELECT id, type, importance, accessed_at, access_count FROM memories ${nsFilter}`,
+      )
+      .all(...nsParams) as Array<{
+      id: string;
+      type: string;
+      importance: number;
+      accessed_at: string;
+      access_count: number;
+    }>;
+
+    const now = Date.now();
+    let decayed = 0;
+
+    const decayUpdate = this.db.prepare(
+      "UPDATE memories SET importance = ? WHERE id = ?",
+    );
+    const decayTxn = this.db.transaction(() => {
+      for (const row of allRows) {
+        const ageMs = now - new Date(row.accessed_at).getTime();
+        const factor = Math.pow(0.5, ageMs / HALF_LIFE_MS);
+        const floor =
+          row.type === "identity" || row.type === "preference"
+            ? FLOOR_IMPORTANT
+            : FLOOR_OTHER;
+        const newImportance = Math.max(floor, row.importance * factor);
+
+        // Only update if changed meaningfully (avoid unnecessary writes)
+        if (Math.abs(newImportance - row.importance) > 0.01) {
+          decayUpdate.run(Math.round(newImportance * 100) / 100, row.id);
+          decayed++;
+        }
+      }
+    });
+    decayTxn();
+
+    // ── Phase 2: Dedup merge ──
+    // Load all memories with embeddings for pairwise comparison
+    const SIMILARITY_THRESHOLD = 0.85;
+    const withEmbeddings = this.db
+      .prepare(
+        `SELECT id, content, embedding, importance, access_count FROM memories ${nsFilter} ORDER BY importance DESC`,
+      )
+      .all(...nsParams) as Array<{
+      id: string;
+      content: string;
+      embedding: Buffer | Uint8Array | null;
+      importance: number;
+      access_count: number;
+    }>;
+
+    const deleted = new Set<string>();
+    let merged = 0;
+
+    for (let i = 0; i < withEmbeddings.length; i++) {
+      if (deleted.has(withEmbeddings[i].id)) continue;
+      const a = withEmbeddings[i];
+      if (!a.embedding) continue;
+      const embA = new Float64Array(
+        a.embedding.buffer,
+        a.embedding.byteOffset,
+        a.embedding.byteLength / 8,
+      );
+
+      for (let j = i + 1; j < withEmbeddings.length; j++) {
+        if (deleted.has(withEmbeddings[j].id)) continue;
+        const b = withEmbeddings[j];
+        if (!b.embedding) continue;
+        const embB = new Float64Array(
+          b.embedding.buffer,
+          b.embedding.byteOffset,
+          b.embedding.byteLength / 8,
+        );
+
+        const minLen = Math.min(embA.length, embB.length);
+        const sim = cosineSimilarity(
+          Array.from(embA.slice(0, minLen)),
+          Array.from(embB.slice(0, minLen)),
+        );
+
+        if (sim >= SIMILARITY_THRESHOLD) {
+          // Keep the one with more content (more comprehensive); on tie, keep higher importance
+          const keepA =
+            a.content.length > b.content.length ||
+            (a.content.length === b.content.length &&
+              a.importance >= b.importance);
+          const [keep, remove] = keepA ? [a, b] : [b, a];
+
+          // Boost kept memory's importance slightly
+          const boosted = Math.min(1.0, keep.importance + 0.05);
+          this.db
+            .prepare("UPDATE memories SET importance = ? WHERE id = ?")
+            .run(boosted, keep.id);
+
+          // Delete the duplicate
+          await this.delete(remove.id);
+          deleted.add(remove.id);
+          merged++;
+        }
+      }
+    }
+
+    // ── Phase 3: Prune stale memories ──
+    // Delete memories with very low importance AND never accessed beyond creation
+    const PRUNE_THRESHOLD = 0.15;
+    const pruneRows = this.db
+      .prepare(
+        `SELECT id FROM memories ${nsFilter ? nsFilter + " AND" : "WHERE"} importance < ? AND access_count = 0`,
+      )
+      .all(...nsParams, PRUNE_THRESHOLD) as Array<{ id: string }>;
+
+    let pruned = 0;
+    for (const row of pruneRows) {
+      if (!deleted.has(row.id)) {
+        await this.delete(row.id);
+        pruned++;
+      }
+    }
+
+    console.log(
+      `[memory-consolidation] namespace=${namespace || "all"} decayed=${decayed} merged=${merged} pruned=${pruned}`,
+    );
+    return { decayed, merged, pruned };
+  }
+
   // ─── Reindex ──────────────────────────────────────────────────
 
   /** Regenerate embeddings for all memories and rebuild FTS index */
