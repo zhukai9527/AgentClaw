@@ -621,6 +621,7 @@ export class SimpleOrchestrator implements Orchestrator {
       memoryStore: this.memoryStore,
       config,
       iterationBudget,
+      allToolNames: new Set(this.toolRegistry.list().map((t) => t.name)),
     });
   }
 }

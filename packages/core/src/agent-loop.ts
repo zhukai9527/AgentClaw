@@ -91,46 +91,24 @@ function sanitizeString(s: string): string {
   );
 }
 /**
- * All known builtin tool names — used to detect tool references in system prompt.
- */
-const ALL_TOOL_NAMES = new Set([
-  "shell",
-  "file_read",
-  "file_write",
-  "file_edit",
-  "glob",
-  "grep",
-  "ask_user",
-  "web_fetch",
-  "web_search",
-  "execute_code",
-  "send_file",
-  "schedule",
-  "remember",
-  "use_skill",
-  "claude_code",
-  "sandbox",
-  "subagent",
-  "browser_cdp",
-  "update_todo",
-  "social_post",
-]);
-
-/**
  * Prune system prompt to avoid mentioning tools that are not available.
  * 1. In the rules/instructions area (before memory section), remove lines that
- *    reference any known tool name not in the agent's whitelist.
+ *    reference tool-like names (snake_case identifiers in backticks or bare)
+ *    not in the agent's available tool set.
  * 2. Append an explicit tool boundary declaration so the LLM knows its limits.
  *
  * Memory entries and skill catalog are left untouched (factual, not instructional).
- * When all tools are available (no whitelist), returns the prompt unchanged.
+ *
+ * @param allToolNames - full set of tool names from the unfiltered registry,
+ *   used to detect whether a whitelist is active and to identify tool references.
  */
 function pruneSystemPromptForTools(
   prompt: string,
   availableTools: Set<string>,
+  allToolNames: Set<string>,
 ): string {
-  // Heuristic: if the agent has most tools, no whitelist is active
-  if (availableTools.size >= ALL_TOOL_NAMES.size - 2) return prompt;
+  // No whitelist active — all (or nearly all) tools available
+  if (availableTools.size >= allToolNames.size - 2) return prompt;
 
   // Split prompt into rules section (before memory) and rest (memory + skills)
   // Memory section starts with "你的长期记忆：" or "Your long-term memory:"
@@ -143,12 +121,11 @@ function pruneSystemPromptForTools(
 
   // Build set of unavailable tool names
   const unavailable = new Set<string>();
-  for (const name of ALL_TOOL_NAMES) {
+  for (const name of allToolNames) {
     if (!availableTools.has(name)) unavailable.add(name);
   }
 
-  // Phase 1: remove lines in rules section that reference unavailable tools
-  // Match tool names both in backticks (`tool_name`) and bare (tool_name)
+  // Remove lines in rules section that reference unavailable tools
   const pruned = rulesSection
     .split("\n")
     .filter((line) => {
@@ -159,7 +136,7 @@ function pruneSystemPromptForTools(
     })
     .join("\n");
 
-  // Phase 2: append tool boundary declaration
+  // Append tool boundary declaration
   const toolList = Array.from(availableTools).sort().join(", ");
   const boundary = `\n[可用工具：${toolList}]\n你只能使用上述工具，不要调用任何不在列表中的工具。`;
 
@@ -280,6 +257,8 @@ export class SimpleAgentLoop implements AgentLoop {
   private aborted = false;
   private abortController: AbortController | null = null;
   private iterationBudget?: IterationBudget;
+  /** Full set of tool names from unfiltered registry (for system prompt pruning) */
+  private allToolNames: Set<string>;
 
   get state(): AgentState {
     return this._state;
@@ -296,6 +275,7 @@ export class SimpleAgentLoop implements AgentLoop {
     memoryStore: MemoryStore;
     config?: Partial<AgentConfig>;
     iterationBudget?: IterationBudget;
+    allToolNames?: Set<string>;
   }) {
     this.provider = options.provider;
     this.toolRegistry = options.toolRegistry;
@@ -303,6 +283,7 @@ export class SimpleAgentLoop implements AgentLoop {
     this.memoryStore = options.memoryStore;
     this._config = { ...DEFAULT_CONFIG, ...options.config };
     this.iterationBudget = options.iterationBudget;
+    this.allToolNames = options.allToolNames ?? new Set(options.toolRegistry.list().map((t) => t.name));
   }
 
   async run(
@@ -622,6 +603,7 @@ export class SimpleAgentLoop implements AgentLoop {
       safeSystemPrompt = pruneSystemPromptForTools(
         safeSystemPrompt,
         availableToolNames,
+        this.allToolNames,
       );
 
       // Record trace metadata on first iteration (after pruning so trace reflects actual prompt)
