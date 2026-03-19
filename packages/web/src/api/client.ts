@@ -992,6 +992,7 @@ export interface WSMessage {
   durationMs?: number;
   toolCallCount?: number;
   question?: string;
+  agentId?: string;
 }
 
 export function connectWebSocket(

@@ -96,6 +96,8 @@ interface DisplayMessage {
   toolCallCount?: number;
   /** Placeholder "thinking" state — shown immediately after send, removed on first real event */
   thinking?: boolean;
+  /** Agent ID that generated this response (Hive) */
+  agentId?: string;
 }
 
 /* ── Preview Context (allows static mdComponents to open side panel) ── */
@@ -1608,6 +1610,7 @@ export function ChatPage() {
                 tokensOut: msg.tokensOut ?? last.tokensOut,
                 durationMs: elapsed ?? msg.durationMs ?? last.durationMs,
                 toolCallCount: msg.toolCallCount ?? last.toolCallCount,
+                agentId: msg.agentId ?? last.agentId,
               },
             ];
           }
@@ -2767,6 +2770,10 @@ export function ChatPage() {
 
                                 return (
                                   <div className={`message-row ${m.role}`}>
+                                    {m.role === "assistant" && m.agentId && m.agentId !== "default" && (() => {
+                                      const ag = agents.find((a) => a.id === m.agentId);
+                                      return ag ? <div className="message-agent-tag">{ag.avatar || "🤖"} {ag.name}</div> : null;
+                                    })()}
                                     <div className="message-bubble">
                                       {parsed.images.map((img, i) => (
                                         <img

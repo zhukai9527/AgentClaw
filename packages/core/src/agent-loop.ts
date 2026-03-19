@@ -777,7 +777,10 @@ export class SimpleAgentLoop implements AgentLoop {
           toolCallCount: totalToolCalls,
         };
         this.setState("idle");
-        yield this.createEvent("response_complete", { message });
+        yield this.createEvent("response_complete", {
+          message,
+          agentId: context?.agentId,
+        });
         return;
       }
 

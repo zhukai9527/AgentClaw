@@ -472,7 +472,10 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
                 break;
               }
               case "response_complete": {
-                const data = event.data as { message: Message };
+                const data = event.data as {
+                  message: Message;
+                  agentId?: string;
+                };
                 usageStats = {
                   model: data.message.model,
                   tokensIn: data.message.tokensIn,
@@ -481,6 +484,7 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
                   cacheReadTokens: data.message.cacheReadTokens,
                   durationMs: data.message.durationMs,
                   toolCallCount: data.message.toolCallCount,
+                  agentId: data.agentId,
                 };
                 break;
               }
