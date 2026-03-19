@@ -1325,6 +1325,15 @@ export function ChatPage() {
         const history = await getHistory(activeSessionId!);
         if (cancelled) return;
         const historyMessages = historyToDisplayMessages(history);
+        // Attach session's agentId to assistant messages for agent tag display
+        const sessionAgentId = sessions.find((s) => s.id === activeSessionId)?.agentId;
+        if (sessionAgentId && sessionAgentId !== "default") {
+          for (const msg of historyMessages) {
+            if (msg.role === "assistant" && !msg.agentId) {
+              msg.agentId = sessionAgentId;
+            }
+          }
+        }
         if (resumingRef.current) {
           // WS 回放中：history 放前面，保留当前 streaming 消息在末尾
           // Buffer 回放会重建当前 assistant 轮，无条件去掉 history 末尾 assistant 避免重复
@@ -2770,10 +2779,6 @@ export function ChatPage() {
 
                                 return (
                                   <div className={`message-row ${m.role}`}>
-                                    {m.role === "assistant" && m.agentId && m.agentId !== "default" && (() => {
-                                      const ag = agents.find((a) => a.id === m.agentId);
-                                      return ag ? <div className="message-agent-tag">{ag.avatar || "🤖"} {ag.name}</div> : null;
-                                    })()}
                                     <div className="message-bubble">
                                       {parsed.images.map((img, i) => (
                                         <img
@@ -2810,6 +2815,10 @@ export function ChatPage() {
                                             (m.role === "assistant" &&
                                               !m.streaming)) && (
                                             <div className="message-meta">
+                                              {m.role === "assistant" && m.agentId && m.agentId !== "default" && (() => {
+                                                const ag = agents.find((a) => a.id === m.agentId);
+                                                return ag ? <span className="message-agent-name">{ag.name} · </span> : null;
+                                              })()}
                                               {formatTimeOnly(m.createdAt)}
                                               {(() => {
                                                 const usage =

@@ -344,12 +344,9 @@
   max-width: 100%;
 }
 
-.message-agent-tag {
-  font-size: 12px;
+.message-agent-name {
   font-weight: 600;
   color: var(--accent);
-  margin-bottom: 2px;
-  padding-left: 2px;
 }
 
 .message-row.system .message-bubble {
