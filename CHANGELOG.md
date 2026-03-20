@@ -8,6 +8,10 @@
 - **Todo Nag Reminder（进度提醒）**：agent 调过 update_todo 后如果连续 3 轮未更新，自动注入 `<reminder>` 提醒更新进度
 - **Compact 工具（主动压缩）**：新增 `compact` 核心工具，LLM 可主动触发上下文压缩（摘要旧消息 + 删除 + 保留最近 6 轮），不再只能被动等阈值触发
 - **生产就绪优化**：workDir 懒创建（纯文本 API 调用不再创建 tmp 目录）；orchestrator sessions/turnCounters + context-manager dynamicContextCache/summaryCache 替换为 LRU 缓存（防止内存无限增长）；SQLite WAL 模式已确认启用
+- **Tool Argument Truncation**：旧消息中 file_write/file_edit/execute_code 的大参数自动截断为 50 字符预览，执行后不再浪费上下文空间
+- **Summarization Offload**：上下文压缩时将旧消息保存到 `conversation_history.md`，summary 中带文件路径，agent 可 file_read 回顾（压缩不再不可逆）
+- **记忆存储指导**：系统提示词新增 `remember` 工具规范（存什么/不存什么/先存再回复/一条一个事实）
+- **Compact 门槛**：对话需达到 compressAfter 的 50% 才允许手动 compact，防止过早压缩
 
 ## [1.5.2] - 2026-03-19
 

@@ -123,11 +123,28 @@ export class SimpleContextManager implements ContextManager {
         const oldTurns = turns.slice(0, splitIdx);
         const recentTurns = turns.slice(splitIdx);
         const summary = await this.compressTurns(conversationId, oldTurns);
+
+        // Offload compressed messages to file so agent can read_file to recall
+        let offloadRef = "";
+        try {
+          const offloadDir = join(process.cwd(), "data", "tmp", conversationId);
+          mkdirSync(offloadDir, { recursive: true });
+          const offloadPath = join(
+            offloadDir,
+            "conversation_history.md",
+          ).replace(/\\/g, "/");
+          const transcript = this.buildTranscript(oldTurns);
+          writeFileSync(offloadPath, transcript, "utf-8");
+          offloadRef = `\nFull history saved to: ${offloadPath} (use file_read to review if needed)`;
+        } catch {
+          /* offload failed, non-critical */
+        }
+
         historyMessages = [
           {
             id: "summary",
             role: "user",
-            content: summary,
+            content: summary + offloadRef,
             createdAt: oldTurns[0].createdAt,
           },
           {
@@ -438,10 +455,15 @@ export class SimpleContextManager implements ContextManager {
       conversationId,
       this.maxHistoryTurns,
     );
-    if (turns.length <= keepRecent + 2) {
+    // Gate: require at least 50% of compressAfter threshold before allowing manual compact
+    const minTurns = Math.max(
+      keepRecent + 2,
+      Math.floor(this.compressAfter * 0.5),
+    );
+    if (turns.length <= minTurns) {
       return {
         deleted: 0,
-        summary: "Context is already small, no compression needed.",
+        summary: `Context is still small (${turns.length} turns, need ${minTurns}+ to compact). No compression needed.`,
       };
     }
 

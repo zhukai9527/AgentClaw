@@ -135,6 +135,10 @@ function pruneSystemPromptForTools(
  */
 const MICRO_COMPACT_KEEP_RECENT = 3;
 const MICRO_COMPACT_MIN_LENGTH = 100;
+/** Tool names whose input arguments should be truncated after execution */
+const TRUNCATE_ARG_TOOLS = new Set(["file_write", "file_edit", "execute_code"]);
+const TRUNCATE_ARG_KEYS = new Set(["content", "new_string", "code"]);
+const TRUNCATE_ARG_PREVIEW = 50;
 
 function microCompact(messages: Message[]): void {
   // Find all tool-role messages (contain tool_result blocks)
@@ -153,7 +157,6 @@ function microCompact(messages: Message[]): void {
   for (const idx of toCompact) {
     const msg = messages[idx];
     if (typeof msg.content === "string") {
-      // Parse JSON content blocks
       try {
         const blocks = JSON.parse(msg.content) as ContentBlock[];
         let changed = false;
@@ -169,7 +172,6 @@ function microCompact(messages: Message[]): void {
         }
         if (changed) msg.content = JSON.stringify(blocks);
       } catch {
-        // Not JSON — try direct string replacement
         if (msg.content.length > MICRO_COMPACT_MIN_LENGTH) {
           msg.content = "[previous tool result]";
         }
@@ -182,6 +184,30 @@ function microCompact(messages: Message[]): void {
           (block as ToolResultContent).content.length > MICRO_COMPACT_MIN_LENGTH
         ) {
           (block as ToolResultContent).content = "[previous tool result]";
+        }
+      }
+    }
+
+    // ── Tool Argument Truncation ──
+    // Also truncate the corresponding assistant message's tool_call input args
+    // (file_write content, file_edit new_string, execute_code code are huge after execution)
+    if (idx > 0 && messages[idx - 1]?.role === "assistant") {
+      const assistantMsg = messages[idx - 1];
+      if (Array.isArray(assistantMsg.content)) {
+        for (const block of assistantMsg.content) {
+          if (
+            block.type === "tool_use" &&
+            TRUNCATE_ARG_TOOLS.has((block as ToolUseContent).name)
+          ) {
+            const input = (block as ToolUseContent).input as Record<string, unknown>;
+            if (input) {
+              for (const key of TRUNCATE_ARG_KEYS) {
+                if (typeof input[key] === "string" && (input[key] as string).length > TRUNCATE_ARG_PREVIEW) {
+                  input[key] = (input[key] as string).slice(0, TRUNCATE_ARG_PREVIEW) + "...(truncated)";
+                }
+              }
+            }
+          }
         }
       }
     }
