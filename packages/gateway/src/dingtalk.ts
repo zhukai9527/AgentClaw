@@ -2,10 +2,7 @@ import { DWClient, TOPIC_ROBOT, EventAck } from "dingtalk-stream-sdk-nodejs";
 import type { DWClientDownStream } from "dingtalk-stream-sdk-nodejs";
 import * as Sentry from "@sentry/node";
 import type { AppContext } from "./bootstrap.js";
-import type {
-  Message,
-  ToolExecutionContext,
-} from "@agentclaw/types";
+import type { Message, ToolExecutionContext } from "@agentclaw/types";
 import {
   extractText,
   stripFileMarkdown,
@@ -226,8 +223,13 @@ export async function startDingTalkBot(
         );
 
         let accumulatedText = "";
+        let statusSent = false;
         for await (const event of eventStream) {
-          if (event.type === "response_chunk") {
+          if (event.type === "tool_call" && !statusSent) {
+            const name = (event.data as { name: string }).name;
+            replyText(sessionWebhook, `⚙️ ${name}...`).catch(() => {});
+            statusSent = true;
+          } else if (event.type === "response_chunk") {
             accumulatedText += (event.data as { text: string }).text;
           } else if (event.type === "response_complete" && !accumulatedText) {
             accumulatedText = extractText(

@@ -304,9 +304,16 @@ async function handleMessage(
     let accumulatedText = "";
     let lastSentLength = 0;
     let chunkCount = 0;
+    let statusSent = false;
 
     for await (const event of eventStream) {
-      if (event.type === "response_chunk") {
+      if (event.type === "tool_call" && !statusSent) {
+        const name = (event.data as { name: string }).name;
+        try {
+          await client.replyStream(frame, streamId, `⚙️ ${name}...`, false);
+        } catch { /* ignore */ }
+        statusSent = true;
+      } else if (event.type === "response_chunk") {
         const { text } = event.data as { text: string };
         accumulatedText += text;
         chunkCount++;

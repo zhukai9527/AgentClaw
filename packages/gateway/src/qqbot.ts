@@ -431,9 +431,18 @@ export async function startQQBot(
       );
 
       let accumulatedText = "";
+      let statusSent = false;
 
       for await (const event of eventStream) {
         switch (event.type) {
+          case "tool_call": {
+            if (!statusSent) {
+              const name = (event.data as { name: string }).name;
+              sendReply(chatKey, `⚙️ ${name}...`).catch(() => {});
+              statusSent = true;
+            }
+            break;
+          }
           case "response_chunk": {
             const data = event.data as { text: string };
             accumulatedText += data.text;

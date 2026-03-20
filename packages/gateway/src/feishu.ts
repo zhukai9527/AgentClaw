@@ -1,10 +1,7 @@
 import * as lark from "@larksuiteoapi/node-sdk";
 import * as Sentry from "@sentry/node";
 import type { AppContext } from "./bootstrap.js";
-import type {
-  Message,
-  ToolExecutionContext,
-} from "@agentclaw/types";
+import type { Message, ToolExecutionContext } from "@agentclaw/types";
 import {
   extractText,
   stripFileMarkdown,
@@ -206,8 +203,13 @@ export async function startFeishuBot(
       );
 
       let accumulatedText = "";
+      let statusSent = false;
       for await (const event of eventStream) {
-        if (event.type === "response_chunk") {
+        if (event.type === "tool_call" && !statusSent) {
+          const name = (event.data as { name: string }).name;
+          sendText(client, chat_id, `⚙️ ${name}...`).catch(() => {});
+          statusSent = true;
+        } else if (event.type === "response_chunk") {
           accumulatedText += (event.data as { text: string }).text;
         } else if (event.type === "response_complete" && !accumulatedText) {
           accumulatedText = extractText(
