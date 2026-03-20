@@ -15,13 +15,7 @@ import type {
   LLMProvider,
 } from "@agentclaw/types";
 
-/** Remove lone surrogates that break JSON serialization */
-function sanitizeString(s: string): string {
-  return s.replace(
-    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
-    "\uFFFD",
-  );
-}
+import { sanitizeString } from "./utils.js";
 
 const DEFAULT_SYSTEM_PROMPT = `You are AgentClaw, a powerful AI assistant.
 

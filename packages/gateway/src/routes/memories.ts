@@ -62,19 +62,11 @@ export function registerMemoryRoutes(
   // GET /api/memories/namespaces - List all namespaces with counts
   app.get("/api/memories/namespaces", async (_req, reply) => {
     try {
-      const store = ctx.memoryStore as Record<string, unknown>;
-      if (typeof store.db === "object" && store.db !== null) {
-        const db = store.db as {
-          prepare: (sql: string) => {
-            all: () => Array<{ namespace: string; count: number }>;
-          };
-        };
-        const rows = db
-          .prepare(
-            "SELECT namespace, COUNT(*) as count FROM memories GROUP BY namespace ORDER BY count DESC",
-          )
-          .all();
-        return reply.send(rows);
+      const store = ctx.memoryStore as {
+        listNamespaces?: () => Array<{ namespace: string; count: number }>;
+      };
+      if (store.listNamespaces) {
+        return reply.send(store.listNamespaces());
       }
       return reply.send([{ namespace: "default", count: 0 }]);
     } catch (err: unknown) {

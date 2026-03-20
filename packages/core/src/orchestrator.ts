@@ -36,6 +36,7 @@ export class SimpleOrchestrator implements Orchestrator {
   private visionProvider?: LLMProvider;
   private fastProvider?: LLMProvider;
   private toolRegistry: ToolRegistryImpl;
+  private allToolNames: Set<string>;
   private memoryStore: MemoryStore;
   private memoryExtractor: MemoryExtractor;
   private agentConfig?: Partial<AgentConfig>;
@@ -62,6 +63,7 @@ export class SimpleOrchestrator implements Orchestrator {
     this.visionProvider = options.visionProvider;
     this.fastProvider = options.fastProvider;
     this.toolRegistry = options.toolRegistry;
+    this.allToolNames = new Set(options.toolRegistry.list().map((t) => t.name));
     this.memoryStore = options.memoryStore;
     this.memoryExtractor = new MemoryExtractor({
       provider: options.provider,
@@ -633,7 +635,7 @@ export class SimpleOrchestrator implements Orchestrator {
       memoryStore: this.memoryStore,
       config,
       iterationBudget,
-      allToolNames: new Set(this.toolRegistry.list().map((t) => t.name)),
+      allToolNames: this.allToolNames,
     });
   }
 }

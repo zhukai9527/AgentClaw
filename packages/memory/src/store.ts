@@ -609,6 +609,15 @@ export class SQLiteMemoryStore implements MemoryStore {
       .run(platform, targetId);
   }
 
+  /** List all memory namespaces with counts */
+  listNamespaces(): Array<{ namespace: string; count: number }> {
+    return this.db
+      .prepare(
+        "SELECT namespace, COUNT(*) as count FROM memories GROUP BY namespace ORDER BY count DESC",
+      )
+      .all() as Array<{ namespace: string; count: number }>;
+  }
+
   // ─── Consolidation ───────────────────────────────────────────
 
   /**
@@ -690,6 +699,10 @@ export class SQLiteMemoryStore implements MemoryStore {
     const deleted = new Set<string>();
     let merged = 0;
 
+    // Collect merge/prune decisions first, then batch-execute in one transaction
+    const toDelete: string[] = [];
+    const toBoost: Array<{ id: string; importance: number }> = [];
+
     for (let i = 0; i < withEmbeddings.length; i++) {
       if (deleted.has(withEmbeddings[i].id)) continue;
       const a = withEmbeddings[i];
@@ -717,21 +730,17 @@ export class SQLiteMemoryStore implements MemoryStore {
         );
 
         if (sim >= SIMILARITY_THRESHOLD) {
-          // Keep the one with more content (more comprehensive); on tie, keep higher importance
           const keepA =
             a.content.length > b.content.length ||
             (a.content.length === b.content.length &&
               a.importance >= b.importance);
           const [keep, remove] = keepA ? [a, b] : [b, a];
 
-          // Boost kept memory's importance slightly
-          const boosted = Math.min(1.0, keep.importance + 0.05);
-          this.db
-            .prepare("UPDATE memories SET importance = ? WHERE id = ?")
-            .run(boosted, keep.id);
-
-          // Delete the duplicate
-          await this.delete(remove.id);
+          toBoost.push({
+            id: keep.id,
+            importance: Math.min(1.0, keep.importance + 0.05),
+          });
+          toDelete.push(remove.id);
           deleted.add(remove.id);
           merged++;
         }
@@ -739,7 +748,6 @@ export class SQLiteMemoryStore implements MemoryStore {
     }
 
     // ── Phase 3: Prune stale memories ──
-    // Delete memories with very low importance AND never accessed beyond creation
     const PRUNE_THRESHOLD = 0.15;
     const pruneRows = this.db
       .prepare(
@@ -750,9 +758,28 @@ export class SQLiteMemoryStore implements MemoryStore {
     let pruned = 0;
     for (const row of pruneRows) {
       if (!deleted.has(row.id)) {
-        await this.delete(row.id);
+        toDelete.push(row.id);
+        deleted.add(row.id);
         pruned++;
       }
+    }
+
+    // Batch execute all merges + prunes in a single transaction
+    if (toDelete.length > 0 || toBoost.length > 0) {
+      const batchFn = this.db.transaction(() => {
+        for (const b of toBoost) {
+          this.db
+            .prepare("UPDATE memories SET importance = ? WHERE id = ?")
+            .run(b.importance, b.id);
+        }
+        for (const id of toDelete) {
+          this.db.prepare("DELETE FROM memories WHERE id = ?").run(id);
+          if (this.hasFts) {
+            this.db.prepare("DELETE FROM memories_fts WHERE id = ?").run(id);
+          }
+        }
+      });
+      batchFn();
     }
 
     console.log(

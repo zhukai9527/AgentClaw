@@ -82,14 +82,7 @@ const RETRYABLE_TOOLS = new Set([
 const MAX_RETRIES = 2;
 const RETRY_BASE_DELAY = 2000; // ms
 
-/** Remove lone surrogates that break JSON serialization (e.g. from Playwright MCP) */
-function sanitizeString(s: string): string {
-  // eslint-disable-next-line no-control-regex
-  return s.replace(
-    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
-    "\uFFFD",
-  );
-}
+import { sanitizeString } from "./utils.js";
 /**
  * Prune system prompt to avoid mentioning tools that are not available.
  * 1. In the rules/instructions area (before memory section), remove lines that
@@ -102,16 +95,19 @@ function sanitizeString(s: string): string {
  * @param allToolNames - full set of tool names from the unfiltered registry,
  *   used to detect whether a whitelist is active and to identify tool references.
  */
+/**
+ * Prune system prompt: remove rules referencing unavailable tools, append boundary.
+ * @param unavailableTools - pre-computed set of tool names not available to this agent
+ * @param toolBoundary - pre-computed boundary declaration string, or null if no pruning needed
+ */
 function pruneSystemPromptForTools(
   prompt: string,
-  availableTools: Set<string>,
-  allToolNames: Set<string>,
+  unavailableTools: Set<string>,
+  toolBoundary: string | null,
 ): string {
-  // No whitelist active — all (or nearly all) tools available
-  if (availableTools.size >= allToolNames.size - 2) return prompt;
+  if (!toolBoundary) return prompt;
 
   // Split prompt into rules section (before memory) and rest (memory + skills)
-  // Memory section starts with "你的长期记忆：" or "Your long-term memory:"
   const memorySplit =
     prompt.indexOf("\n你的长期记忆：") !== -1
       ? prompt.indexOf("\n你的长期记忆：")
@@ -119,28 +115,17 @@ function pruneSystemPromptForTools(
   const rulesSection = memorySplit !== -1 ? prompt.slice(0, memorySplit) : prompt;
   const restSection = memorySplit !== -1 ? prompt.slice(memorySplit) : "";
 
-  // Build set of unavailable tool names
-  const unavailable = new Set<string>();
-  for (const name of allToolNames) {
-    if (!availableTools.has(name)) unavailable.add(name);
-  }
-
-  // Remove lines in rules section that reference unavailable tools
   const pruned = rulesSection
     .split("\n")
     .filter((line) => {
-      for (const name of unavailable) {
+      for (const name of unavailableTools) {
         if (line.includes(name)) return false;
       }
       return true;
     })
     .join("\n");
 
-  // Append tool boundary declaration
-  const toolList = Array.from(availableTools).sort().join(", ");
-  const boundary = `\n[可用工具：${toolList}]\n你只能使用上述工具，不要调用任何不在列表中的工具。`;
-
-  return pruned + restSection + boundary;
+  return pruned + restSection + toolBoundary;
 }
 
 /**
@@ -556,6 +541,18 @@ export class SimpleAgentLoop implements AgentLoop {
     let lastFullText = ""; // Keep last LLM text for fallback response
     let roundsSinceUpdateTodo = -1; // -1 = never used todo; >=0 = rounds since last call
 
+    // Pre-compute tool pruning data (fixed for the entire loop)
+    const loopToolDefs = this.toolRegistry.definitions();
+    const loopAvailableTools = new Set(loopToolDefs.map((t) => t.name));
+    const loopUnavailableTools = new Set<string>();
+    for (const name of this.allToolNames) {
+      if (!loopAvailableTools.has(name)) loopUnavailableTools.add(name);
+    }
+    const loopToolBoundary =
+      loopAvailableTools.size < this.allToolNames.size - 2
+        ? `\n[可用工具：${Array.from(loopAvailableTools).sort().join(", ")}]\n你只能使用上述工具，不要调用任何不在列表中的工具。`
+        : null;
+
     while (iterations < this._config.maxIterations && !this.aborted) {
       // Check shared budget (parent + children share the same IterationBudget)
       if (this.iterationBudget?.exhausted) {
@@ -569,9 +566,8 @@ export class SimpleAgentLoop implements AgentLoop {
 
       // ── Todo nag reminder ──
       // If agent used update_todo earlier but hasn't called it for 3+ rounds,
-      // inject a reminder to update progress. Only nags if todo was ever used
-      // in this session (roundsSinceUpdateTodo >= 0 means it was called at least once).
-      if (roundsSinceUpdateTodo > 3) {
+      // inject a ONE-TIME reminder. After nagging, stop (don't accumulate).
+      if (roundsSinceUpdateTodo === 4) {
         runtimeHints.push(
           "<reminder>You have an active todo list. Call update_todo to mark completed items.</reminder>",
         );
@@ -698,13 +694,11 @@ export class SimpleAgentLoop implements AgentLoop {
       const safeMessages = obfuscateMessages(messages, envMap);
       let safeSystemPrompt = obfuscateString(systemPrompt, envMap);
 
-      // Agent-specific system prompt pruning: remove rules referencing tools
-      // not in this agent's whitelist, and append an explicit tool boundary.
-      const availableToolNames = new Set(tools.map((t) => t.name));
+      // Agent-specific system prompt pruning (uses pre-computed sets)
       safeSystemPrompt = pruneSystemPromptForTools(
         safeSystemPrompt,
-        availableToolNames,
-        this.allToolNames,
+        loopUnavailableTools,
+        loopToolBoundary,
       );
 
       // Record trace metadata on first iteration (after pruning so trace reflects actual prompt)
