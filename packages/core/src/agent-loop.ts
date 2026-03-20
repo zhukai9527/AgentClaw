@@ -429,6 +429,7 @@ export class SimpleAgentLoop implements AgentLoop {
           // 优先使用上传时的原始文件名，fallback 到通用名
           const ext = img.mediaType?.includes("png") ? "png" : "jpg";
           let filename = img.filename || `user_image_${Date.now()}.${ext}`;
+          ensureSessionTmpDir();
           let filePath = join(sessionTmpDir, filename).replace(/\\/g, "/");
           // Deduplicate: if file already exists from a previous turn, add timestamp suffix
           if (existsSync(filePath)) {
@@ -440,7 +441,6 @@ export class SimpleAgentLoop implements AgentLoop {
             filePath = join(sessionTmpDir, filename).replace(/\\/g, "/");
           }
           try {
-            ensureSessionTmpDir();
             writeFileSync(filePath, Buffer.from(img.data, "base64"));
             savedImagePaths.push(filePath);
             imagePathMap.set(img, filePath);

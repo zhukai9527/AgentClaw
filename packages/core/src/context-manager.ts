@@ -395,11 +395,12 @@ export class SimpleContextManager implements ContextManager {
   /** Clear cached context for a conversation (call on session close) */
   clearConversationCache(conversationId: string): void {
     this.dynamicContextCache.delete(conversationId);
-    // Also clear related summary entries (keyed as "conversationId:turnId")
+    // Collect keys first to avoid mutating during iteration (LRU iterator safety)
     const prefix = `${conversationId}:`;
-    for (const key of this.summaryCache.keys()) {
-      if (key.startsWith(prefix)) this.summaryCache.delete(key);
-    }
+    const toDelete = [...this.summaryCache.keys()].filter((k) =>
+      k.startsWith(prefix),
+    );
+    for (const key of toDelete) this.summaryCache.delete(key);
   }
 
   /** Add to summary cache */
