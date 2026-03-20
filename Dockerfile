@@ -5,26 +5,18 @@ RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 
 WORKDIR /app
 
+# Use China mirror for faster package downloads
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
+
 # Install build dependencies for native modules (better-sqlite3)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 make g++ && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy package manifests first (cache layer)
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
-COPY packages/types/package.json packages/types/
-COPY packages/providers/package.json packages/providers/
-COPY packages/tools/package.json packages/tools/
-COPY packages/memory/package.json packages/memory/
-COPY packages/core/package.json packages/core/
-COPY packages/gateway/package.json packages/gateway/
-COPY packages/cli/package.json packages/cli/
-COPY packages/web/package.json packages/web/
-
-RUN pnpm install --frozen-lockfile
-
-# Copy source and build
+# Copy everything and install
 COPY . .
+RUN pnpm install --frozen-lockfile
 RUN npm run build
 
 # ── Stage 2: Runtime ──
@@ -33,6 +25,14 @@ FROM node:20-slim
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 
 WORKDIR /app
+
+# Use China mirror for faster package downloads
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
+
+# Use China mirror
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
 
 # Install runtime CLI tools
 RUN apt-get update && apt-get install -y --no-install-recommends \

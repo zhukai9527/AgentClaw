@@ -6,7 +6,7 @@ services:
     ports:
       - "127.0.0.1:${PORT:-3100}:3100"
     volumes:
-      - ./data:/app/data
+      - ${DATA_VOLUME:-./data}:/app/data
       - ./skills:/app/skills
     env_file:
       - .env
