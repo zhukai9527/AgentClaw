@@ -18,6 +18,26 @@ export const fileReadTool: Tool = {
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const filePath = resolveFilePath(input.path as string);
 
+    // Block reading sensitive files
+    const basename = filePath.replace(/\\/g, "/").split("/").pop() || "";
+    const BLOCKED_FILES = [
+      ".env",
+      ".env.local",
+      ".env.production",
+      "credentials.json",
+      "secrets.json",
+    ];
+    if (
+      BLOCKED_FILES.includes(basename) ||
+      basename.endsWith(".pem") ||
+      basename.endsWith(".key")
+    ) {
+      return {
+        content: `Access denied: ${basename} is a sensitive file and cannot be read.`,
+        isError: true,
+      };
+    }
+
     try {
       const content = await readFile(filePath, "utf-8");
       return {
