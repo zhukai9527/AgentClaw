@@ -24,13 +24,14 @@ import { SimpleSubAgentManager } from "./subagent-manager.js";
 import { ToolHookManager } from "./tool-hooks.js";
 import { readdirSync, unlinkSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { LRUCache } from "lru-cache";
 
 /** How many user turns between automatic memory extraction runs */
 const EXTRACT_EVERY_N_TURNS = 3;
 
 export class SimpleOrchestrator implements Orchestrator {
-  private sessions = new Map<string, Session>();
-  private turnCounters = new Map<string, number>();
+  private sessions = new LRUCache<string, Session>({ max: 10000 });
+  private turnCounters = new LRUCache<string, number>({ max: 10000 });
   private activeLoops = new Map<string, SimpleAgentLoop>();
   private provider: LLMProvider;
   private visionProvider?: LLMProvider;

@@ -395,14 +395,24 @@ export class SimpleAgentLoop implements AgentLoop {
     };
 
     // Per-session temp directory: data/tmp/{conversationId}/
-    // Reused across turns so tools can access files from previous interactions
+    // Lazy-created: directory only exists when a tool actually needs to write a file.
+    // Pure text API calls never touch the filesystem.
     const sessionTmpDir = join(process.cwd(), "data", "tmp", convId).replace(
       /\\/g,
       "/",
     );
-    mkdirSync(sessionTmpDir, { recursive: true });
+    let sessionTmpDirCreated = false;
+    const ensureSessionTmpDir = () => {
+      if (!sessionTmpDirCreated) {
+        mkdirSync(sessionTmpDir, { recursive: true });
+        sessionTmpDirCreated = true;
+      }
+      return sessionTmpDir;
+    };
 
     // Expose working directory to tools (use_skill replaces {WORKDIR})
+    // Tools that need to write files should call ensureSessionTmpDir() or
+    // mkdirSync(context.workDir) before writing — most already do.
     if (context) context.workDir = sessionTmpDir;
 
     // ── Collect all user files into session dir ──
@@ -430,6 +440,7 @@ export class SimpleAgentLoop implements AgentLoop {
             filePath = join(sessionTmpDir, filename).replace(/\\/g, "/");
           }
           try {
+            ensureSessionTmpDir();
             writeFileSync(filePath, Buffer.from(img.data, "base64"));
             savedImagePaths.push(filePath);
             imagePathMap.set(img, filePath);
@@ -450,6 +461,7 @@ export class SimpleAgentLoop implements AgentLoop {
                 "/",
               );
               try {
+                ensureSessionTmpDir();
                 copyFileSync(origPath, newPath);
                 try {
                   unlinkSync(origPath);
@@ -1106,7 +1118,7 @@ export class SimpleAgentLoop implements AgentLoop {
           applyOverflow(
             result!,
             effectiveToolName,
-            sessionTmpDir,
+            ensureSessionTmpDir(),
             effectiveToolInput,
           );
         }

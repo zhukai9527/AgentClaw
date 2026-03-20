@@ -69,6 +69,9 @@ importers:
       '@agentclaw/types':
         specifier: workspace:*
         version: link:../types
+      lru-cache:
+        specifier: ^11.2.7
+        version: 11.2.7
     devDependencies:
       tsup:
         specifier: ^8.4.0
@@ -3076,6 +3079,10 @@ packages:
     resolution: {integrity: sha512-ESL2CrkS/2wTPfuend7Zhkzo2u0daGJ/A2VucJOgQ/C48S/zB8MMeMHSGKYpXhIjbPxfuezITkaBH1wqv00DDQ==}
     engines: {node: 20 || >=22}
 
+  lru-cache@11.2.7:
+    resolution: {integrity: sha512-aY/R+aEsRelme17KGQa/1ZSIpLpNYYrhcrepKTZgE+W3WM16YMCaPwOHLHsmopZHELU0Ojin1lPVxKR0MihncA==}
+    engines: {node: 20 || >=22}
+
   lru-cache@5.1.1:
     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
 
@@ -3790,6 +3797,12 @@ packages:
 
   sherpa-onnx-win-x64@1.12.28:
     resolution: {integrity: sha512-p8vpdVUtPRuI9ksm2EnuabK9+r285m5ARYzZkCfvg9ia/TQAq8pVoOCOuUTbMteBSQRPOl9lamfOcg3Sy085yQ==}
+    cpu: [x64]
+    os: [win32]
+
+  sherpa-onnx-win-x64@1.12.30:
+    resolution: {integrity: sha512-IoMDDMMTsbVMLbA/BE/WyJ0d5QaQqvEBmjYhyEsmoPphkHYORUH1ivIFQoGDJCzKjIId2hkfP8MA3IWB7/A+jA==}
+    cpu: [x64]
     os: [win32]
 
   side-channel-list@1.0.0:
@@ -7104,6 +7117,8 @@ snapshots:
 
   lru-cache@11.2.6: {}
 
+  lru-cache@11.2.7: {}
+
   lru-cache@5.1.1:
     dependencies:
       yallist: 3.1.1
@@ -8159,11 +8174,15 @@ snapshots:
       sherpa-onnx-linux-arm64: 1.12.29
       sherpa-onnx-linux-x64: 1.12.29
       sherpa-onnx-win-ia32: 1.12.29
+      sherpa-onnx-win-x64: 1.12.30
 
   sherpa-onnx-win-ia32@1.12.29:
     optional: true
 
   sherpa-onnx-win-x64@1.12.28: {}
+
+  sherpa-onnx-win-x64@1.12.30:
+    optional: true
 
   side-channel-list@1.0.0:
     dependencies:

@@ -7,6 +7,7 @@
 - **Identity Re-Injection（压缩后身份恢复）**：context 压缩后消息只剩摘要时，自动在摘要确认消息后注入 `<identity>` 块，防止非 default agent 在压缩后丢失人格
 - **Todo Nag Reminder（进度提醒）**：agent 调过 update_todo 后如果连续 3 轮未更新，自动注入 `<reminder>` 提醒更新进度
 - **Compact 工具（主动压缩）**：新增 `compact` 核心工具，LLM 可主动触发上下文压缩（摘要旧消息 + 删除 + 保留最近 6 轮），不再只能被动等阈值触发
+- **生产就绪优化**：workDir 懒创建（纯文本 API 调用不再创建 tmp 目录）；orchestrator sessions/turnCounters + context-manager dynamicContextCache/summaryCache 替换为 LRU 缓存（防止内存无限增长）；SQLite WAL 模式已确认启用
 
 ## [1.5.2] - 2026-03-19
 

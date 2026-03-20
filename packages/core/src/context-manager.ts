@@ -16,6 +16,7 @@ import type {
 } from "@agentclaw/types";
 
 import { sanitizeString } from "./utils.js";
+import { LRUCache } from "lru-cache";
 
 const DEFAULT_SYSTEM_PROMPT = `You are AgentClaw, a powerful AI assistant.
 
@@ -32,7 +33,7 @@ export class SimpleContextManager implements ContextManager {
   private maxHistoryTurns: number;
   private compressAfter: number;
   private freshTailCount: number;
-  private summaryCache = new Map<string, string>();
+  private summaryCache = new LRUCache<string, string>({ max: 200 });
 
   /** Cached skill catalog string — built once, reused across all conversations */
   private skillCatalogCache?: string;
@@ -43,13 +44,13 @@ export class SimpleContextManager implements ContextManager {
    * Memory writes during session persist to DB but don't alter the system prompt,
    * keeping it stable for prefix cache efficiency (Anthropic prompt caching).
    */
-  private dynamicContextCache = new Map<
+  private dynamicContextCache = new LRUCache<
     string,
     {
       suffix: string;
       skillMatch?: { name: string; confidence: number };
     }
-  >();
+  >({ max: 5000 });
 
   /** Token budget for context — compress when estimated tokens exceed this * 0.7 */
   private contextTokenBudget: number;
@@ -166,11 +167,6 @@ export class SimpleContextManager implements ContextManager {
         suffix: dynamicSuffix,
         skillMatch,
       });
-      // Evict oldest entries if cache exceeds size limit
-      if (this.dynamicContextCache.size > 200) {
-        const firstKey = this.dynamicContextCache.keys().next().value;
-        if (firstKey) this.dynamicContextCache.delete(firstKey);
-      }
     }
 
     // ── 2.5. Large content extraction — persist oversized tool results to disk ──
@@ -406,13 +402,9 @@ export class SimpleContextManager implements ContextManager {
     }
   }
 
-  /** Add to summary cache with LRU eviction */
+  /** Add to summary cache */
   private cacheSummary(key: string, value: string): void {
     this.summaryCache.set(key, value);
-    if (this.summaryCache.size > 100) {
-      const firstKey = this.summaryCache.keys().next().value;
-      if (firstKey) this.summaryCache.delete(firstKey);
-    }
   }
 
   /** Rough token estimation: ~3 chars per token for mixed CJK/English content */
