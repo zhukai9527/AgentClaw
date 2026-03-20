@@ -21,6 +21,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **报错先看完整 stack trace 再动手** — 不要看到第一行就猜，看完再改，一次修对
 - **重启 gateway 标准流程** — `powershell.exe -File restart.ps1`（自动停旧进程 → 构建 → 启动）；跳过构建用 `powershell.exe -File restart.ps1 -NoBuild`
 
+## 质量纪律
+
+- **动手前先想方案** — 涉及新机制（不是 bug 修复）时，先想清楚：数据从哪来？是否需要硬编码？有没有现成抽象可复用？同类功能在代码库里怎么做的？想清楚再动手，不要写完被纠正后才改
+- **被纠正就记教训** — 用户指出问题后，检查是否是通用模式（如"不要硬编码应该动态获取的值"），如果是，更新 memory 避免下次重犯
+- **做完就测** — 新增功能必须端到端验证，不能只 build 通过就算完。创建会话、发消息、检查 trace，证明功能真的工作
+- **挑战自己的实现** — 写完后问一句"如果让 code reviewer 看，会指出什么问题？"——重复定义？硬编码？循环内 DB 操作？泄露抽象？能自己发现的问题不要等 review
+- **一次做对，不要迭代试错** — 7 天内出现过：execute_code 连续 5 个 fix、max iterations 提示消息改了 3 次、pdf-parse 连续 2 个 fix、系统提示词裁剪改了 3 次。每次"试一下看行不行"都浪费一个 commit。先研究清楚（查文档、看源码、grep 现有模式），再动手
+
 ## 构建与运行
 
 ```bash
