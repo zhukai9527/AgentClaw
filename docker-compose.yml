@@ -4,7 +4,7 @@ services:
     container_name: agentclaw
     restart: unless-stopped
     ports:
-      - "${PORT:-3100}:3100"
+      - "127.0.0.1:${PORT:-3100}:3100"
     volumes:
       - ./data:/app/data
       - ./skills:/app/skills
@@ -22,8 +22,9 @@ services:
     image: docker.io/searxng/searxng:latest
     container_name: searxng
     restart: unless-stopped
-    ports:
-      - "8888:8080"
+    # Only accessible from internal Docker network (agentclaw container)
+    # ports:
+    #   - "8888:8080"
     volumes:
       - ./searxng:/etc/searxng:rw
     environment:
