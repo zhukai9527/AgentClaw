@@ -16,7 +16,6 @@ Here's the core insight:
 
 > **A tool system is not a function registry. It's a runtime that must handle the same failure modes as a distributed system — timeouts, retries, partial failures, resource exhaustion — except your "caller" is a model that will cheerfully retry the same broken command 47 times.**
 
-> *Full disclosure: this article was co-written with Claude. The code, data, and decisions are ours; the prose was a collaboration.*
 
 ---
 
@@ -186,6 +185,6 @@ The registry supports `clone()` and `filter()` for multi-agent setups. Sub-agent
 
 *The code behind this article is open-source: [github.com/vorojar/AgentClaw](https://github.com/vorojar/AgentClaw). Tool system code lives in `packages/tools/src/` (registry + builtins) and `packages/core/src/agent-loop.ts` (execution, overflow, failure handling).*
 
-*If you're building an agent framework, your tool system is where most of the production bugs will live — not in the LLM, not in the prompt, but in the messy reality of executing code and managing what comes back. [Star the repo](https://github.com/vorojar/AgentClaw) if this saved you design time, and tell us what failure modes we missed — we're [@vorojar](https://x.com/nicekid_zhuo) on X.*
+*If you're building an agent framework, your tool system is where most of the production bugs will live — not in the LLM, not in the prompt, but in the messy reality of executing code and managing what comes back. [Star the repo](https://github.com/vorojar/AgentClaw) if this saved you design time, and tell us what failure modes we missed — we're [@ponyinhouse](https://x.com/ponyinhouse) on X.*
 
 *Next in series: [Part 3 — Context is All You Have: Managing the Window](./03-context-management.md)*

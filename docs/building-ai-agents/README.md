@@ -65,11 +65,6 @@ Every article in this series must meet the following bar before publication.
 - **At least one diagram or chart per article.** Token breakdown waterfall, architecture flow, before/after comparison. One image retains 10x more readers than one paragraph.
 - **Tables over bullet lists** for comparisons. Scannable in 3 seconds.
 
-### Human + AI Collaboration
-
-- **Acknowledge the co-authorship.** Each article should include a brief disclosure: "This article was co-written with Claude. The code, data, and decisions are ours; the prose was a collaboration."
-- This transparency is itself a differentiator — and it's honest.
-
 ### Publication Checklist
 
 Before publishing any article:
@@ -83,7 +78,6 @@ Before publishing any article:
 - [ ] At least 1 visual (diagram/chart)
 - [ ] "Monday Morning" actionable takeaways
 - [ ] CTA at the end (star/follow/share)
-- [ ] Co-authorship disclosure included
 - [ ] English version + Chinese version prepared
 
 ---

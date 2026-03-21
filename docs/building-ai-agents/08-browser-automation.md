@@ -14,7 +14,6 @@ A human sees a search form, a calendar widget, and a "Search Flights" button. Th
 
 We know because we built three different browser automation systems for [AgentClaw](https://github.com/vorojar/AgentClaw), an open-source agent framework running across Telegram, DingTalk, Feishu, and more. We shipped screenshots. We shipped raw DOM. We shipped accessibility snapshots. This article is the story of what worked, what didn't, and why the answer was hiding in assistive technology all along.
 
-> *Full disclosure: this article was co-written with Claude. The code, data, and decisions are ours; the prose was a collaboration.*
 
 ---
 
@@ -207,6 +206,6 @@ Both paths produce the same output format (accessibility snapshots with ref IDs)
 
 *The code behind this article is open-source: [github.com/vorojar/AgentClaw](https://github.com/vorojar/AgentClaw). Browser automation lives in `packages/tools/src/builtin/browser-cdp.ts` and the Chrome extension gateway in `packages/gateway/src/routes/browser-ext.ts`.*
 
-*If you've built browser automation for your agent framework, we want to hear what representation you chose — screenshots, DOM, accessibility tree, or something else entirely. [Star the repo](https://github.com/vorojar/AgentClaw) and tell us on X: [@vorojar](https://x.com/nicekid_zhuo).*
+*If you've built browser automation for your agent framework, we want to hear what representation you chose — screenshots, DOM, accessibility tree, or something else entirely. [Star the repo](https://github.com/vorojar/AgentClaw) and tell us on X: [@ponyinhouse](https://x.com/ponyinhouse).*
 
 *Next in series: [Part 9 — Multi-Channel Delivery: One Brain, Many Mouths](./09-multi-channel-delivery.md)*

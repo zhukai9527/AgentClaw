@@ -14,7 +14,6 @@ We know because we measured it. We run [AgentClaw](https://github.com/vorojar/Ag
 
 This article is the exact breakdown: where the tokens went, and how we got 60% of them back. Every number is from production data. Every optimization is open-source.
 
-> *Full disclosure: this article was co-written with Claude. The code, data, and decisions are ours; the prose was a collaboration. We think that's fitting for an article about an AI agent framework.*
 
 ---
 
@@ -202,6 +201,6 @@ At Claude Sonnet pricing ($3/M input), a conversation dropped from $0.26 to $0.1
 
 *The code behind this article is open-source: [github.com/vorojar/AgentClaw](https://github.com/vorojar/AgentClaw). Token optimization lives in `packages/core/src/context-manager.ts` and `agent-loop.ts`.*
 
-*If you're building an agent framework, at least 3 of these sinks exist in your codebase right now. [Star the repo](https://github.com/vorojar/AgentClaw) if this saved you money, and tell us what we missed — we're [@vorojar](https://x.com/nicekid_zhuo) on X.*
+*If you're building an agent framework, at least 3 of these sinks exist in your codebase right now. [Star the repo](https://github.com/vorojar/AgentClaw) if this saved you money, and tell us what we missed — we're [@ponyinhouse](https://x.com/ponyinhouse) on X.*
 
 *Next in series: [Part 6 — When LLMs Fail: Error Handling at Scale](./06-when-llms-fail.md)*

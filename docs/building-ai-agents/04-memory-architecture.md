@@ -16,7 +16,6 @@ This is the default state of every LLM-based agent. Context windows are session-
 
 We run [AgentClaw](https://github.com/vorojar/AgentClaw), an open-source agent framework deployed across Telegram, WhatsApp, DingTalk, and web. After six months in production, we've built a memory system that lets the agent accumulate knowledge across sessions — who users are, what they prefer, what failed last time. This article is the full architecture: what we store, how we retrieve it, and the security landmines we stepped on along the way.
 
-> *Full disclosure: this article was co-written with Claude. The code, data, and decisions are ours; the prose was a collaboration.*
 
 ---
 
@@ -268,6 +267,6 @@ The 200-800 token range for memory injection is significant. That's less than a 
 
 *The code behind this article is open-source: [github.com/vorojar/AgentClaw](https://github.com/vorojar/AgentClaw). Memory architecture lives in `packages/memory/src/store.ts`, extraction in `packages/core/src/memory-extractor.ts`, and security scanning in `packages/tools/src/builtin/remember.ts`.*
 
-*If your agent forgets your name every session, the fix isn't a bigger context window — it's a memory system. [Star the repo](https://github.com/vorojar/AgentClaw) if this helped, and share what memory strategies work for you — we're [@vorojar](https://x.com/nicekid_zhuo) on X.*
+*If your agent forgets your name every session, the fix isn't a bigger context window — it's a memory system. [Star the repo](https://github.com/vorojar/AgentClaw) if this helped, and share what memory strategies work for you — we're [@ponyinhouse](https://x.com/ponyinhouse) on X.*
 
 *Next in series: [Part 5 — The Token Economy: Cut Your Bill by 60%](./05-the-token-economy.md)*

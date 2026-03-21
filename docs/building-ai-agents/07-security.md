@@ -14,7 +14,6 @@ Now consider: every tool you gave the agent, you also gave to anyone who can inf
 
 We run [AgentClaw](https://github.com/vorojar/AgentClaw), an open-source agent framework deployed across Telegram, WhatsApp, DingTalk, and web. This article is a tour of every attack surface we've found — what we blocked, what we can't fully block, and where the real boundaries of software-level defense lie.
 
-> *Full disclosure: this article was co-written with Claude. The code, data, and decisions are ours; the prose was a collaboration.*
 
 ---
 
@@ -289,6 +288,6 @@ Here's what we protect against, and what we don't:
 
 *The code behind this article is open-source: [github.com/vorojar/AgentClaw](https://github.com/vorojar/AgentClaw). Security defenses live in `packages/tools/src/builtin/` (shell, file-read, web-fetch, remember) and `packages/core/src/` (subagent-manager, env-obfuscator).*
 
-*If you're building an agent framework, you probably have at least two of these attack surfaces undefended right now. [Star the repo](https://github.com/vorojar/AgentClaw) if this helped you think about agent security differently, and tell us what we missed — we're [@vorojar](https://x.com/nicekid_zhuo) on X.*
+*If you're building an agent framework, you probably have at least two of these attack surfaces undefended right now. [Star the repo](https://github.com/vorojar/AgentClaw) if this helped you think about agent security differently, and tell us what we missed — we're [@ponyinhouse](https://x.com/ponyinhouse) on X.*
 
 *Next in series: [Part 8 — Giving Agents Eyes: Browser Automation](./08-giving-agents-eyes.md)*

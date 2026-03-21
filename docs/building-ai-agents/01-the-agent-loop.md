@@ -14,7 +14,6 @@ We know because we built [AgentClaw](https://github.com/vorojar/AgentClaw), an o
 
 This article breaks down the Think-Act-Observe loop from the ground up: the core iteration cycle, five layers of termination defense, and the escalation mechanisms that turn a stuck agent into a self-aware one. Every pattern comes from production code. None of it requires a specific framework.
 
-> *Full disclosure: this article was co-written with Claude. The code, data, and decisions are ours; the prose was a collaboration.*
 
 ---
 
@@ -233,6 +232,6 @@ Every event carries a timestamp. The gateway forwards them over WebSocket to the
 
 *The code behind this article is open-source: [github.com/vorojar/AgentClaw](https://github.com/vorojar/AgentClaw). The agent loop lives in `packages/core/src/agent-loop.ts`.*
 
-*If you're building agents, at least 2 of these failure modes are in your codebase right now — you just haven't hit them yet. [Star the repo](https://github.com/vorojar/AgentClaw) if these patterns save you from an infinite loop, and tell us what we missed — we're [@vorojar](https://x.com/nicekid_zhuo) on X.*
+*If you're building agents, at least 2 of these failure modes are in your codebase right now — you just haven't hit them yet. [Star the repo](https://github.com/vorojar/AgentClaw) if these patterns save you from an infinite loop, and tell us what we missed — we're [@ponyinhouse](https://x.com/ponyinhouse) on X.*
 
 *Next in series: [Part 2 — Tool System Design: Give Your Agent Hands](./02-tool-system-design.md)*

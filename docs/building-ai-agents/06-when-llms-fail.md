@@ -16,7 +16,6 @@ We run [AgentClaw](https://github.com/vorojar/AgentClaw) in production across si
 
 This article is our complete error-handling playbook: how we classify errors, route around failures, and prevent the model from spiraling when it gets stuck. Every mechanism described here is open-source.
 
-> *Full disclosure: this article was co-written with Claude. The code, data, and decisions are ours; the prose was a collaboration.*
 
 ---
 
@@ -228,6 +227,6 @@ This prevents the worst-case scenario: the model enters a loop where it calls a 
 
 *The code behind this article is open-source: [github.com/vorojar/AgentClaw](https://github.com/vorojar/AgentClaw). Error classification lives in `packages/providers/src/router.ts`, failover in `packages/providers/src/failover.ts`, and loop resilience in `packages/core/src/agent-loop.ts`.*
 
-*If you've been bitten by silent 200 OK errors or infinite retry loops, you're not alone. [Star the repo](https://github.com/vorojar/AgentClaw) if this helped, and share your war stories — we're [@vorojar](https://x.com/nicekid_zhuo) on X.*
+*If you've been bitten by silent 200 OK errors or infinite retry loops, you're not alone. [Star the repo](https://github.com/vorojar/AgentClaw) if this helped, and share your war stories — we're [@ponyinhouse](https://x.com/ponyinhouse) on X.*
 
 *Next in series: [Part 7 — Security: Your Agent is an Attack Surface](./07-security-attack-surface.md)*

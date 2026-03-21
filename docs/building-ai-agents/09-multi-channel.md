@@ -16,7 +16,6 @@ We run [AgentClaw](https://github.com/vorojar/AgentClaw), an open-source agent f
 
 This article covers what actually breaks when you go multi-channel, and how to design an abstraction layer that prevents it.
 
-> *Full disclosure: this article was co-written with Claude. The code, data, and decisions are ours; the prose was a collaboration.*
 
 ---
 
@@ -255,6 +254,6 @@ The orchestrator never knows which channel it's serving. It receives text (or co
 
 *The code behind this article is open-source: [github.com/vorojar/AgentClaw](https://github.com/vorojar/AgentClaw). Channel management lives in `packages/gateway/src/channel-manager.ts`, shared utilities in `channel-utils.ts`, and platform hints in `platform-hints.ts`.*
 
-*If you're adding a second messaging platform to your agent and the code is starting to smell — [star the repo](https://github.com/vorojar/AgentClaw) and steal the pattern. Tell us which platform gave you the worst surprises — we're [@vorojar](https://x.com/nicekid_zhuo) on X.*
+*If you're adding a second messaging platform to your agent and the code is starting to smell — [star the repo](https://github.com/vorojar/AgentClaw) and steal the pattern. Tell us which platform gave you the worst surprises — we're [@ponyinhouse](https://x.com/ponyinhouse) on X.*
 
 *Next in series: [Part 10 — Production Readiness: From Demo to Deployment](./10-production-readiness.md)*

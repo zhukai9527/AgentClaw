@@ -14,7 +14,6 @@ We run [AgentClaw](https://github.com/vorojar/AgentClaw) in production across si
 
 This article is our production readiness checklist — everything we wished someone had told us before the first deployment.
 
-> *Full disclosure: this article was co-written with Claude. The code, data, and decisions are ours; the prose was a collaboration.*
 
 ---
 
@@ -279,4 +278,4 @@ Before deploying your agent framework, score yourself honestly:
 
 *The code behind this article is open-source: [github.com/vorojar/AgentClaw](https://github.com/vorojar/AgentClaw). Deployment configuration lives in `Dockerfile`, `docker-compose.yml`, and `packages/gateway/src/index.ts`. Security hardening spans `packages/tools/src/builtin/` (shell, file-read, web-fetch, remember).*
 
-*Production readiness is boring work. It doesn't demo well. But it's the difference between an agent that impresses people for five minutes and one that runs for five months. [Star the repo](https://github.com/vorojar/AgentClaw) if this checklist saved you from a 3 AM incident, and share what we missed — [@vorojar](https://x.com/nicekid_zhuo) on X.*
+*Production readiness is boring work. It doesn't demo well. But it's the difference between an agent that impresses people for five minutes and one that runs for five months. [Star the repo](https://github.com/vorojar/AgentClaw) if this checklist saved you from a 3 AM incident, and share what we missed — [@ponyinhouse](https://x.com/ponyinhouse) on X.*
