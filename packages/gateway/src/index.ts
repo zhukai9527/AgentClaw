@@ -21,6 +21,8 @@ import { createServer } from "./server.js";
 import { HeartbeatManager } from "./heartbeat.js";
 import { getWsClients } from "./ws.js";
 import { ChannelManager } from "./channel-manager.js";
+import { copyFileSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { collectResponse, errorMessage } from "./utils.js";
 import { TaskManager } from "@agentclaw/core";
 
@@ -50,6 +52,15 @@ export type { HealthCheckResult } from "./health-check.js";
 export { PLATFORM_HINTS, getPlatformHint } from "./platform-hints.js";
 export { ChannelManager } from "./channel-manager.js";
 export type { ChannelInfo } from "./channel-manager.js";
+export {
+  getPublicUrl,
+  buildFileUrl,
+  createPromptUser,
+  createLinkSendFile,
+  processSimpleEventLoop,
+  restoreChatTargets,
+} from "./channel-utils.js";
+export type { SimpleEventLoopOptions } from "./channel-utils.js";
 
 async function main(): Promise<void> {
   const port = parseInt(process.env.PORT || "3100", 10);
@@ -159,6 +170,30 @@ async function main(): Promise<void> {
     }
   });
 
+  // 每天凌晨 2 点备份 SQLite 数据库（保留最近 7 份）
+  const dbBackupJob = new Cron("0 2 * * *", () => {
+    try {
+      const dbPath = ctx.config.databasePath;
+      const backupDir = join(dirname(dbPath), "backups");
+      mkdirSync(backupDir, { recursive: true });
+      const date = new Date().toISOString().slice(0, 10);
+      const backupPath = join(backupDir, `agentclaw-${date}.db`);
+      copyFileSync(dbPath, backupPath);
+      console.log(`[db-backup] Backed up to ${backupPath}`);
+      // Prune: keep only the latest 7 backups
+      const files = readdirSync(backupDir)
+        .filter((f) => f.startsWith("agentclaw-") && f.endsWith(".db"))
+        .sort();
+      while (files.length > 7) {
+        const old = files.shift()!;
+        unlinkSync(join(backupDir, old));
+        console.log(`[db-backup] Pruned old backup: ${old}`);
+      }
+    } catch (err) {
+      console.error("[db-backup] Failed:", errorMessage(err));
+    }
+  });
+
   // TaskManager: 捕获、分诊、执行、决策的统一任务管理
   const taskManager = new TaskManager(
     ctx.memoryStore,
@@ -219,20 +254,39 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     console.log(`[shutdown] Received ${signal}, closing gracefully...`);
 
-    // 超时保护：10 秒后强制退出
+    // 超时保护：30 秒后强制退出（LLM 调用通常需要 30-60 秒）
     const forceExit = setTimeout(() => {
       console.error("[shutdown] Force exit after timeout");
       process.exit(1);
-    }, 10_000);
+    }, 30_000);
     forceExit.unref(); // 不阻止进程自然退出
 
+    // Stop accepting new work
     heartbeat.stop();
     healthJob.stop();
     memoryConsolidationJob.stop();
+    dbBackupJob.stop();
     if (dailyBriefJob) dailyBriefJob.stop();
     taskManager.stopScanner();
     channelManager.stopAll();
     ctx.scheduler.stopAll();
+
+    // Wait for active conversations to finish (poll every 1s, max 15s)
+    const orch = ctx.orchestrator as { activeLoops?: Map<string, unknown> };
+    if (orch.activeLoops && orch.activeLoops.size > 0) {
+      console.log(
+        `[shutdown] Waiting for ${orch.activeLoops.size} active conversation(s) to finish...`,
+      );
+      const waitStart = Date.now();
+      while (orch.activeLoops.size > 0 && Date.now() - waitStart < 15_000) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      if (orch.activeLoops.size > 0) {
+        console.warn(
+          `[shutdown] ${orch.activeLoops.size} conversation(s) still active, proceeding with close`,
+        );
+      }
+    }
 
     try {
       await app.close();

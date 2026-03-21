@@ -1,15 +1,14 @@
 import { DWClient, TOPIC_ROBOT, EventAck } from "dingtalk-stream-sdk-nodejs";
 import type { DWClientDownStream } from "dingtalk-stream-sdk-nodejs";
-import * as Sentry from "@sentry/node";
 import type { AppContext } from "./bootstrap.js";
-import type { Message, ToolExecutionContext } from "@agentclaw/types";
-import {
-  extractText,
-  stripFileMarkdown,
-  splitMessage,
-  broadcastSessionActivity,
-} from "./utils.js";
+import type { ToolExecutionContext } from "@agentclaw/types";
 import { PLATFORM_HINTS } from "./platform-hints.js";
+import {
+  createPromptUser,
+  createLinkSendFile,
+  processSimpleEventLoop,
+  restoreChatTargets,
+} from "./channel-utils.js";
 
 /** Map DingTalk conversationId → AgentClaw session ID */
 const chatSessionMap = new Map<string, string>();
@@ -78,19 +77,7 @@ export async function startDingTalkBot(
   });
 
   // Restore chat targets from database
-  try {
-    const targets = appCtx.memoryStore.getChatTargets("dingtalk");
-    for (const t of targets) {
-      chatSessionMap.set(t.targetId, t.sessionId ?? "");
-    }
-    if (targets.length > 0) {
-      console.log(
-        `[dingtalk] Restored ${targets.length} chat target(s) from database`,
-      );
-    }
-  } catch (err) {
-    console.error("[dingtalk] Failed to restore chat targets:", err);
-  }
+  restoreChatTargets("dingtalk", appCtx, chatSessionMap);
 
   // Register robot message callback
   client.registerCallbackListener(
@@ -179,86 +166,32 @@ export async function startDingTalkBot(
       }
 
       // Process message through orchestrator
-      try {
-        const sentFiles: Array<{ url: string; filename: string }> = [];
-        const toolContext: ToolExecutionContext = {
-          sentFiles,
-          promptUser: async (question: string) => {
-            await replyText(sessionWebhook, `? ${question}`);
-            return new Promise<string>((resolve) => {
-              const timer = setTimeout(
-                () => {
-                  pendingPrompts.delete(conversationId);
-                  resolve("[用户未在 5 分钟内回答]");
-                },
-                5 * 60 * 1000,
-              );
-              pendingPrompts.set(conversationId, (answer: string) => {
-                clearTimeout(timer);
-                resolve(answer);
-              });
-            });
-          },
-          notifyUser: async (message: string) => {
-            await replyText(sessionWebhook, message);
-          },
-          sendFile: async (filePath: string, caption?: string) => {
-            const { basename } = await import("node:path");
-            const filename = basename(filePath);
-            const url = `/files/${encodeURIComponent(filename)}`;
-            sentFiles.push({ url, filename });
-            const port = process.env.PORT || "3100";
-            const host = process.env.PUBLIC_URL || `http://localhost:${port}`;
-            await replyText(
-              sessionWebhook,
-              `${caption || filename}\n${host}${url}`,
-            );
-          },
-        };
+      const sentFiles: Array<{ url: string; filename: string }> = [];
+      const replyFn = (text: string) => replyText(sessionWebhook, text);
+      const toolContext: ToolExecutionContext = {
+        sentFiles,
+        promptUser: createPromptUser(conversationId, pendingPrompts, replyFn),
+        notifyUser: async (message: string) => {
+          await replyText(sessionWebhook, message);
+        },
+        sendFile: createLinkSendFile(sentFiles, replyFn),
+      };
 
-        const eventStream = appCtx.orchestrator.processInputStream(
-          sessionId,
-          userText,
-          toolContext,
-        );
+      const eventStream = appCtx.orchestrator.processInputStream(
+        sessionId,
+        userText,
+        toolContext,
+      );
 
-        let accumulatedText = "";
-        let statusSent = false;
-        for await (const event of eventStream) {
-          if (event.type === "tool_call" && !statusSent) {
-            const name = (event.data as { name: string }).name;
-            replyText(sessionWebhook, `⚙️ ${name}...`).catch(() => {});
-            statusSent = true;
-          } else if (event.type === "response_chunk") {
-            accumulatedText += (event.data as { text: string }).text;
-          } else if (event.type === "response_complete" && !accumulatedText) {
-            accumulatedText = extractText(
-              (event.data as { message: Message }).message.content,
-            );
-          }
-        }
-
-        accumulatedText = stripFileMarkdown(accumulatedText);
-        if (!accumulatedText.trim()) {
-          accumulatedText = "(empty response)";
-        }
-
-        for (const chunk of splitMessage(accumulatedText, 5000)) {
-          await replyText(sessionWebhook, chunk);
-        }
-
-        broadcastSessionActivity(sessionId, "dingtalk");
-      } catch (err) {
-        Sentry.captureException(err);
-        const errMsg = err instanceof Error ? err.message : String(err);
-        console.error("[dingtalk] Error processing message:", errMsg);
-        if (errMsg.includes("Session not found")) {
-          chatSessionMap.delete(conversationId);
-          await replyText(sessionWebhook, "Session expired. Please resend.");
-        } else {
-          await replyText(sessionWebhook, `Error: ${errMsg.slice(0, 200)}`);
-        }
-      }
+      await processSimpleEventLoop({
+        channelTag: "dingtalk",
+        sessionId,
+        chatKey: conversationId,
+        sendReply: replyFn,
+        maxMessageLength: 5000,
+        eventStream,
+        onSessionExpired: () => chatSessionMap.delete(conversationId),
+      });
 
       // Acknowledge message receipt
       client.send(res.headers.messageId, { status: EventAck.SUCCESS });

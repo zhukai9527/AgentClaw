@@ -13,6 +13,11 @@ import {
   broadcastSessionActivity,
 } from "./utils.js";
 import { PLATFORM_HINTS } from "./platform-hints.js";
+import {
+  getPublicUrl,
+  createPromptUser,
+  restoreChatTargets,
+} from "./channel-utils.js";
 
 /** Map Telegram chat ID → AgentClaw session ID */
 const chatSessionMap = new Map<number, string>();
@@ -51,12 +56,10 @@ function createSendFile(
     try {
       const size = statSync(filePath).size;
       if (size > MAX_SEND_SIZE) {
-        const port = process.env.PORT || "3100";
-        const host = process.env.PUBLIC_URL || `http://localhost:${port}`;
         const sizeMB = (size / 1024 / 1024).toFixed(1);
         await bot.api.sendMessage(
           chatId,
-          `📎 ${caption || filename} (${sizeMB}MB)\n${host}${url}`,
+          `📎 ${caption || filename} (${sizeMB}MB)\n${getPublicUrl()}${url}`,
         );
         return;
       }
@@ -111,19 +114,7 @@ export async function startTelegramBot(
   }
 
   // Restore chat targets from database (survive restarts)
-  try {
-    const targets = appCtx.memoryStore.getChatTargets("telegram");
-    for (const t of targets) {
-      chatSessionMap.set(Number(t.targetId), t.sessionId ?? "");
-    }
-    if (targets.length > 0) {
-      console.log(
-        `[telegram] Restored ${targets.length} chat target(s) from database`,
-      );
-    }
-  } catch (err) {
-    console.error("[telegram] Failed to restore chat targets:", err);
-  }
+  restoreChatTargets("telegram", appCtx, chatSessionMap, (id) => Number(id));
 
   // ── /start ──────────────────────────────────────
   bot.command("start", async (ctx) => {
@@ -210,20 +201,7 @@ export async function startTelegramBot(
       const sentFiles: Array<{ url: string; filename: string }> = [];
       const toolContext: ToolExecutionContext = {
         sentFiles,
-        promptUser: async (question: string) => {
-          await replyFn(`❓ ${question}`);
-          return new Promise<string>((resolve) => {
-            // 5 分钟超时，防止 Promise 永远挂起
-            const timer = setTimeout(() => {
-              pendingPrompts.delete(chatId);
-              resolve("[用户未在 5 分钟内回答]");
-            }, 5 * 60 * 1000);
-            pendingPrompts.set(chatId, (answer: string) => {
-              clearTimeout(timer);
-              resolve(answer);
-            });
-          });
-        },
+        promptUser: createPromptUser(chatId, pendingPrompts, replyFn),
         notifyUser: async (message: string) => {
           await bot.api.sendMessage(chatId, message);
         },

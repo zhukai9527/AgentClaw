@@ -1,10 +1,7 @@
 import * as Sentry from "@sentry/node";
 import { WebSocket } from "ws";
 import type { AppContext } from "./bootstrap.js";
-import type {
-  Message,
-  ToolExecutionContext,
-} from "@agentclaw/types";
+import type { Message, ToolExecutionContext } from "@agentclaw/types";
 import {
   extractText,
   stripFileMarkdown,
@@ -12,6 +9,12 @@ import {
   broadcastSessionActivity,
 } from "./utils.js";
 import { PLATFORM_HINTS } from "./platform-hints.js";
+import {
+  createPromptUser,
+  createLinkSendFile,
+  processSimpleEventLoop,
+  restoreChatTargets,
+} from "./channel-utils.js";
 
 // ── QQ Bot API Constants ───────────────────────────
 
@@ -236,17 +239,7 @@ export async function startQQBot(
   let resumeUrl = "";
 
   // Restore chat targets from database
-  try {
-    const targets = appCtx.memoryStore.getChatTargets("qqbot");
-    for (const t of targets) {
-      chatSessionMap.set(t.targetId, t.sessionId ?? "");
-    }
-    if (targets.length > 0) {
-      console.log(`[qqbot] Restored ${targets.length} chat target(s)`);
-    }
-  } catch (err) {
-    console.error("[qqbot] Failed to restore chat targets:", err);
-  }
+  restoreChatTargets("qqbot", appCtx, chatSessionMap);
 
   // ── Reply helpers ─────────────────────────────
 
@@ -393,76 +386,49 @@ export async function startQQBot(
       }
     }
 
-    try {
-      const sentFiles: Array<{ url: string; filename: string }> = [];
-      const toolContext: ToolExecutionContext = {
-        sentFiles,
-        promptUser: async (question: string) => {
-          await sendReply(chatKey, `❓ ${question}`);
-          return new Promise<string>((resolve) => {
-            const timer = setTimeout(() => {
-              pendingPrompts.delete(chatKey);
-              resolve("[用户未在 5 分钟内回答]");
-            }, 5 * 60 * 1000);
-            pendingPrompts.set(chatKey, (answer: string) => {
-              clearTimeout(timer);
-              resolve(answer);
-            });
-          });
-        },
-        notifyUser: async (message: string) => {
-          await sendReply(chatKey, message);
-        },
-        sendFile: async (filePath: string, caption?: string) => {
-          const { basename } = await import("node:path");
-          const filename = basename(filePath);
-          const url = `/files/${encodeURIComponent(filename)}`;
-          sentFiles.push({ url, filename });
-          const port = process.env.PORT || "3100";
-          const host = process.env.PUBLIC_URL || `http://localhost:${port}`;
-          await sendReply(chatKey, `📎 ${caption || filename}\n${host}${url}`);
-        },
-      };
+    const sentFiles: Array<{ url: string; filename: string }> = [];
+    const replyFn = (t: string) => sendReply(chatKey, t);
+    const toolContext: ToolExecutionContext = {
+      sentFiles,
+      promptUser: createPromptUser(chatKey, pendingPrompts, replyFn),
+      notifyUser: async (message: string) => {
+        await sendReply(chatKey, message);
+      },
+      sendFile: createLinkSendFile(sentFiles, replyFn),
+    };
 
-      const eventStream = appCtx.orchestrator.processInputStream(
-        sid,
-        text,
-        toolContext,
-      );
+    const eventStream = appCtx.orchestrator.processInputStream(
+      sid,
+      text,
+      toolContext,
+    );
 
-      let accumulatedText = "";
-      let statusSent = false;
+    // QQ has voice reply logic, so we can't use processSimpleEventLoop directly
+    // for the voice case — but we still use it for the common path
+    if (hasVoice) {
+      // Voice path: need the accumulated text for TTS, handle errors manually
+      try {
+        let accumulatedText = "";
+        let statusSent = false;
 
-      for await (const event of eventStream) {
-        switch (event.type) {
-          case "tool_call": {
-            if (!statusSent) {
-              const name = (event.data as { name: string }).name;
-              sendReply(chatKey, `⚙️ ${name}...`).catch(() => {});
-              statusSent = true;
-            }
-            break;
-          }
-          case "response_chunk": {
-            const data = event.data as { text: string };
-            accumulatedText += data.text;
-            break;
-          }
-          case "response_complete": {
-            const data = event.data as { message: Message };
-            if (!accumulatedText) {
-              accumulatedText = extractText(data.message.content);
-            }
-            break;
+        for await (const event of eventStream) {
+          if (event.type === "tool_call" && !statusSent) {
+            const name = (event.data as { name: string }).name;
+            sendReply(chatKey, `⚙️ ${name}...`).catch(() => {});
+            statusSent = true;
+          } else if (event.type === "response_chunk") {
+            accumulatedText += (event.data as { text: string }).text;
+          } else if (event.type === "response_complete" && !accumulatedText) {
+            accumulatedText = extractText(
+              (event.data as { message: Message }).message.content,
+            );
           }
         }
-      }
 
-      accumulatedText = stripFileMarkdown(accumulatedText).trim();
-      if (!accumulatedText) accumulatedText = "(empty response)";
+        accumulatedText = stripFileMarkdown(accumulatedText).trim();
+        if (!accumulatedText) accumulatedText = "(empty response)";
 
-      // Voice reply: TTS → base64 upload → send as audio
-      if (hasVoice) {
+        // Voice reply: TTS → base64 upload → send as audio
         try {
           const { textToSpeech } = await import("./tts.js");
           const oggPath = await textToSpeech(accumulatedText);
@@ -475,7 +441,6 @@ export async function startQQBot(
             const { file_info } = await api.uploadFileBase64(chatKey, fileData, 3);
             await api.sendMediaMessage(chatKey, file_info, msgId, msgSeq);
           } else {
-            // TTS failed (text too long, etc.) — fallback to text
             for (const chunk of splitMessage(accumulatedText, 2000)) {
               await sendReply(chatKey, chunk);
             }
@@ -486,23 +451,29 @@ export async function startQQBot(
             await sendReply(chatKey, chunk);
           }
         }
-      } else {
-        for (const chunk of splitMessage(accumulatedText, 2000)) {
-          await sendReply(chatKey, chunk);
-        }
-      }
 
-      broadcastSessionActivity(sid, "qqbot");
-    } catch (err) {
-      Sentry.captureException(err);
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.error("[qqbot] Error processing message:", errMsg);
-      if (errMsg.includes("Session not found")) {
-        chatSessionMap.delete(chatKey);
-        await sendReply(chatKey, "⚠️ 会话已过期，请重新发送消息。");
-        return;
+        broadcastSessionActivity(sid, "qqbot");
+      } catch (err) {
+        Sentry.captureException(err);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error("[qqbot] Error processing message:", errMsg);
+        if (errMsg.includes("Session not found")) {
+          chatSessionMap.delete(chatKey);
+          await sendReply(chatKey, "⚠️ 会话已过期，请重新发送消息。");
+          return;
+        }
+        await sendReply(chatKey, `❌ Error: ${errMsg.slice(0, 200)}`);
       }
-      await sendReply(chatKey, `❌ Error: ${errMsg.slice(0, 200)}`);
+    } else {
+      await processSimpleEventLoop({
+        channelTag: "qqbot",
+        sessionId: sid,
+        chatKey,
+        sendReply: replyFn,
+        maxMessageLength: 2000,
+        eventStream,
+        onSessionExpired: () => chatSessionMap.delete(chatKey),
+      });
     }
   }
 

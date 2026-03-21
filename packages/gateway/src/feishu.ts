@@ -1,14 +1,13 @@
 import * as lark from "@larksuiteoapi/node-sdk";
-import * as Sentry from "@sentry/node";
 import type { AppContext } from "./bootstrap.js";
-import type { Message, ToolExecutionContext } from "@agentclaw/types";
-import {
-  extractText,
-  stripFileMarkdown,
-  splitMessage,
-  broadcastSessionActivity,
-} from "./utils.js";
+import type { ToolExecutionContext } from "@agentclaw/types";
 import { PLATFORM_HINTS } from "./platform-hints.js";
+import {
+  createPromptUser,
+  createLinkSendFile,
+  processSimpleEventLoop,
+  restoreChatTargets,
+} from "./channel-utils.js";
 
 /** Map Feishu chat_id → AgentClaw session ID */
 const chatSessionMap = new Map<string, string>();
@@ -73,19 +72,7 @@ export async function startFeishuBot(
   const client = new lark.Client(baseConfig);
 
   // Restore chat targets from database
-  try {
-    const targets = appCtx.memoryStore.getChatTargets("feishu");
-    for (const t of targets) {
-      chatSessionMap.set(t.targetId, t.sessionId ?? "");
-    }
-    if (targets.length > 0) {
-      console.log(
-        `[feishu] Restored ${targets.length} chat target(s) from database`,
-      );
-    }
-  } catch (err) {
-    console.error("[feishu] Failed to restore chat targets:", err);
-  }
+  restoreChatTargets("feishu", appCtx, chatSessionMap);
 
   // Background message processing (must not block the event callback)
   async function handleMessage(data: {
@@ -158,87 +145,32 @@ export async function startFeishuBot(
     }
 
     // Process message through orchestrator
-    try {
-      const sentFiles: Array<{ url: string; filename: string }> = [];
-      const toolContext: ToolExecutionContext = {
-        sentFiles,
-        promptUser: async (question: string) => {
-          await sendText(client, chat_id, `? ${question}`);
-          return new Promise<string>((resolve) => {
-            const timer = setTimeout(
-              () => {
-                pendingPrompts.delete(chat_id);
-                resolve("[用户未在 5 分钟内回答]");
-              },
-              5 * 60 * 1000,
-            );
-            pendingPrompts.set(chat_id, (answer: string) => {
-              clearTimeout(timer);
-              resolve(answer);
-            });
-          });
-        },
-        notifyUser: async (msg: string) => {
-          await sendText(client, chat_id, msg);
-        },
-        sendFile: async (filePath: string, caption?: string) => {
-          const { basename } = await import("node:path");
-          const filename = basename(filePath);
-          const url = `/files/${encodeURIComponent(filename)}`;
-          sentFiles.push({ url, filename });
-          const port = process.env.PORT || "3100";
-          const host = process.env.PUBLIC_URL || `http://localhost:${port}`;
-          await sendText(
-            client,
-            chat_id,
-            `${caption || filename}\n${host}${url}`,
-          );
-        },
-      };
+    const sentFiles: Array<{ url: string; filename: string }> = [];
+    const replyFn = (text: string) => sendText(client, chat_id, text);
+    const toolContext: ToolExecutionContext = {
+      sentFiles,
+      promptUser: createPromptUser(chat_id, pendingPrompts, replyFn),
+      notifyUser: async (msg: string) => {
+        await sendText(client, chat_id, msg);
+      },
+      sendFile: createLinkSendFile(sentFiles, replyFn),
+    };
 
-      const eventStream = appCtx.orchestrator.processInputStream(
-        sessionId,
-        userText,
-        toolContext,
-      );
+    const eventStream = appCtx.orchestrator.processInputStream(
+      sessionId,
+      userText,
+      toolContext,
+    );
 
-      let accumulatedText = "";
-      let statusSent = false;
-      for await (const event of eventStream) {
-        if (event.type === "tool_call" && !statusSent) {
-          const name = (event.data as { name: string }).name;
-          sendText(client, chat_id, `⚙️ ${name}...`).catch(() => {});
-          statusSent = true;
-        } else if (event.type === "response_chunk") {
-          accumulatedText += (event.data as { text: string }).text;
-        } else if (event.type === "response_complete" && !accumulatedText) {
-          accumulatedText = extractText(
-            (event.data as { message: Message }).message.content,
-          );
-        }
-      }
-
-      accumulatedText = stripFileMarkdown(accumulatedText);
-      if (!accumulatedText.trim()) {
-        accumulatedText = "(empty response)";
-      }
-
-      for (const chunk of splitMessage(accumulatedText, 4000)) {
-        await sendText(client, chat_id, chunk);
-      }
-
-      broadcastSessionActivity(sessionId, "feishu");
-    } catch (err) {
-      Sentry.captureException(err);
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.error("[feishu] Error processing message:", errMsg);
-      if (errMsg.includes("Session not found")) {
-        chatSessionMap.delete(chat_id);
-        await sendText(client, chat_id, "Session expired. Please resend.");
-      } else {
-        await sendText(client, chat_id, `Error: ${errMsg.slice(0, 200)}`);
-      }
-    }
+    await processSimpleEventLoop({
+      channelTag: "feishu",
+      sessionId,
+      chatKey: chat_id,
+      sendReply: replyFn,
+      maxMessageLength: 4000,
+      eventStream,
+      onSessionExpired: () => chatSessionMap.delete(chat_id),
+    });
   }
 
   // Event dispatcher — callback must return within 3s, so we process in background

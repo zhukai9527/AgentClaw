@@ -40,6 +40,12 @@ import {
   broadcastSessionActivity,
 } from "./utils.js";
 import { PLATFORM_HINTS } from "./platform-hints.js";
+import {
+  getPublicUrl,
+  buildFileUrl,
+  createPromptUser,
+  restoreChatTargets,
+} from "./channel-utils.js";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -240,23 +246,12 @@ async function handleMessage(
   const toolContext: ToolExecutionContext = {
     sentFiles,
     originalUserText: typeof input === "string" ? input : userText,
-    promptUser: async (question: string) => {
-      // Send question via stream reply
+    promptUser: createPromptUser(key, pendingPrompts, async (text: string) => {
       const qStreamId = `wecom_q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       try {
-        await client.replyStream(frame, qStreamId, `❓ ${question}`, true);
+        await client.replyStream(frame, qStreamId, text, true);
       } catch {}
-      return new Promise<string>((resolve) => {
-        const timer = setTimeout(() => {
-          pendingPrompts.delete(key);
-          resolve("[用户未在 5 分钟内回答]");
-        }, 5 * 60 * 1000);
-        pendingPrompts.set(key, (answer: string) => {
-          clearTimeout(timer);
-          resolve(answer);
-        });
-      });
-    },
+    }),
     notifyUser: async (message: string) => {
       // Use sendMessage for notifications (doesn't consume the reply slot)
       const chatid = msg.chatid || msg.from.userid;
@@ -271,15 +266,13 @@ async function handleMessage(
     },
     sendFile: async (filePath: string, caption?: string) => {
       const filename = basename(filePath);
-      const fileUrl = `/files/${encodeURIComponent(filename)}`;
+      const fileUrl = buildFileUrl(filename);
       sentFiles.push({ url: fileUrl, filename });
-      const port = process.env.PORT || "3100";
-      const host = process.env.PUBLIC_URL || `http://localhost:${port}`;
       const chatid = msg.chatid || msg.from.userid;
       try {
         await client.sendMessage(chatid, {
           msgtype: "markdown",
-          markdown: { content: `📎 ${caption || filename}\n${host}${fileUrl}` },
+          markdown: { content: `📎 ${caption || filename}\n${getPublicUrl()}${fileUrl}` },
         });
       } catch (err) {
         console.error("[wecom] Failed to send file link:", err);
@@ -413,20 +406,10 @@ export async function startWeComBot(
   _wsClient = client;
 
   // Restore chat targets from database
-  try {
-    const targets = appCtx.memoryStore.getChatTargets("wecom");
-    for (const t of targets) {
-      chatSessionMap.set(t.targetId, t.sessionId ?? "");
-      // We don't know chattype from DB, default to single
-      knownChats.set(t.targetId, { chatid: t.targetId, chattype: "single" });
-    }
-    if (targets.length > 0) {
-      console.log(
-        `[wecom] Restored ${targets.length} chat target(s) from database`,
-      );
-    }
-  } catch (err) {
-    console.error("[wecom] Failed to restore chat targets:", err);
+  restoreChatTargets("wecom", appCtx, chatSessionMap);
+  // Also populate knownChats for broadcast
+  for (const [key] of chatSessionMap) {
+    knownChats.set(key, { chatid: key, chattype: "single" });
   }
 
   // Event handlers
