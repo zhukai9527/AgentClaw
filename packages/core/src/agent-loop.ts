@@ -330,6 +330,16 @@ export class SimpleAgentLoop implements AgentLoop {
   private iterationBudget?: IterationBudget;
   /** Full set of tool names from unfiltered registry (for system prompt pruning) */
   private allToolNames: Set<string>;
+  /**
+   * Optional callback for LLM stream errors — allows SmartRouter to classify
+   * errors and apply model cooldowns without tight coupling.
+   * Signature: (providerName, modelId, error) => { retryable: boolean }
+   */
+  private onLLMError?: (
+    providerName: string,
+    modelId: string,
+    error: unknown,
+  ) => { retryable: boolean };
 
   get state(): AgentState {
     return this._state;
@@ -347,6 +357,12 @@ export class SimpleAgentLoop implements AgentLoop {
     config?: Partial<AgentConfig>;
     iterationBudget?: IterationBudget;
     allToolNames?: Set<string>;
+    /** Report LLM errors to router for classification & cooldown */
+    onLLMError?: (
+      providerName: string,
+      modelId: string,
+      error: unknown,
+    ) => { retryable: boolean };
   }) {
     this.provider = options.provider;
     this.toolRegistry = options.toolRegistry;
@@ -355,6 +371,7 @@ export class SimpleAgentLoop implements AgentLoop {
     this._config = { ...DEFAULT_CONFIG, ...options.config };
     this.iterationBudget = options.iterationBudget;
     this.allToolNames = options.allToolNames ?? new Set(options.toolRegistry.list().map((t) => t.name));
+    this.onLLMError = options.onLLMError;
   }
 
   async run(
@@ -578,6 +595,13 @@ export class SimpleAgentLoop implements AgentLoop {
     let consecutiveErrors = 0;
     let lastFullText = ""; // Keep last LLM text for fallback response
     let roundsSinceUpdateTodo = -1; // -1 = never used todo; >=0 = rounds since last call
+
+    // Three-strike escalation: detect when LLM is stuck producing similar outputs.
+    // If 3 consecutive iterations have similar output fingerprints, inject a hint
+    // to change strategy. Inspired by ClawRouter session escalation.
+    const recentFingerprints: string[] = [];
+    let escalated = false;
+    const STRIKE_THRESHOLD = 3;
 
     // Pre-compute tool pruning data (fixed for the entire loop)
     const loopToolDefs = this.toolRegistry.definitions();
@@ -814,6 +838,12 @@ export class SimpleAgentLoop implements AgentLoop {
         streamError = err instanceof Error ? err : new Error(String(err));
         console.error(`[agent-loop] LLM stream error: ${streamError.message}`);
         yield this.createEvent("error", { error: streamError.message });
+
+        // Report to router for error classification & model cooldown
+        if (this.onLLMError) {
+          const modelId = usedModel || this._config.model || "";
+          this.onLLMError(this.provider.name, modelId, streamError);
+        }
       } finally {
         // 确保 LLM stream 资源释放，防止 abort/break 后 HTTP 连接悬挂
         const s = stream as AsyncIterable<unknown> & {
@@ -1400,6 +1430,46 @@ export class SimpleAgentLoop implements AgentLoop {
       // Reset rollback counter on successful iteration (at least one non-error)
       if (iterationErrorCount < toolCalls.length) {
         consecutiveRollbacks = 0;
+      }
+
+      // ── Three-strike escalation: detect stuck LLM ──
+      // Fingerprint: first 300 chars of LLM output + tool names called (normalized)
+      if (fullText && !escalated) {
+        const toolNames = toolCalls
+          .map((tc) => tc.name)
+          .sort()
+          .join(",");
+        const fp =
+          fullText.replace(/\s+/g, " ").slice(0, 300) + "|" + toolNames;
+        recentFingerprints.push(fp);
+        // Keep only last STRIKE_THRESHOLD entries
+        if (recentFingerprints.length > STRIKE_THRESHOLD) {
+          recentFingerprints.shift();
+        }
+        // Check if all recent fingerprints are similar (>80% char overlap)
+        if (recentFingerprints.length === STRIKE_THRESHOLD) {
+          const base = recentFingerprints[0];
+          const allSimilar = recentFingerprints.every((f) => {
+            const minLen = Math.min(f.length, base.length);
+            if (minLen === 0) return true;
+            let matches = 0;
+            for (let ci = 0; ci < minLen; ci++) {
+              if (f[ci] === base[ci]) matches++;
+            }
+            return matches / minLen > 0.8;
+          });
+          if (allSimilar) {
+            escalated = true;
+            runtimeHints.push(
+              "<escalation>You appear to be stuck in a loop — your last 3 responses were very similar. " +
+                "STOP repeating the same approach. Try a completely different strategy: " +
+                "use different tools, change parameters, or explain to the user what's blocking you.</escalation>",
+            );
+            console.warn(
+              `[agent-loop] Three-strike escalation triggered at iteration ${iterations}`,
+            );
+          }
+        }
       }
 
       // Drain sentFiles from context into accumulator (dedup by URL)

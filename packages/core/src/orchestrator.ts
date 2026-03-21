@@ -46,6 +46,12 @@ export class SimpleOrchestrator implements Orchestrator {
   private skillRegistry?: SkillRegistryImpl;
   private tmpDir?: string;
   private agents: Map<string, AgentProfile>;
+  /** Optional callback for LLM errors — wired to SmartRouter.reportError in gateway */
+  private onLLMError?: (
+    providerName: string,
+    modelId: string,
+    error: unknown,
+  ) => { retryable: boolean };
 
   constructor(options: {
     provider: LLMProvider;
@@ -59,6 +65,12 @@ export class SimpleOrchestrator implements Orchestrator {
     skillRegistry?: SkillRegistryImpl;
     tmpDir?: string;
     agents?: AgentProfile[];
+    /** Report LLM errors to router for classification & cooldown */
+    onLLMError?: (
+      providerName: string,
+      modelId: string,
+      error: unknown,
+    ) => { retryable: boolean };
   }) {
     this.provider = options.provider;
     this.visionProvider = options.visionProvider;
@@ -76,6 +88,7 @@ export class SimpleOrchestrator implements Orchestrator {
     this.skillRegistry = options.skillRegistry;
     this.tmpDir = options.tmpDir;
     this.agents = new Map((options.agents ?? []).map((a) => [a.id, a]));
+    this.onLLMError = options.onLLMError;
   }
 
   async createSession(metadata?: Record<string, unknown>): Promise<Session> {
@@ -637,6 +650,7 @@ export class SimpleOrchestrator implements Orchestrator {
       config,
       iterationBudget,
       allToolNames: this.allToolNames,
+      onLLMError: this.onLLMError,
     });
   }
 }

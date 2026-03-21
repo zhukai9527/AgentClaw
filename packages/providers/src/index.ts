@@ -7,7 +7,13 @@ export {
   type OpenAICompatibleOptions,
 } from "./openai-compatible.js";
 export { GeminiProvider } from "./gemini.js";
-export { SmartRouter } from "./router.js";
+export {
+  SmartRouter,
+  classifyLLMError,
+  shouldCooldown,
+  isRetryable,
+  type LLMErrorCategory,
+} from "./router.js";
 export { FailoverProvider } from "./failover.js";
 export {
   VolcanoEmbedding,

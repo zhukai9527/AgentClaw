@@ -51,6 +51,123 @@ interface RouteCandidate {
 }
 
 // ---------------------------------------------------------------------------
+// Error classification (inspired by ClawRouter)
+// ---------------------------------------------------------------------------
+
+/** Categorized error types for intelligent retry/cooldown decisions. */
+export type LLMErrorCategory =
+  | "auth_failure" // 401/403 — don't retry, key/permission issue
+  | "quota_exceeded" // 403 + quota body — don't retry
+  | "rate_limited" // 429 — cooldown then retry
+  | "overloaded" // 529/503 + overload body — short cooldown
+  | "server_error" // 5xx — switch to next model immediately
+  | "config_error" // 400/413 — skip this model (context too long, etc.)
+  | "network_error" // ECONNRESET, ETIMEDOUT — transient, retry
+  | "unknown"; // Unclassified
+
+interface CooldownEntry {
+  until: number; // Date.now() + cooldown ms
+  category: LLMErrorCategory;
+}
+
+/** Cooldown durations by error category (ms). */
+const COOLDOWN_MS: Partial<Record<LLMErrorCategory, number>> = {
+  rate_limited: 60_000, // 60s for rate limits
+  overloaded: 15_000, // 15s for overload
+  server_error: 30_000, // 30s for server errors
+  network_error: 10_000, // 10s for network errors
+};
+
+/**
+ * Classify an LLM error into a category based on status code and message.
+ * Works with any Error object — extracts status from common error shapes.
+ */
+export function classifyLLMError(error: unknown): LLMErrorCategory {
+  if (!error) return "unknown";
+
+  const err = error instanceof Error ? error : new Error(String(error));
+  const msg = err.message.toLowerCase();
+
+  // Extract status code from common error shapes
+  const statusMatch = msg.match(/\b(status|code)[:\s]*(\d{3})\b/);
+  const status = statusMatch
+    ? parseInt(statusMatch[2], 10)
+    : ((error as { status?: number }).status ??
+      (error as { statusCode?: number }).statusCode ??
+      0);
+
+  // Network errors (no status code)
+  if (
+    msg.includes("econnreset") ||
+    msg.includes("etimedout") ||
+    msg.includes("econnrefused") ||
+    msg.includes("fetch failed") ||
+    msg.includes("network") ||
+    msg.includes("socket hang up")
+  ) {
+    return "network_error";
+  }
+
+  // Status-based classification
+  if (status === 401 || (status === 403 && !msg.includes("quota"))) {
+    return "auth_failure";
+  }
+  if (status === 403 && msg.includes("quota")) {
+    return "quota_exceeded";
+  }
+  if (
+    status === 429 ||
+    msg.includes("rate limit") ||
+    msg.includes("too many requests")
+  ) {
+    return "rate_limited";
+  }
+  if (
+    status === 529 ||
+    (status === 503 && msg.includes("overload")) ||
+    msg.includes("overloaded")
+  ) {
+    return "overloaded";
+  }
+  if (
+    status === 400 ||
+    status === 413 ||
+    msg.includes("context length") ||
+    msg.includes("too long")
+  ) {
+    return "config_error";
+  }
+  if (status >= 500) {
+    return "server_error";
+  }
+
+  // Degraded response detection (200 OK but content indicates failure)
+  if (
+    msg.includes("service temporarily") ||
+    msg.includes("temporarily unavailable")
+  ) {
+    return "overloaded";
+  }
+
+  return "unknown";
+}
+
+/** Whether this error category should trigger a cooldown on the model. */
+export function shouldCooldown(category: LLMErrorCategory): boolean {
+  return category in COOLDOWN_MS;
+}
+
+/** Whether this error category is retryable (possibly on a different model). */
+export function isRetryable(category: LLMErrorCategory): boolean {
+  return (
+    category === "rate_limited" ||
+    category === "overloaded" ||
+    category === "server_error" ||
+    category === "network_error"
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Default tier mapping for task types (used when no explicit rule exists)
 // ---------------------------------------------------------------------------
 
@@ -86,6 +203,12 @@ export class SmartRouter implements LLMRouter {
 
   // -- Provider health ------------------------------------------------------
   private downProviders = new Set<string>();
+
+  // -- Model cooldown (inspired by ClawRouter error classification) ---------
+  /** Key: `${providerName}::${modelId}` → cooldown info */
+  private modelCooldowns = new Map<string, CooldownEntry>();
+  /** Per-model error counts for diagnostics */
+  private modelErrorCounts = new Map<string, Map<LLMErrorCategory, number>>();
 
   // -- Cost tracking --------------------------------------------------------
   /** Key: `${providerName}::${modelId}` */
@@ -282,6 +405,8 @@ export class SmartRouter implements LLMRouter {
    *
    * The list is sorted by priority (primary first, then fallbacks) and
    * excludes any provider currently marked as down.
+   * Models in cooldown are deprioritized (moved to end) rather than removed,
+   * so they remain as last-resort fallbacks.
    */
   routeWithFallback(taskType: TaskType): RouteCandidate[] {
     const candidates: RouteCandidate[] = [];
@@ -301,15 +426,16 @@ export class SmartRouter implements LLMRouter {
       }
     }
 
-    // If we already have candidates from explicit rules, return them.
-    if (candidates.length > 0) return candidates;
+    // If we already have candidates from explicit rules, deprioritize cooled-down ones and return
+    if (candidates.length > 0) return this.prioritizeNonCooledDown(candidates);
 
     // Tier-based resolution (explicit tier route, then default)
     const tier =
       this.tierRoutes.get(taskType)?.tier ?? DEFAULT_TIER_FOR_TASK[taskType];
     if (tier) {
       const tierCandidates = this.collectByTier(tier);
-      if (tierCandidates.length > 0) return tierCandidates;
+      if (tierCandidates.length > 0)
+        return this.prioritizeNonCooledDown(tierCandidates);
     }
 
     // Ultimate fallback: all available providers
@@ -319,12 +445,94 @@ export class SmartRouter implements LLMRouter {
       }
     }
 
-    return candidates;
+    return this.prioritizeNonCooledDown(candidates);
+  }
+
+  // =========================================================================
+  // Model cooldown & error reporting
+  // =========================================================================
+
+  /**
+   * Report an error for a specific model. Classifies the error, applies
+   * cooldown if appropriate, and tracks error counts.
+   *
+   * Call this from agent-loop when a provider stream/chat fails.
+   * Returns the classification so the caller can decide whether to retry.
+   */
+  reportError(
+    providerName: string,
+    modelId: string,
+    error: unknown,
+  ): { category: LLMErrorCategory; retryable: boolean } {
+    const category = classifyLLMError(error);
+    const key = `${providerName}::${modelId}`;
+
+    // Track error counts
+    if (!this.modelErrorCounts.has(key)) {
+      this.modelErrorCounts.set(key, new Map());
+    }
+    const counts = this.modelErrorCounts.get(key)!;
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+
+    // Apply cooldown if applicable
+    const cooldownMs = COOLDOWN_MS[category];
+    if (cooldownMs) {
+      this.modelCooldowns.set(key, {
+        until: Date.now() + cooldownMs,
+        category,
+      });
+      console.log(
+        `[smart-router] Model ${key} cooling down for ${cooldownMs / 1000}s (${category})`,
+      );
+    }
+
+    return { category, retryable: isRetryable(category) };
+  }
+
+  /** Check if a specific model is currently in cooldown. */
+  isModelCoolingDown(providerName: string, modelId: string): boolean {
+    const key = `${providerName}::${modelId}`;
+    const entry = this.modelCooldowns.get(key);
+    if (!entry) return false;
+    if (Date.now() >= entry.until) {
+      this.modelCooldowns.delete(key);
+      return false;
+    }
+    return true;
+  }
+
+  /** Get error statistics for diagnostics. */
+  getErrorStats(): Map<string, Map<LLMErrorCategory, number>> {
+    return new Map(this.modelErrorCounts);
+  }
+
+  /** Clear all cooldowns (e.g., on manual reset). */
+  clearCooldowns(): void {
+    this.modelCooldowns.clear();
   }
 
   // =========================================================================
   // Private helpers
   // =========================================================================
+
+  /**
+   * Reorder candidates so models in cooldown are at the end (not removed).
+   * This ensures they remain as last-resort fallbacks.
+   */
+  private prioritizeNonCooledDown(
+    candidates: RouteCandidate[],
+  ): RouteCandidate[] {
+    const ready: RouteCandidate[] = [];
+    const cooled: RouteCandidate[] = [];
+    for (const c of candidates) {
+      if (this.isModelCoolingDown(c.provider.name, c.model)) {
+        cooled.push(c);
+      } else {
+        ready.push(c);
+      }
+    }
+    return [...ready, ...cooled];
+  }
 
   /**
    * Try to resolve an explicit route rule. Walks primary + fallback chain,

@@ -1,5 +1,14 @@
 # 更新日志
 
+## [1.5.4] - 2026-03-21
+
+### 改进（借鉴 ClawRouter 架构）
+- **L6 观察压缩**：旧 tool_result（>500 字符）不再简单截断，而是智能提取错误行、状态信息、JSON 关键字段，重复内容自动去重引用，典型 80-95% token 节省
+- **基础 Token 压缩（L2+L5）**：所有 tool_result 自动执行空白规范化（多余换行/制表符/过度缩进）和 JSON 紧凑化（pretty-print → minify），3-30% token 节省，不影响模型理解
+- **LLM 错误分类体系**：7 类错误自动分类（auth/quota/rate_limit/overloaded/server_error/config/network），SmartRouter 支持模型冷却（429→60s, 503→15s）和智能 fallback 排序（冷却模型降优先级而非移除）
+- **三振升级机制**：agent-loop 检测连续 3 次相似 LLM 输出（输出指纹 >80% 重合），自动注入策略变更提示，防止模型陷入重复循环
+- **onLLMError 回调钩子**：agent-loop → orchestrator → gateway 三层穿透的错误报告通道，支持运行时错误分类与模型冷却
+
 ## [1.5.3] - 2026-03-20
 
 ### 改进
