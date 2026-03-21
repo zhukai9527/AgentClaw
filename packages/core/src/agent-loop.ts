@@ -615,6 +615,12 @@ export class SimpleAgentLoop implements AgentLoop {
         ? `\n[可用工具：${Array.from(loopAvailableTools).sort().join(", ")}]\n你只能使用上述工具，不要调用任何不在列表中的工具。`
         : null;
 
+    // Wrap the entire loop in try-finally to guarantee trace persistence.
+    // Without this, if the consumer (orchestrator/WS) stops pulling from the
+    // generator (user abort, disconnect), the trace is never saved.
+    let tracePersistedInLoop = false;
+    try {
+
     while (iterations < this._config.maxIterations && !this.aborted) {
       // Check shared budget (parent + children share the same IterationBudget)
       if (this.iterationBudget?.exhausted) {
@@ -1599,6 +1605,7 @@ export class SimpleAgentLoop implements AgentLoop {
     trace.error = wasAborted ? "user_aborted" : "max_iterations_reached";
     try {
       await this.memoryStore.addTrace(trace);
+      tracePersistedInLoop = true;
     } catch (e) {
       console.error("[agent-loop] Failed to persist trace:", e);
     }
@@ -1677,6 +1684,28 @@ export class SimpleAgentLoop implements AgentLoop {
       toolCallCount: totalToolCalls,
     };
     yield this.createEvent("response_complete", { message });
+
+    } finally {
+      // Guarantee trace is saved even if the generator is aborted mid-flight
+      // (e.g., user clicks stop, WebSocket disconnects, consumer stops pulling).
+      // Without this, generator return() skips all code after the yield point.
+      if (!tracePersistedInLoop) {
+        trace.model = usedModel;
+        trace.tokensIn = totalTokensIn;
+        trace.tokensOut = totalTokensOut;
+        trace.durationMs = Date.now() - startTime;
+        trace.error = "generator_aborted";
+        try {
+          await this.memoryStore.addTrace(trace);
+          console.log(
+            `[agent-loop] Trace ${trace.id} saved on generator abort (${trace.steps.length} steps)`,
+          );
+        } catch (e) {
+          console.error("[agent-loop] Failed to persist trace on abort:", e);
+        }
+        this.setState("idle");
+      }
+    }
   }
 
   stop(): void {
