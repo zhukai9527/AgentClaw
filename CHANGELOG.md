@@ -2,8 +2,12 @@
 
 ## [1.5.5] - 2026-03-21
 
+### 改进
+- **SQLite 每日备份**：凌晨 2 点自动备份数据库到 `data/backups/`，保留最近 7 份，防止数据丢失
+- **优雅关闭**：SIGTERM 超时从 10s 延长到 30s，关闭前等待活跃对话完成（最多 15s），避免 LLM 调用被截断
+
 ### 重构
-- **IM 渠道公共逻辑抽取**：新增 `channel-utils.ts`，将 5 个渠道文件中重复的 promptUser 超时、sendFile 链接构建、PUBLIC_URL 拼接、chat targets 恢复、简单事件流处理等公共逻辑统一抽取，钉钉/飞书完全使用共享函数，QQ/Telegram/企微部分使用
+- **IM 渠道公共逻辑抽取**：新增 `channel-utils.ts`，将 5 个渠道文件中重复的 promptUser 超时、sendFile 链接构建、PUBLIC_URL 拼接、chat targets 恢复、简单事件流处理等公共逻辑统一抽取，消除 ~360 行重复代码
 
 ## [1.5.4] - 2026-03-21
 
