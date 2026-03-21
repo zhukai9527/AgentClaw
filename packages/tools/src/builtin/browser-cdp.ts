@@ -32,6 +32,35 @@ const STATES_DIR = join(process.cwd(), "data", "browser-states").replace(
   "/",
 );
 
+/**
+ * Detect whether we're in a headless environment (no display available).
+ * On Linux servers without GUI, this returns true.
+ */
+function isHeadlessEnvironment(): boolean {
+  // Windows always has a display
+  if (process.platform === "win32") return false;
+  // macOS always has a display (unless SSH without forwarding, but rare)
+  if (process.platform === "darwin") return false;
+  // Linux: check for DISPLAY or WAYLAND_DISPLAY
+  return !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
+}
+
+/** Chrome args for headless/server environments */
+const HEADLESS_ARGS = [
+  "--headless=new", // Chrome 112+ new headless mode (full browser, not old headless)
+  "--disable-gpu", // Required on Linux headless
+  "--no-sandbox", // Required in Docker / CI
+  "--disable-dev-shm-usage", // Prevent /dev/shm exhaustion in Docker
+  "--disable-setuid-sandbox",
+];
+
+/** Common Chrome args for all environments */
+const COMMON_ARGS = [
+  "--no-first-run",
+  "--no-default-browser-check",
+  "--disable-blink-features=AutomationControlled",
+];
+
 async function loadPlaywright(): Promise<void> {
   if (pw) return;
   try {
@@ -55,6 +84,7 @@ function findChromePath(): string | undefined {
       : process.platform === "darwin"
         ? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
         : [
+            "/usr/bin/google-chrome-stable",
             "/usr/bin/google-chrome",
             "/usr/bin/chromium-browser",
             "/usr/bin/chromium",
@@ -67,14 +97,36 @@ function findChromePath(): string | undefined {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function resetBrowserState(): Promise<void> {
+  activePage = null;
+  defaultContext = null;
+  if (browser) {
+    try {
+      await browser.close();
+    } catch {
+      /* already dead */
+    }
+  }
+  browser = null;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function ensureBrowser(): Promise<any> {
+  // Check if existing browser connection is still alive
+  if (browser) {
+    const connected =
+      typeof browser.isConnected === "function" ? browser.isConnected() : true;
+    if (!connected) {
+      await resetBrowserState();
+    }
+  }
+
   if (activePage) {
     try {
-      // Check if page is still alive
       await activePage.title();
       return activePage;
     } catch {
-      activePage = null;
+      await resetBrowserState();
     }
   }
 
@@ -92,20 +144,25 @@ async function ensureBrowser(): Promise<any> {
 
   try {
     browser = await pw.chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`);
+    // Verify the connection is actually alive
+    const contexts = browser.contexts();
+    if (contexts.length === 0) throw new Error("No contexts available");
   } catch {
     // Launch new Chrome instance with remote debugging
-    execFileAsync(
-      chromePath,
-      [
-        `--remote-debugging-port=${debugPort}`,
-        `--user-data-dir=${PROFILE_DIR}`,
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-blink-features=AutomationControlled",
-        "about:blank",
-      ],
-      { windowsHide: false },
-    ).catch(() => {
+    const headless = isHeadlessEnvironment();
+    const launchArgs = [
+      `--remote-debugging-port=${debugPort}`,
+      `--user-data-dir=${PROFILE_DIR}`,
+      ...COMMON_ARGS,
+      ...(headless ? HEADLESS_ARGS : []),
+      "about:blank",
+    ];
+    if (headless) {
+      console.log(
+        "[browser_cdp] No display detected — launching Chrome in headless mode",
+      );
+    }
+    execFileAsync(chromePath, launchArgs, { windowsHide: false }).catch(() => {
       /* Chrome stays running */
     });
 
@@ -489,10 +546,21 @@ export const browserCdpTool: Tool = {
           if (!chromePath)
             return { content: "Chrome not found", isError: true };
           // Launch with Playwright (not CDP) to apply storageState
+          const headless = isHeadlessEnvironment();
           browser = await pw.chromium.launch({
             executablePath: chromePath,
-            headless: false,
-            args: ["--no-first-run", "--no-default-browser-check"],
+            headless,
+            args: [
+              ...COMMON_ARGS,
+              ...(headless
+                ? [
+                    "--no-sandbox",
+                    "--disable-gpu",
+                    "--disable-dev-shm-usage",
+                    "--disable-setuid-sandbox",
+                  ]
+                : []),
+            ],
           });
           defaultContext = await browser.newContext({
             storageState: statePath,

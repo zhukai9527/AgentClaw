@@ -34,10 +34,12 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debia
 RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
     sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
 
-# Install runtime CLI tools
+# Install runtime CLI tools + Chromium for browser_cdp headless automation
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg git curl python3 && \
-    rm -rf /var/lib/apt/lists/*
+    ffmpeg git curl python3 \
+    chromium \
+    fonts-ipafont-gothic fonts-wqy-zenhei fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Deno
 RUN curl -fsSL https://deno.land/install.sh | sh
@@ -70,8 +72,8 @@ COPY skills/ skills/
 # Install production dependencies only
 RUN pnpm install --frozen-lockfile --prod
 
-# Create data directory
-RUN mkdir -p data/tmp data/temp
+# Create data directories
+RUN mkdir -p data/tmp data/temp data/browser-states
 
 ENV PORT=3100
 ENV HOST=0.0.0.0

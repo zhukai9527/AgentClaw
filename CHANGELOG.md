@@ -8,6 +8,7 @@
 - **LLM 错误分类体系**：7 类错误自动分类（auth/quota/rate_limit/overloaded/server_error/config/network），SmartRouter 支持模型冷却（429→60s, 503→15s）和智能 fallback 排序（冷却模型降优先级而非移除）
 - **三振升级机制**：agent-loop 检测连续 3 次相似 LLM 输出（输出指纹 >80% 重合），自动注入策略变更提示，防止模型陷入重复循环
 - **onLLMError 回调钩子**：agent-loop → orchestrator → gateway 三层穿透的错误报告通道，支持运行时错误分类与模型冷却
+- **browser_cdp Linux headless 适配**：自动检测无 display 环境并启用 `--headless=new` + `--no-sandbox`；修复连接状态检测（`isConnected()` + 彻底重置死连接）；Dockerfile 新增 Chromium + CJK 字体；支持 Docker 部署下的浏览器自动化
 
 ## [1.5.3] - 2026-03-20
 
