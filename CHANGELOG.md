@@ -2,6 +2,9 @@
 
 ## [1.5.4] - 2026-03-21
 
+### 清理
+- **死代码删除**：移除 SimplePlanner、WorkflowRunner、types/config.ts（AppConfig）、legacy trigger 系统（TriggerType/SkillTrigger/matchTrigger），共删除 ~800 行无引用代码
+
 ### 改进（借鉴 ClawRouter 架构）
 - **L6 观察压缩**：旧 tool_result（>500 字符）不再简单截断，而是智能提取错误行、状态信息、JSON 关键字段，重复内容自动去重引用，典型 80-95% token 节省
 - **基础 Token 压缩（L2+L5）**：所有 tool_result 自动执行空白规范化（多余换行/制表符/过度缩进）和 JSON 紧凑化（pretty-print → minify），3-30% token 节省，不影响模型理解

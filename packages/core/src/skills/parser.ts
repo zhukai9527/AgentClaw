@@ -1,4 +1,4 @@
-import type { Skill, SkillTrigger, TriggerType } from "@agentclaw/types";
+import type { Skill } from "@agentclaw/types";
 
 /**
  * Convert a name string to kebab-case for use as a skill ID.
@@ -228,33 +228,6 @@ export function parseSkillFile(filePath: string, content: string): Skill {
 
   const description = String(meta.description ?? "");
 
-  // Parse triggers
-  const rawTriggers = meta.triggers;
-  const triggers: SkillTrigger[] = [];
-
-  if (Array.isArray(rawTriggers)) {
-    for (const raw of rawTriggers) {
-      if (typeof raw === "object" && raw !== null) {
-        const triggerObj = raw as Record<string, unknown>;
-        const type = String(triggerObj.type ?? "keyword") as TriggerType;
-        let patterns: string[] = [];
-
-        if (Array.isArray(triggerObj.patterns)) {
-          patterns = triggerObj.patterns.map(String);
-        } else if (typeof triggerObj.patterns === "string") {
-          patterns = [triggerObj.patterns];
-        }
-
-        const trigger: SkillTrigger = { type, patterns };
-        if (triggerObj.confidence !== undefined) {
-          trigger.confidence = Number(triggerObj.confidence);
-        }
-
-        triggers.push(trigger);
-      }
-    }
-  }
-
   const id = toKebabCase(name);
 
   return {
@@ -262,7 +235,6 @@ export function parseSkillFile(filePath: string, content: string): Skill {
     name,
     description,
     path: filePath,
-    ...(triggers.length > 0 ? { triggers } : {}),
     instructions,
     enabled: true,
     useCount: 0,

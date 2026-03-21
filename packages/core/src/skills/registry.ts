@@ -6,7 +6,6 @@ import type {
   Skill,
   SkillMatch,
   SkillRegistry,
-  SkillTrigger,
 } from "@agentclaw/types";
 import { parseSkillFile } from "./parser.js";
 
@@ -192,10 +191,8 @@ export class SkillRegistryImpl implements SkillRegistry {
   /**
    * Find skills that match the given user input.
    *
-   * Matching strategy (per skill):
-   * 1. If the skill has keyword triggers and any keyword matches → use legacy logic (backward compat)
-   * 2. Otherwise compute a token-overlap score against name + description
-   *    → score > 0.15 is considered a match
+   * Matching strategy: compute a token-overlap score against name + description
+   * → score > 0.15 is considered a match.
    *
    * Results are sorted by confidence in descending order.
    */
@@ -206,28 +203,6 @@ export class SkillRegistryImpl implements SkillRegistry {
     for (const skill of this.skills.values()) {
       if (!skill.enabled) continue;
 
-      // Path 1: legacy keyword triggers (backward compat)
-      if (skill.triggers && skill.triggers.length > 0) {
-        let bestScore: number | null = null;
-        let bestTrigger = skill.triggers[0];
-        for (const trigger of skill.triggers) {
-          const score = this.matchTrigger(trigger, inputLower);
-          if (score !== null && (bestScore === null || score > bestScore)) {
-            bestScore = score;
-            bestTrigger = trigger;
-          }
-        }
-        if (bestScore !== null) {
-          matches.push({
-            skill,
-            confidence: bestScore,
-            matchedTrigger: bestTrigger,
-          });
-          continue;
-        }
-      }
-
-      // Path 2: description-based token overlap
       const score = descriptionScore(inputLower, skill);
       if (score > 0.15) {
         matches.push({ skill, confidence: score });
@@ -265,52 +240,6 @@ export class SkillRegistryImpl implements SkillRegistry {
     }
   }
 
-  /**
-   * Match a single trigger against the input.
-   * Returns the confidence score if matched, or null if no match.
-   */
-  private matchTrigger(
-    trigger: SkillTrigger,
-    inputLower: string,
-  ): number | null {
-    switch (trigger.type) {
-      case "keyword": {
-        if (trigger.patterns.length === 0) return null;
-
-        let matchedCount = 0;
-        for (const pattern of trigger.patterns) {
-          if (inputLower.includes(pattern.toLowerCase())) {
-            matchedCount++;
-          }
-        }
-
-        if (matchedCount === 0) return null;
-
-        // Any single keyword match gives at least 0.5 confidence.
-        // Multiple matches increase it further (max 1.0).
-        const ratio = matchedCount / trigger.patterns.length;
-        return Math.max(0.5, ratio * 0.8 + 0.2);
-      }
-
-      case "always":
-        return 0.1;
-
-      case "intent":
-        // Intent-based matching would require NLP; for now, fall back to
-        // keyword-style matching with the given patterns.
-        if (trigger.patterns.length === 0) return null;
-
-        for (const pattern of trigger.patterns) {
-          if (inputLower.includes(pattern.toLowerCase())) {
-            return trigger.confidence ?? 0.5;
-          }
-        }
-        return null;
-
-      default:
-        return null;
-    }
-  }
 }
 
 /**

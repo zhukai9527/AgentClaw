@@ -1,15 +1,3 @@
-/** Skill trigger type */
-export type TriggerType = "keyword" | "intent" | "always";
-
-/** Skill trigger definition */
-export interface SkillTrigger {
-  type: TriggerType;
-  /** Keywords or patterns that activate this skill */
-  patterns: string[];
-  /** Minimum confidence for intent-based triggers */
-  confidence?: number;
-}
-
 /** Skill definition — loaded from SKILL.md files */
 export interface Skill {
   id: string;
@@ -17,8 +5,6 @@ export interface Skill {
   description: string;
   /** File path to the SKILL.md */
   path: string;
-  /** When this skill should activate (optional — description-based matching is used when absent) */
-  triggers?: SkillTrigger[];
   /** Instructions injected into system prompt when active */
   instructions: string;
   /** Whether this skill is enabled */
@@ -33,8 +19,6 @@ export interface SkillMatch {
   skill: Skill;
   /** Confidence score (0-1) */
   confidence: number;
-  /** Which trigger matched (absent when matched by description) */
-  matchedTrigger?: SkillTrigger;
 }
 
 /** Skill registry — manages available skills */
