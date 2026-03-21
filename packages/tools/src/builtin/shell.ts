@@ -209,11 +209,18 @@ function validateCommand(command: string): string | null {
     [/\breg\s+delete\s+HK(LM|CR|U\\)/i, "reg delete 系统注册表"],
     // Writing to critical Windows system paths
     [/[>|]\s*["']?C:\\Windows\\System32/i, "写入 System32"],
+    // Dump all environment variables (may contain secrets)
+    [/\bprintenv\b/, "printenv 泄露环境变量"],
+    // Read sensitive /proc entries
+    [/\bcat\s+[^\n]*\/proc\//, "读取 /proc 系统文件"],
+    // Cloud metadata service (AWS/GCP/Azure instance metadata)
+    [/\bcurl\b[^\n]*169\.254/, "curl 访问云元数据服务"],
+    [/\bwget\b[^\n]*169\.254/, "wget 访问云元数据服务"],
   ];
 
   for (const [re, desc] of BLOCKED) {
     if (re.test(cmd)) {
-      return `🛡️ 沙箱拦截：${desc}\n命令被阻止执行。如需禁用沙箱，请设置环境变量 SHELL_SANDBOX=false`;
+      return `🛡️ 沙箱拦截：${desc}\n命令被阻止执行。`;
     }
   }
 

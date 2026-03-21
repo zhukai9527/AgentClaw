@@ -136,8 +136,8 @@ function pruneSystemPromptForTools(
 const MICRO_COMPACT_KEEP_RECENT = 3;
 const MICRO_COMPACT_MIN_LENGTH = 100;
 /** Tool names whose input arguments should be truncated after execution */
-const TRUNCATE_ARG_TOOLS = new Set(["file_write", "file_edit", "execute_code"]);
-const TRUNCATE_ARG_KEYS = new Set(["content", "new_string", "code"]);
+const TRUNCATE_ARG_TOOLS = new Set(["file_write", "file_edit", "execute_code", "bash"]);
+const TRUNCATE_ARG_KEYS = new Set(["content", "new_string", "code", "command"]);
 const TRUNCATE_ARG_PREVIEW = 50;
 
 function microCompact(messages: Message[]): void {
@@ -526,7 +526,7 @@ export class SimpleAgentLoop implements AgentLoop {
     const runtimeHints: string[] = [
       `[工作目录：${sessionTmpDir}]（所有文件都在此目录下，输出也保存到这里）`,
     ];
-    const hintText = runtimeHints.join("\n");
+    // runtimeHints.join("\n") is computed dynamically each iteration (runtimeHints grows via push)
 
     // DB 存储：多模态输入存 ContentBlock[] JSON（image.data 替换为 file:// 路径，避免 DB 膨胀）
     // turnToMessage 读取时从磁盘加载 base64 还原
@@ -680,7 +680,7 @@ export class SimpleAgentLoop implements AgentLoop {
             return result;
           };
           if (typeof lastMsg.content === "string") {
-            lastMsg.content = `${rewrite(lastMsg.content)}\n${hintText}`;
+            lastMsg.content = `${rewrite(lastMsg.content)}\n${runtimeHints.join("\n")}`;
           } else if (Array.isArray(lastMsg.content)) {
             for (const block of lastMsg.content as ContentBlock[]) {
               if (block.type === "text") {
@@ -689,7 +689,7 @@ export class SimpleAgentLoop implements AgentLoop {
             }
             (lastMsg.content as ContentBlock[]).push({
               type: "text",
-              text: hintText,
+              text: runtimeHints.join("\n"),
             });
           }
         }
@@ -1303,7 +1303,7 @@ export class SimpleAgentLoop implements AgentLoop {
             trace.steps.push({
               type: "tool_result",
               name: r.toolCall.name,
-              content: r.result.content,
+              content: envMap ? obfuscateString(r.result.content, envMap) : r.result.content,
               durationMs: r.toolDurationMs,
             } as TraceStep);
             const handoffToolResult: ToolResultContent = {
@@ -1358,7 +1358,7 @@ export class SimpleAgentLoop implements AgentLoop {
           trace.steps.push({
             type: "tool_result",
             name: r.toolCall.name,
-            content: r.result.content,
+            content: envMap ? obfuscateString(r.result.content, envMap) : r.result.content,
             isError: r.result.isError,
             durationMs: r.toolDurationMs,
           } as TraceStep);

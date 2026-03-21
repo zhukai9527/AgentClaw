@@ -233,7 +233,7 @@ export async function startQQBot(
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let lastSeq: number | null = null;
   let sessionId = "";
-  const resumeUrl = "";
+  let resumeUrl = "";
 
   // Restore chat targets from database
   try {
@@ -601,8 +601,12 @@ export async function startQQBot(
               const readyData = payload.d as {
                 session_id: string;
                 user: { username: string; id: string };
+                resume_gateway_url?: string;
               };
               sessionId = readyData.session_id;
+              if (readyData.resume_gateway_url) {
+                resumeUrl = readyData.resume_gateway_url;
+              }
               console.log(
                 `[qqbot] Ready! Bot: ${readyData.user?.username} (${readyData.user?.id})`,
               );

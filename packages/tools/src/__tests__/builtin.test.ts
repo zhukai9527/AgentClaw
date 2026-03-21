@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createBuiltinTools } from "../builtin/index.js";
 
 describe("createBuiltinTools — 内置工具创建", () => {
-  /** 9 个核心工具的名称（始终加载） */
+  /** 11 个核心工具的名称（始终加载） */
   const CORE_TOOL_NAMES = [
     "bash", // shellTool
     "file_read",
@@ -13,13 +13,15 @@ describe("createBuiltinTools — 内置工具创建", () => {
     "ask_user",
     "web_fetch",
     "web_search",
+    "context_search",
+    "compact",
   ];
 
   describe("默认加载（无参数）", () => {
-    it("应创建 9 个核心工具", () => {
+    it("应创建 11 个核心工具", () => {
       const tools = createBuiltinTools();
 
-      expect(tools).toHaveLength(9);
+      expect(tools).toHaveLength(CORE_TOOL_NAMES.length);
     });
 
     it("核心工具列表应完全匹配", () => {
@@ -33,11 +35,11 @@ describe("createBuiltinTools — 内置工具创建", () => {
   });
 
   describe("条件工具加载", () => {
-    it("gateway=true 应额外加载 send_file, schedule, update_todo, sandbox, subagent, browser_cdp", () => {
+    it("gateway=true 应额外加载 gateway 工具", () => {
       const tools = createBuiltinTools({ gateway: true });
       const names = tools.map((t) => t.name);
 
-      expect(tools.length).toBe(9 + 6);
+      expect(tools.length).toBe(CORE_TOOL_NAMES.length + 9);
       expect(names).toContain("send_file");
       expect(names).toContain("schedule");
       expect(names).toContain("update_todo");
@@ -50,7 +52,7 @@ describe("createBuiltinTools — 内置工具创建", () => {
       const tools = createBuiltinTools({ memory: true });
       const names = tools.map((t) => t.name);
 
-      expect(tools.length).toBe(9 + 1);
+      expect(tools.length).toBe(CORE_TOOL_NAMES.length + 1);
       expect(names).toContain("remember");
     });
 
@@ -58,7 +60,7 @@ describe("createBuiltinTools — 内置工具创建", () => {
       const tools = createBuiltinTools({ skills: true });
       const names = tools.map((t) => t.name);
 
-      expect(tools.length).toBe(9 + 1);
+      expect(tools.length).toBe(CORE_TOOL_NAMES.length + 1);
       expect(names).toContain("use_skill");
     });
 
@@ -66,7 +68,7 @@ describe("createBuiltinTools — 内置工具创建", () => {
       const tools = createBuiltinTools({ claudeCode: true });
       const names = tools.map((t) => t.name);
 
-      expect(tools.length).toBe(9 + 1);
+      expect(tools.length).toBe(CORE_TOOL_NAMES.length + 1);
       expect(names).toContain("claude_code");
     });
 
@@ -78,14 +80,14 @@ describe("createBuiltinTools — 内置工具创建", () => {
         claudeCode: true,
       });
 
-      // 9 核心 + 6 gateway + 1 memory + 1 skills + 1 claudeCode = 18
-      expect(tools).toHaveLength(18);
+      // 11 核心 + 9 gateway + 1 memory + 1 skills + 1 claudeCode = 23
+      expect(tools).toHaveLength(23);
     });
 
     it("空 options 应只加载核心工具", () => {
       const tools = createBuiltinTools({});
 
-      expect(tools).toHaveLength(9);
+      expect(tools).toHaveLength(CORE_TOOL_NAMES.length);
     });
   });
 

@@ -79,4 +79,9 @@ ENV PORT=3100
 ENV HOST=0.0.0.0
 EXPOSE 3100
 
+# Run as non-root user
+RUN groupadd -r agentclaw && useradd -r -g agentclaw -u 1001 agentclaw \
+    && chown -R agentclaw:agentclaw /app/data
+USER agentclaw
+
 CMD ["node", "packages/gateway/dist/index.js"]

@@ -10,7 +10,7 @@
 
 /** Env var name patterns that are considered sensitive */
 const SENSITIVE_PATTERNS =
-  /(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH)(?:_|$)/i;
+  /(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|DSN|WEBHOOK)(?:_|$)/i;
 
 /** Minimum value length to consider for obfuscation (avoid false positives) */
 const MIN_VALUE_LENGTH = 8;

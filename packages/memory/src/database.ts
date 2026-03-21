@@ -320,9 +320,10 @@ function rebuildMemoriesTableIfNeeded(db: DbAdapter): void {
           created_at TEXT NOT NULL DEFAULT (datetime('now')),
           accessed_at TEXT NOT NULL DEFAULT (datetime('now')),
           access_count INTEGER NOT NULL DEFAULT 0,
-          metadata TEXT
+          metadata TEXT,
+          namespace TEXT
         );
-        INSERT INTO memories_new SELECT id, type, content, source_turn_id, importance, embedding, created_at, accessed_at, access_count, metadata FROM memories;
+        INSERT INTO memories_new SELECT id, type, content, source_turn_id, importance, embedding, created_at, accessed_at, access_count, metadata, namespace FROM memories;
         DROP TABLE memories;
         ALTER TABLE memories_new RENAME TO memories;
       `);

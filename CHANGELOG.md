@@ -2,6 +2,28 @@
 
 ## [1.5.4] - 2026-03-21
 
+### 安全修复
+- **SSRF 防护**：web_fetch 新增内网地址过滤（127.0.0.0/8, 10.0.0.0/8, 169.254.0.0/16 等），阻止请求内网/元数据服务
+- **file_read 路径增强**：黑名单改为正则匹配（覆盖所有 .env.* 变体），拦截 /proc/ /sys/ /dev/ 系统路径、SSH 密钥
+- **Trace 敏感信息混淆**：tool_result 写入 trace 前通过 env-obfuscator 替换敏感环境变量值
+- **Shell 沙箱补充**：拦截 printenv/env、cat /proc/、curl/wget 元数据服务；移除错误消息中的沙箱绕过提示
+- **Subagent 回调封堵**：子代理不再继承 sendFile/saveMemory 回调，堵住通过 shell 间接绕过工具黑名单的逃逸路径
+- **MCP 结果消毒**：外部 MCP server 返回内容增加 prompt injection 模式检测和警告标记
+- **记忆注入中文防护**：scanMemoryContent 新增 3 条中文 prompt injection 规则
+- **env-obfuscator 覆盖扩展**：SENSITIVE_PATTERNS 新增 DSN/WEBHOOK 匹配
+
+### 修复
+- **runtimeHints 不生效（P0）**：hintText 在循环外计算后固定不变，三振升级/todo nag/background task 结果全部丢失——改为每次迭代动态 join
+- **namespace 数据丢失（P0）**：rebuildMemoriesTableIfNeeded 重建表时丢失 namespace 列——建表语句和 SELECT 中补入 namespace
+- **QQ Bot Resume 失效（P1）**：resumeUrl 硬编码为空字符串，断线后永远走 Identify——改为从 READY 事件中获取
+- **sanitizeToolPairs block 级清理**：混合 tool_result 消息中的孤立 block 现在被正确过滤，防止 API 拒绝请求
+- **Docker 安全**：非特权用户运行 + .dockerignore 排除 .env/*.pem/*.key
+
+### 优化
+- **MemoryExtractor 频率**：触发间隔从 3 轮改为 8 轮，减少 60% 的独立 LLM 调用
+- **压缩缓存命中**：compressTurns cache key 改为基于 turns 数量而非 tail ID，避免每条新消息触发重复 LLM 压缩
+- **Shell 参数截断**：bash 工具的 command 参数加入 TRUNCATE_ARG 覆盖，减少长脚本占用上下文
+
 ### 清理
 - **死代码删除**：移除 SimplePlanner、WorkflowRunner、types/config.ts（AppConfig）、legacy trigger 系统（TriggerType/SkillTrigger/matchTrigger），共删除 ~800 行无引用代码
 

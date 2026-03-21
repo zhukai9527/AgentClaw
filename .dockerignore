@@ -2,8 +2,9 @@ node_modules/
 dist/
 data/
 .env
-.env.local
-.env.*.local
+.env.*
+*.pem
+*.key
 .git/
 .turbo/
 .vscode/

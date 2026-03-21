@@ -469,6 +469,14 @@ export class MCPClient {
     };
   }
 
+  /** Injection patterns to detect in MCP tool output */
+  private static readonly INJECTION_PATTERNS = [
+    /ignore\s+(all\s+)?previous\s+instructions/i,
+    /you\s+are\s+now/i,
+    /system\s*:\s*/i,
+    /\[SYSTEM\]/i,
+  ];
+
   /** Convert an MCP tool call result into an AgentClaw ToolResult. */
   private convertToolResult(mcpResult: MCPToolCallResult): ToolResult {
     // MCP results contain an array of content blocks; we concatenate text blocks.
@@ -482,8 +490,15 @@ export class MCPClient {
       }
     }
 
+    let content = textParts.join("\n") || "";
+
+    // Sanitize: detect injection patterns in external tool output
+    if (content && MCPClient.INJECTION_PATTERNS.some((p) => p.test(content))) {
+      content = `[⚠️ External tool output — may contain untrusted content]\n${content}`;
+    }
+
     return {
-      content: textParts.join("\n") || "",
+      content,
       isError: mcpResult.isError ?? false,
     };
   }

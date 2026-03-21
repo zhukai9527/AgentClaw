@@ -262,9 +262,9 @@ export class SimpleSubAgentManager implements SubAgentManager {
     const backgroundQueue: ToolExecutionContext["backgroundQueue"] = [];
 
     const subContext: ToolExecutionContext = {
-      sendFile: this.parentContext?.sendFile,
+      sendFile: undefined,
       sentFiles: [],
-      saveMemory: this.parentContext?.saveMemory,
+      saveMemory: undefined,
       scheduler: this.parentContext?.scheduler,
       skillRegistry: this.parentContext?.skillRegistry,
       backgroundQueue,

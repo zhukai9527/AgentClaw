@@ -525,7 +525,7 @@ export class SimpleContextManager implements ContextManager {
     conversationId: string,
     turns: ConversationTurn[],
   ): Promise<string> {
-    const cacheKey = `${conversationId}:${turns[turns.length - 1]?.id ?? turns.length}`;
+    const cacheKey = `${conversationId}:${turns.length}`;
     const cached = this.summaryCache.get(cacheKey);
     if (cached) return cached;
 
@@ -1177,19 +1177,22 @@ export class SimpleContextManager implements ContextManager {
       }
     }
 
-    // 1. Remove tool messages whose tool_call_id has no matching assistant tool_call
-    let result = messages.filter((msg) => {
-      if (msg.role !== "tool" || !Array.isArray(msg.content)) return true;
-      const blocks = msg.content as ContentBlock[];
-      const toolResults = blocks.filter(
-        (b) => (b as ToolResultContent).type === "tool_result",
-      );
-      if (toolResults.length === 0) return true;
-      // Keep only if at least one tool_result has a surviving call
-      return toolResults.some((b) =>
-        survivingCallIds.has((b as ToolResultContent).toolUseId),
-      );
-    });
+    // 1. Remove orphaned tool_result blocks (block-level, not just message-level)
+    //    A multi-result message may contain both surviving and orphaned blocks.
+    let result = messages
+      .map((msg) => {
+        if (msg.role !== "tool" || !Array.isArray(msg.content)) return msg;
+        const blocks = msg.content as ContentBlock[];
+        const filtered = blocks.filter(
+          (b) =>
+            (b as ToolResultContent).type !== "tool_result" ||
+            survivingCallIds.has((b as ToolResultContent).toolUseId),
+        );
+        if (filtered.length === 0) return null;
+        if (filtered.length === blocks.length) return msg;
+        return { ...msg, content: filtered };
+      })
+      .filter((msg): msg is Message => msg !== null);
 
     // 2. Insert stub results for assistant tool_calls whose results were dropped
     const missingResults = new Set<string>();

@@ -19,18 +19,24 @@ export const fileReadTool: Tool = {
     const filePath = resolveFilePath(input.path as string);
 
     // Block reading sensitive files
-    const basename = filePath.replace(/\\/g, "/").split("/").pop() || "";
-    const BLOCKED_FILES = [
-      ".env",
-      ".env.local",
-      ".env.production",
-      "credentials.json",
-      "secrets.json",
+    const BLOCKED_PATTERNS = [
+      /\.env(\.[a-z]+)?$/i, // .env, .env.local, .env.production, .env.staging, etc.
+      /credentials\.json$/i,
+      /secrets?\.json$/i,
+      /\.pem$/i,
+      /\.key$/i,
+      /id_rsa/i,
+      /id_ed25519/i,
+      /\.ssh\/config$/i,
     ];
+    const BLOCKED_PATH_PREFIXES = ["/proc/", "/sys/", "/dev/"];
+    const normalizedPath = filePath.replace(/\\/g, "/");
+    const basename = normalizedPath.split("/").pop() || "";
     if (
-      BLOCKED_FILES.includes(basename) ||
-      basename.endsWith(".pem") ||
-      basename.endsWith(".key")
+      BLOCKED_PATTERNS.some(
+        (p) => p.test(basename) || p.test(normalizedPath),
+      ) ||
+      BLOCKED_PATH_PREFIXES.some((prefix) => normalizedPath.startsWith(prefix))
     ) {
       return {
         content: `Access denied: ${basename} is a sensitive file and cannot be read.`,

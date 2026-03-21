@@ -11,6 +11,13 @@ const MEMORY_THREAT_PATTERNS: Array<[RegExp, string]> = [
     /disregard\s+(your|all|any)\s+(instructions|rules|guidelines)/i,
     "disregard_rules",
   ],
+  // Chinese prompt injection patterns
+  [/忘记.{0,10}(指令|指示|规则|提示)/i, "chinese_prompt_override"],
+  [/从现在起你是/i, "chinese_role_hijack"],
+  [
+    /忽略.{0,10}(之前|以上|所有).{0,10}(指令|指示)/i,
+    "chinese_instruction_override",
+  ],
   // Exfiltration
   [
     /curl\s+[^\n]*\$\{?\w*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API)/i,

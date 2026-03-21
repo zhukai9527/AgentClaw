@@ -51,6 +51,23 @@ const LOGIN_WALL_KEYWORDS = [
   "access denied",
 ];
 
+/** Check if hostname resolves to a private/internal address (SSRF protection) */
+function isPrivateHost(hostname: string): boolean {
+  // Reject localhost variants
+  if (hostname === "localhost" || hostname === "[::1]" || hostname === "0.0.0.0") return true;
+  // IPv4 private ranges
+  const parts = hostname.split(".").map(Number);
+  if (parts.length === 4 && parts.every(n => !isNaN(n))) {
+    if (parts[0] === 127) return true;                    // 127.0.0.0/8
+    if (parts[0] === 10) return true;                     // 10.0.0.0/8
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true; // 172.16.0.0/12
+    if (parts[0] === 192 && parts[1] === 168) return true; // 192.168.0.0/16
+    if (parts[0] === 169 && parts[1] === 254) return true; // 169.254.0.0/16
+    if (parts[0] === 0) return true;                       // 0.0.0.0/8
+  }
+  return false;
+}
+
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const BROWSER_HEADERS: Record<string, string> = {
@@ -167,6 +184,13 @@ export const webFetchTool: Tool = {
     if (!["http:", "https:"].includes(parsedUrl.protocol)) {
       return {
         content: `Unsupported protocol: ${parsedUrl.protocol} — only http and https are supported`,
+        isError: true,
+      };
+    }
+
+    if (isPrivateHost(parsedUrl.hostname)) {
+      return {
+        content: `Blocked: ${parsedUrl.hostname} is a private/internal address`,
         isError: true,
       };
     }

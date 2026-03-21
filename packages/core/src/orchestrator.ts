@@ -27,7 +27,7 @@ import { join } from "node:path";
 import { LRUCache } from "lru-cache";
 
 /** How many user turns between automatic memory extraction runs */
-const EXTRACT_EVERY_N_TURNS = 3;
+const EXTRACT_EVERY_N_TURNS = 8;
 
 export class SimpleOrchestrator implements Orchestrator {
   private sessions = new LRUCache<string, Session>({ max: 10000 });
