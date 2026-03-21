@@ -45,7 +45,7 @@ describe("createBuiltinTools — 内置工具创建", () => {
       expect(names).toContain("update_todo");
       expect(names).toContain("sandbox");
       expect(names).toContain("subagent");
-      expect(names).toContain("browser_cdp");
+      expect(names).toContain("browser");
     });
 
     it("memory=true 应额外加载 remember", () => {

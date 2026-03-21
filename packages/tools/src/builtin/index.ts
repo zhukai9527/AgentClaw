@@ -14,7 +14,7 @@ import { claudeCodeTool } from "./claude-code.js";
 import { updateTodoTool } from "./update-todo.js";
 import { sandboxTool } from "./sandbox.js";
 import { subagentTool } from "./subagent.js";
-import { browserCdpTool } from "./browser-cdp.js";
+import { browserTool } from "./browser.js";
 import { socialPostTool } from "./social-post.js";
 import { handoffTool } from "./handoff.js";
 import { executeCodeTool } from "./execute-code.js";
@@ -36,7 +36,7 @@ export { scheduleTool } from "./schedule.js";
 export { rememberTool } from "./remember.js";
 export { sandboxTool } from "./sandbox.js";
 export { subagentTool } from "./subagent.js";
-export { browserCdpTool } from "./browser-cdp.js";
+export { browserTool } from "./browser.js";
 export { socialPostTool } from "./social-post.js";
 export { handoffTool } from "./handoff.js";
 export { executeCodeTool } from "./execute-code.js";
@@ -80,7 +80,7 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
       updateTodoTool,
       sandboxTool,
       subagentTool,
-      browserCdpTool,
+      browserTool,
       socialPostTool,
       handoffTool,
       executeCodeTool,
