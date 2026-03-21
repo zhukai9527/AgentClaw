@@ -300,7 +300,7 @@ function buildFailKey(
 ): string {
   // Include distinguishing parameter so a corrected call isn't blocked
   if (toolName === "bash" && typeof toolInput?.command === "string") {
-    return `bash:${toolInput.command.slice(0, 80)}`;
+    return `bash:${toolInput.command.slice(0, 200)}`;
   }
 
   // file_read on overflow files: normalize to just "overflow_read" so

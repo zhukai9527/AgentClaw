@@ -59,14 +59,14 @@ The script auto-detects URLs and handles: CC subtitle download → audio/video d
 | Parameter | Description | Default |
 |---|---|---|
 | `-o, --output` | Output file path | auto-generated |
-| `-l, --language` | Source language | `en` |
+| `-l, --language` | Source language (auto-detected by Whisper if omitted) | auto-detect |
 | `-t, --target` | Target language | `zh-CN` |
 | `-m, --model` | Whisper model (tiny/base/small/medium/large) | `small` |
 | `--fontsize` | Subtitle font size | `14` |
 | `--margin` | Bottom margin | `25` |
 | `--srt-only` | Generate subtitle file only, skip video encoding | - |
 | `--chinese-only` | Output Chinese subtitles only | - |
-| `--source-only` | Output source language subtitles only (no translation) | - |
+| `--source-only` | Output source language subtitles only, skip translation entirely | - |
 | `--karaoke` | Karaoke mode with word-level highlight | - |
 | `--no-speech-threshold` | Filter non-speech segments (0-1) | `0.6` |
 
@@ -76,5 +76,5 @@ The script auto-detects URLs and handles: CC subtitle download → audio/video d
 - The ONLY script is `skills/bilingual-subtitle/scripts/process.py`. No other scripts should be called directly.
 - timeout: 300000 (5min) for local files with --srt-only, 600000 (10min) for URLs or video encoding.
 - GPU auto-detected: NVIDIA CUDA > Apple Silicon mlx > CPU int8. No config needed.
-- For Chinese source videos, use `-l zh` to set source language.
+- Source language is auto-detected by Whisper. Use `-l` only to override (e.g., `-l zh` to force Chinese). If source and target language match, translation is automatically skipped.
 - Do NOT run yt-dlp separately. The script handles URL downloading internally.

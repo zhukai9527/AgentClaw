@@ -175,12 +175,12 @@ def write_srt(blocks, output):
 
 # ============== 步骤 1: 提取字幕 ==============
 
-def extract_subtitles(video, output, language='en', model='small', word_timestamps=False, no_speech_threshold=0.6):
-    """使用 Whisper 提取字幕，自动检测硬件"""
+def extract_subtitles(video, output, language=None, model='small', word_timestamps=False, no_speech_threshold=0.6):
+    """使用 Whisper 提取字幕，自动检测硬件。返回 (segments, detected_language)"""
     step_start = time.time()
     print(f'\n[1/4] 提取字幕...')
     print(f'  视频: {video}')
-    print(f'  语言: {language}, 模型: {model}')
+    print(f'  语言: {language or "自动检测"}, 模型: {model}')
     print(f'  VAD 过滤: 已启用')
     if word_timestamps:
         print(f'  词级时间戳: 已启用')
@@ -204,8 +204,10 @@ def extract_subtitles(video, output, language='en', model='small', word_timestam
                     filtered_count += 1
                     continue
                 segments.append(seg)
+            detected_lang = result.get('language', language or 'en')
+            print(f'  检测到语言: {detected_lang}')
             print(f'  提取 {len(segments)} 条字幕（过滤 {filtered_count} 条非语音），耗时 {format_duration(time.time() - step_start)}')
-            return segments
+            return segments, detected_lang
         except ImportError:
             pass
 
@@ -216,7 +218,7 @@ def extract_subtitles(video, output, language='en', model='small', word_timestam
             from faster_whisper import WhisperModel
             print(f'  引擎: faster-whisper (CUDA GPU: {torch.cuda.get_device_name(0)})')
             whisper_model = WhisperModel(model, device='cuda', compute_type='float16')
-            segs, _ = whisper_model.transcribe(
+            segs, info = whisper_model.transcribe(
                 video,
                 language=language,
                 word_timestamps=word_timestamps,
@@ -232,8 +234,10 @@ def extract_subtitles(video, output, language='en', model='small', word_timestam
                 if word_timestamps and s.words:
                     seg['words'] = [{'start': w.start, 'end': w.end, 'word': w.word} for w in s.words]
                 segments.append(seg)
+            detected_lang = info.language if hasattr(info, 'language') else (language or 'en')
+            print(f'  检测到语言: {detected_lang}')
             print(f'  提取 {len(segments)} 条字幕（过滤 {filtered_count} 条非语音），耗时 {format_duration(time.time() - step_start)}')
-            return segments
+            return segments, detected_lang
     except ImportError:
         pass
 
@@ -242,7 +246,7 @@ def extract_subtitles(video, output, language='en', model='small', word_timestam
         from faster_whisper import WhisperModel
         print('  引擎: faster-whisper (CPU int8)')
         whisper_model = WhisperModel(model, compute_type='int8')
-        segs, _ = whisper_model.transcribe(
+        segs, info = whisper_model.transcribe(
             video,
             language=language,
             word_timestamps=word_timestamps,
@@ -258,8 +262,10 @@ def extract_subtitles(video, output, language='en', model='small', word_timestam
             if word_timestamps and s.words:
                 seg['words'] = [{'start': w.start, 'end': w.end, 'word': w.word} for w in s.words]
             segments.append(seg)
+        detected_lang = info.language if hasattr(info, 'language') else (language or 'en')
+        print(f'  检测到语言: {detected_lang}')
         print(f'  提取 {len(segments)} 条字幕（过滤 {filtered_count} 条非语音），耗时 {format_duration(time.time() - step_start)}')
-        return segments
+        return segments, detected_lang
     except ImportError:
         pass
 
@@ -314,7 +320,7 @@ def translate_single(text, source='en', target='zh-CN'):
         return text
 
 def translate_subtitles(segments, source='en', target='zh-CN', batch_size=10):
-    """批量翻译字幕"""
+    """批量翻译字幕。连续 3 批全部失败时放弃翻译，返回 None。"""
     step_start = time.time()
     print(f'\n[2/4] 翻译字幕...')
     print(f'  语言: {source} -> {target}')
@@ -322,6 +328,7 @@ def translate_subtitles(segments, source='en', target='zh-CN', batch_size=10):
 
     texts = [s['text'].strip() for s in segments]
     translated = []
+    consecutive_failures = 0
 
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i+batch_size]
@@ -332,8 +339,14 @@ def translate_subtitles(segments, source='en', target='zh-CN', batch_size=10):
         result = translate_batch(batch, source, target)
         if result and len(result) == len(batch):
             translated.extend([r.strip() for r in result])
+            consecutive_failures = 0
             print('完成')
         else:
+            consecutive_failures += 1
+            if consecutive_failures >= 3:
+                print('失败')
+                print('  警告: 翻译服务不可用，输出纯源语言字幕')
+                return None
             print('批量失败，逐条翻译')
             for text in batch:
                 translated.append(translate_single(text, source, target))
@@ -629,7 +642,7 @@ def is_url(s):
     """检查是否为 URL"""
     return s.startswith('http://') or s.startswith('https://')
 
-def download_from_url(url, output_dir, srt_only=False, language='en'):
+def download_from_url(url, output_dir, srt_only=False, language=None):
     """
     从 URL 下载视频/音频，智能选择最优策略：
     1. 先尝试下载 CC 字幕（最快，跳过 Whisper）
@@ -643,7 +656,10 @@ def download_from_url(url, output_dir, srt_only=False, language='en'):
     os.makedirs(output_dir, exist_ok=True)
 
     # 映射语言代码到 yt-dlp 字幕语言
-    sub_langs = 'en,zh*' if language in ('en', 'zh') else f'{language},en,zh*'
+    if language is None or language in ('en', 'zh'):
+        sub_langs = 'en,zh*'
+    else:
+        sub_langs = f'{language},en,zh*'
 
     # Step 1: 尝试下载 CC 字幕
     print(f'  尝试获取 CC 字幕...')
@@ -739,7 +755,7 @@ def main():
     )
     parser.add_argument('video', help='输入视频文件或 URL')
     parser.add_argument('-o', '--output', help='输出文件路径')
-    parser.add_argument('-l', '--language', default='en', help='源语言 (默认: en)')
+    parser.add_argument('-l', '--language', default=None, help='源语言 (默认: 自动检测)')
     parser.add_argument('-t', '--target', default='zh-CN', help='目标语言 (默认: zh-CN)')
     parser.add_argument('-m', '--model', default='small', help='Whisper 模型 (默认: small)')
     parser.add_argument('--fontsize', type=int, default=14, help='字幕字号 (默认: 14)')
@@ -778,7 +794,7 @@ def main():
             # 已有 CC 字幕且只需 SRT → 直接输出，跳过 Whisper
             best = cc_srt_files[0]
             for f in cc_srt_files:
-                if args.language in os.path.basename(f):
+                if args.language and args.language in os.path.basename(f):
                     best = f
                     break
 
@@ -847,14 +863,34 @@ def main():
     print(f'输出: {subtitle_output if args.srt_only else video_output}')
 
     # 步骤 1: 提取
-    segments = extract_subtitles(args.video, None, args.language, args.model, word_timestamps=args.karaoke, no_speech_threshold=args.no_speech_threshold)
+    segments, detected_lang = extract_subtitles(args.video, None, args.language, args.model, word_timestamps=args.karaoke, no_speech_threshold=args.no_speech_threshold)
 
-    # 步骤 2: 翻译（source_only 或 karaoke 模式跳过）
+    # 用检测到的语言作为翻译源语言（用户显式指定的优先）
+    source_lang = args.language or detected_lang
+
+    # 判断是否需要跳过翻译：源语言和目标语言相同
+    # 语言代码归一化：zh-CN/zh-TW/zh 都视为中文
+    def _lang_family(code):
+        if code and code.lower().startswith('zh'):
+            return 'zh'
+        return (code or '').lower().split('-')[0]
+
+    skip_translation = _lang_family(source_lang) == _lang_family(args.target)
+
+    # 步骤 2: 翻译（source_only / karaoke / 源目标语言相同时跳过）
     if args.source_only or args.karaoke:
         print(f'\n[2/4] 跳过翻译（仅原文模式）')
         translated = []
+    elif skip_translation:
+        print(f'\n[2/4] 跳过翻译（检测到源语言 {source_lang} 与目标语言 {args.target} 相同）')
+        args.source_only = True
+        translated = []
     else:
-        translated = translate_subtitles(segments, args.language, args.target)
+        translated = translate_subtitles(segments, source_lang, args.target)
+        # 翻译服务不可用时回退到纯源语言字幕
+        if translated is None:
+            args.source_only = True
+            translated = []
 
     # 步骤 3: 生成字幕
     if args.karaoke:
