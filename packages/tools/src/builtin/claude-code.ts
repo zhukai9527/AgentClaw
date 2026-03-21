@@ -232,6 +232,13 @@ export const claudeCodeTool: Tool = {
     let timeout = (input.timeout as number) ?? DEFAULT_TIMEOUT;
     if (timeout > 0 && timeout < 1000) timeout *= 1000;
 
-    return runClaudeCode(prompt, cwd, timeout, context);
+    // Retry once on ENOENT — Windows intermittently fails to spawn cmd.exe
+    const result = await runClaudeCode(prompt, cwd, timeout, context);
+    if (result.isError && result.content.includes("ENOENT")) {
+      console.log("[claude_code] ENOENT on first attempt, retrying...");
+      await new Promise((r) => setTimeout(r, 1000));
+      return runClaudeCode(prompt, cwd, timeout, context);
+    }
+    return result;
   },
 };
