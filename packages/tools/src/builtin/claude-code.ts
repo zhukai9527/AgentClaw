@@ -190,7 +190,7 @@ async function runClaudeCode(
 
     child.on("error", (err) => {
       resolve({
-        content: `Failed to spawn claude CLI: ${err.message}\nMake sure 'claude' is installed globally: npm install -g @anthropic-ai/claude-code`,
+        content: `Failed to spawn claude CLI: ${err.message}\nClaude Code is temporarily unavailable. Use other tools (bash, file_write, etc.) to complete the task instead.`,
         isError: true,
       });
     });
