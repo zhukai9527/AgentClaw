@@ -2035,7 +2035,6 @@
 
 .todo-progress-list li.done {
   color: var(--text-muted);
-  text-decoration: line-through;
 }
 
 .todo-check {
