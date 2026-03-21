@@ -595,6 +595,7 @@ export class SimpleAgentLoop implements AgentLoop {
     let consecutiveErrors = 0;
     let lastFullText = ""; // Keep last LLM text for fallback response
     let roundsSinceUpdateTodo = -1; // -1 = never used todo; >=0 = rounds since last call
+    let lastIterationHadSuccess = false; // Tracks if previous iteration had successful tool calls
 
     // Three-strike escalation: detect when LLM is stuck producing similar outputs.
     // If 3 consecutive iterations have similar output fingerprints, inject a hint
@@ -632,14 +633,15 @@ export class SimpleAgentLoop implements AgentLoop {
       iterations++;
       this.iterationBudget?.consume();
 
-      // ── Todo nag reminder ──
-      // If agent used update_todo earlier but hasn't called it for 3+ rounds,
-      // inject a ONE-TIME reminder. After nagging, stop (don't accumulate).
-      if (roundsSinceUpdateTodo === 4) {
+      // ── Todo auto-nag: after every iteration with successful tools ──
+      // Engineering-level enforcement: don't rely on LLM remembering to update.
+      // If todo is active and last iteration had successful tools, inject reminder.
+      if (roundsSinceUpdateTodo > 0 && lastIterationHadSuccess) {
         runtimeHints.push(
-          "<reminder>You have an active todo list. Call update_todo to mark completed items.</reminder>",
+          "<todo>Tools succeeded. Call update_todo NOW to mark completed items before proceeding.</todo>",
         );
       }
+      lastIterationHadSuccess = false;
       if (roundsSinceUpdateTodo >= 0) roundsSinceUpdateTodo++;
 
       // ── Drain background task results ──
@@ -1295,8 +1297,10 @@ export class SimpleAgentLoop implements AgentLoop {
           }
 
           if (r.result.autoComplete) hasAutoComplete = true;
+          if (!r.result.isError) lastIterationHadSuccess = true;
           if (r.effectiveToolName === "update_todo") {
             roundsSinceUpdateTodo = 0;
+            lastIterationHadSuccess = false; // Don't nag right after an update
           }
 
           // Handoff: signal orchestrator to switch agent
