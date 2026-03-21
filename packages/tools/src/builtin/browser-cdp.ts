@@ -148,35 +148,44 @@ async function ensureBrowser(): Promise<any> {
     const contexts = browser.contexts();
     if (contexts.length === 0) throw new Error("No contexts available");
   } catch {
-    // Launch new Chrome instance with remote debugging
+    // CDP not available — launch standalone Playwright Chromium (no Chrome needed).
+    // This works on any platform without configuration.
+    // To use your Chrome login state, either:
+    //   1. Start Chrome with --remote-debugging-port=9222 (auto-detected above)
+    //   2. Use save_state/load_state to manage cookies
     const headless = isHeadlessEnvironment();
-    const launchArgs = [
-      `--remote-debugging-port=${debugPort}`,
-      `--user-data-dir=${PROFILE_DIR}`,
-      ...COMMON_ARGS,
-      ...(headless ? HEADLESS_ARGS : []),
-      "about:blank",
-    ];
-    if (headless) {
-      console.log(
-        "[browser_cdp] No display detected — launching Chrome in headless mode",
-      );
-    }
-    execFileAsync(chromePath, launchArgs, { windowsHide: false }).catch(() => {
-      /* Chrome stays running */
-    });
+    console.log(
+      `[browser_cdp] CDP port ${debugPort} not available — launching standalone Chromium (headless=${headless})`,
+    );
 
-    for (let i = 0; i < 10; i++) {
-      await new Promise((r) => setTimeout(r, 500));
-      try {
-        browser = await pw.chromium.connectOverCDP(
-          `http://127.0.0.1:${debugPort}`,
-        );
-        break;
-      } catch {
-        if (i === 9)
-          throw new Error("Failed to connect to Chrome via CDP after 5s");
-      }
+    // Check for saved state to auto-load
+    const defaultStatePath = join(STATES_DIR, "default.json").replace(
+      /\\/g,
+      "/",
+    );
+    const hasDefaultState = existsSync(defaultStatePath);
+
+    browser = await pw.chromium.launch({
+      headless,
+      args: [
+        ...COMMON_ARGS,
+        ...(headless
+          ? [
+              "--no-sandbox",
+              "--disable-gpu",
+              "--disable-dev-shm-usage",
+              "--disable-setuid-sandbox",
+            ]
+          : []),
+      ],
+    });
+    defaultContext = hasDefaultState
+      ? await browser.newContext({ storageState: defaultStatePath })
+      : await browser.newContext();
+    activePage = await defaultContext.newPage();
+
+    if (hasDefaultState) {
+      console.log("[browser_cdp] Loaded saved state: default.json");
     }
   }
 
