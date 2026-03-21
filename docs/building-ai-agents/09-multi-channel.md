@@ -2,7 +2,7 @@
 
 *Part 9 of "Building AI Agent Frameworks" — a series on the engineering behind autonomous AI agents.*
 
-*By Jaro & Claude | March 2026*
+*By Rosibo & Claude | March 2026*
 
 ---
 

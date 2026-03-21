@@ -2,7 +2,7 @@
 
 A 10-part series on the engineering behind autonomous AI agents.
 
-By **Jaro & Claude** | 2026
+By **Rosibo & Claude** | 2026
 
 ---
 
@@ -11,15 +11,15 @@ By **Jaro & Claude** | 2026
 | # | Title | Status |
 |---|-------|--------|
 | 1 | [Your AI Agent Will Run Forever Unless You Build These 5 Safety Nets](./01-the-agent-loop.md) | **Published** |
-| 2 | Tool System Design: Give Your Agent Hands | Planned |
-| 3 | Context is All You Have: Managing the Window | Planned |
-| 4 | [Memory Beyond the Context Window](./04-memory-architecture.md) | **Published** |
-| 5 | [The Token Economy: Cut Your Bill by 60%](./05-the-token-economy.md) | **Published** |
-| 6 | [When LLMs Fail: Error Handling at Scale](./06-when-llms-fail.md) | **Published** |
-| 7 | Security: Your Agent is an Attack Surface | Planned |
-| 8 | [Giving Agents Eyes: Browser Automation](./08-browser-automation.md) | **Published** |
-| 9 | [Multi-Channel Delivery: One Brain, Many Mouths](./09-multi-channel.md) | **Published** |
-| 10 | [Production Readiness: From Demo to Deployment](./10-production-readiness.md) | **Published** |
+| 2 | [22 Tools, 40,000 Tool Calls, and the 5 Failure Modes Nobody Warns You About](./02-tool-system-design.md) | **Published** |
+| 3 | [128K Tokens Sounded Like Infinity. Then Our Agent Forgot on Turn 12.](./03-context-management.md) | **Published** |
+| 4 | [Your Agent Has Amnesia. Every Single Conversation.](./04-memory-architecture.md) | **Published** |
+| 5 | [We Were Burning $4,200/Month on LLM Tokens. Here's Where They Went.](./05-the-token-economy.md) | **Published** |
+| 6 | [Every LLM Call Can Fail. Here's What Happens When You Plan for It.](./06-when-llms-fail.md) | **Published** |
+| 7 | [Your AI Agent Has Root Access. Who Else Does?](./07-security.md) | **Published** |
+| 8 | [Your Agent Can't See the Web. Here's What It Sees Instead.](./08-browser-automation.md) | **Published** |
+| 9 | [Seven Platforms, One Codebase: Why Multi-Channel AI Agents Break](./09-multi-channel.md) | **Published** |
+| 10 | [It Worked on My Laptop. Then the First User Broke It.](./10-production-readiness.md) | **Published** |
 
 ---
 
