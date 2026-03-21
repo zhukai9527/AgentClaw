@@ -2569,38 +2569,6 @@ export function ChatPage() {
             </div>
           )}
 
-          {/* Todo progress card */}
-          {todoItems.length > 0 && (
-            <div className="todo-progress-card">
-              <div className="todo-progress-header">
-                <span className="todo-progress-label">
-                  {t("chat.progress")}
-                </span>
-                <span className="todo-progress-count">
-                  {todoItems.filter((i) => i.done).length}/{todoItems.length}
-                </span>
-              </div>
-              <div className="todo-progress-bar">
-                <div
-                  className="todo-progress-fill"
-                  style={{
-                    width: `${(todoItems.filter((i) => i.done).length / todoItems.length) * 100}%`,
-                  }}
-                />
-              </div>
-              <ul className="todo-progress-list">
-                {todoItems.map((item, i) => (
-                  <li key={i} className={item.done ? "done" : ""}>
-                    <span className="todo-check">
-                      {item.done ? "\u2713" : "\u25CB"}
-                    </span>
-                    <span>{item.text}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
           {/* Body: chat main + optional preview panel */}
           <div className="chat-body">
             <div className="chat-main">
@@ -2949,6 +2917,37 @@ export function ChatPage() {
                         )}
                       </div>
                     ))}
+                    {/* Todo progress card — rendered inline after last message */}
+                    {todoItems.length > 0 && (
+                      <div className="todo-progress-card">
+                        <div className="todo-progress-header">
+                          <span className="todo-progress-label">
+                            {t("chat.progress")}
+                          </span>
+                          <span className="todo-progress-count">
+                            {todoItems.filter((i) => i.done).length}/{todoItems.length}
+                          </span>
+                        </div>
+                        <div className="todo-progress-bar">
+                          <div
+                            className="todo-progress-fill"
+                            style={{
+                              width: `${(todoItems.filter((i) => i.done).length / todoItems.length) * 100}%`,
+                            }}
+                          />
+                        </div>
+                        <ul className="todo-progress-list">
+                          {todoItems.map((item, i) => (
+                            <li key={i} className={item.done ? "done" : ""}>
+                              <span className="todo-check">
+                                {item.done ? "\u2713" : "\u25CB"}
+                              </span>
+                              <span>{item.text}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                     <div ref={messagesEndRef} />
                   </div>
                 </div>
