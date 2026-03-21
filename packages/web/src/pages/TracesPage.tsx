@@ -491,6 +491,76 @@ function groupTraces(items: TraceInfo[]): (TraceInfo | TraceGroup)[] {
   return result;
 }
 
+function CopySessionButton({
+  conversationId,
+  traceIds,
+}: {
+  conversationId: string;
+  traceIds: string[];
+}) {
+  const [copied, setCopied] = useState(false);
+  const { t } = useTranslation();
+
+  const handleCopy = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const apiKey = getStoredApiKey();
+      const origin = window.location.origin;
+      const qs = apiKey ? `?api_key=${encodeURIComponent(apiKey)}` : "";
+      const urls = traceIds
+        .map((id) => `${origin}/api/traces/${id}${qs}`)
+        .join("\n");
+      const text = `Session: ${conversationId}\n${urls}`;
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+    },
+    [conversationId, traceIds],
+  );
+
+  return (
+    <button
+      className="trace-copy-btn"
+      onClick={handleCopy}
+      title={
+        copied
+          ? t("traces.urlCopied")
+          : t("traces.copySessionUrls", "Copy session trace URLs")
+      }
+    >
+      {copied ? (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path
+            d="M3 8.5L6.5 12L13 4"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <rect
+            x="5"
+            y="5"
+            width="9"
+            height="9"
+            rx="1.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
+          <path
+            d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 function TraceGroupCard({ group }: { group: TraceGroup }) {
   const [expanded, setExpanded] = useState(false);
   const { t } = useTranslation();
@@ -522,6 +592,10 @@ function TraceGroupCard({ group }: { group: TraceGroup }) {
           <span className="trace-time">
             {formatDateTime(lastTrace.createdAt)}
           </span>
+          <CopySessionButton
+            conversationId={group.conversationId}
+            traceIds={group.traces.map((tr) => tr.id)}
+          />
         </div>
       </div>
 
