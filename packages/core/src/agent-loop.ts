@@ -1492,8 +1492,18 @@ export class SimpleAgentLoop implements AgentLoop {
         context.sentFiles.length = 0;
       }
 
-      // Auto-complete: tool signaled that no further LLM call is needed
-      if (hasAutoComplete && iterationErrorCount === 0) {
+      // Auto-complete: skip further LLM calls only when ALL tools in this
+      // iteration are auto-send type. If any other tool ran (web_search, bash
+      // without auto_send, etc.), the LLM likely has more work to do.
+      const allToolsAreAutoSend =
+        hasAutoComplete &&
+        allExecResults.every(
+          (r) =>
+            r.result.autoComplete ||
+            r.effectiveToolName === "send_file" ||
+            r.effectiveToolName === "update_todo",
+        );
+      if (allToolsAreAutoSend && iterationErrorCount === 0) {
         const durationMs = Date.now() - startTime;
 
         // Build response from sent files
