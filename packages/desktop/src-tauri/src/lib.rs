@@ -16,6 +16,37 @@ fn get_data_dir() -> std::path::PathBuf {
         .join("agentclaw")
 }
 
+/// 首次启动时从 app bundle 复制默认 agents 到用户数据目录
+fn seed_default_agents(app: &tauri::AppHandle) {
+    let data_dir = get_data_dir();
+    let agents_dir = data_dir.join("agents");
+    if agents_dir.exists() && std::fs::read_dir(&agents_dir).map(|mut d| d.next().is_some()).unwrap_or(false) {
+        return; // 已有 agents，跳过
+    }
+    // 从 resources 复制
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let src = resource_dir.join("data").join("agents");
+        if src.exists() {
+            copy_dir_recursive(&src, &agents_dir);
+            println!("[desktop] Seeded default agents from bundle");
+        }
+    }
+}
+
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
+    let _ = std::fs::create_dir_all(dst);
+    if let Ok(entries) = std::fs::read_dir(src) {
+        for entry in entries.flatten() {
+            let dest = dst.join(entry.file_name());
+            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                copy_dir_recursive(&entry.path(), &dest);
+            } else {
+                let _ = std::fs::copy(entry.path(), &dest);
+            }
+        }
+    }
+}
+
 /// 启动 gateway sidecar
 fn start_sidecar(app: &tauri::AppHandle) -> Result<tauri_plugin_shell::process::CommandChild, String> {
     let data_dir = get_data_dir();
@@ -82,6 +113,9 @@ pub fn run() {
         .setup(|app| {
             // 创建系统托盘
             tray::create_tray(app.handle())?;
+
+            // 首次启动时复制默认 agents
+            seed_default_agents(app.handle());
 
             // 启动 sidecar
             let handle = app.handle().clone();
