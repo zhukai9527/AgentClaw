@@ -14,7 +14,8 @@
 
 ### 新功能
 - **纯文本文件预览**：txt/srt/vtt/json/log/xml/yaml/py/js/ts/sh 等 30+ 种文本格式支持侧栏预览，代码类文件带 Prism 语法高亮和行号
-- **企业微信 MCP 自动发现**：WebSocket 连接成功后自动从企业微信拉取 MCP 配置（文档、表格等），动态注册为 AgentClaw 工具，LLM 可直接调用创建文档/表格
+- **企业微信 MCP 自动发现**：WebSocket 连接成功后自动从企业微信拉取 MCP 配置（文档、表格等 8 个工具），动态注册为 AgentClaw 工具
+- **MCP HTTP 客户端 Accept 头修复**：添加 `text/event-stream` 支持 Streamable HTTP 协议，解决企业微信 MCP Server 返回 406 的问题
 
 ## [1.5.5] - 2026-03-21
 

@@ -110,11 +110,17 @@ async function registerWeComMcp(
   for (const category of WECOM_MCP_CATEGORIES) {
     try {
       const reqId = generateReqId("mcp_config");
-      const response = await client.reply(
-        { headers: { req_id: reqId } },
-        { biz_type: category },
-        "aibot_get_mcp_config",
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("MCP config fetch timed out (15s)")), 15000),
       );
+      const response = await Promise.race([
+        client.reply(
+          { headers: { req_id: reqId } },
+          { biz_type: category },
+          "aibot_get_mcp_config",
+        ),
+        timeoutPromise,
+      ]);
       const body = (response as { body?: { url?: string } }).body;
       if (!body?.url) {
         console.warn(`[wecom] MCP config for "${category}": no url returned`);

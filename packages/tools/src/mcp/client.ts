@@ -363,7 +363,10 @@ export class MCPClient {
     const url = this.config.url!;
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
       body: JSON.stringify(message),
     });
 
@@ -387,7 +390,10 @@ export class MCPClient {
     const url = this.config.url!;
     await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
       body: JSON.stringify(message),
     });
   }

@@ -36,7 +36,7 @@ if (-not $NoBuild) {
 
 # 3. 后台启动 gateway
 Write-Host "[3/3] Starting gateway..." -ForegroundColor Green
-Start-Process -FilePath "node" -ArgumentList "packages/gateway/dist/index.js" -WindowStyle Hidden
+Start-Process -FilePath "node" -ArgumentList "packages/gateway/dist/index.js" -WindowStyle Hidden -RedirectStandardOutput "data/gateway-stdout.log" -RedirectStandardError "data/gateway-debug.log"
 
 # 轮询等待启动（最多 10 秒）
 for ($i = 0; $i -lt 20; $i++) {
