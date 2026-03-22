@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "tauri dev",
-    "build:desktop": "tauri build",
+    "build:sidecar": "bun run build-sidecar.ts",
+    "build:desktop": "bun run build-sidecar.ts && tauri build",
     "tauri": "tauri"
   },
   "devDependencies": {
