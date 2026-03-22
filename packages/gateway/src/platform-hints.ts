@@ -9,7 +9,7 @@ export const PLATFORM_HINTS: Record<string, string> = {
   qq: "你在 QQ Bot 渠道。支持少量 Markdown。消息请简短。",
   dingtalk: "你在钉钉渠道。支持 Markdown 格式。",
   feishu: "你在飞书渠道。支持富文本和 Markdown。",
-  wecom: "你在企业微信渠道。不要使用 Markdown 格式。消息请简短。",
+  wecom: "你在企业微信渠道。支持 Markdown 格式。创建文档/表格时必须使用 wecom_doc__ 开头的工具（如 wecom_doc__create_doc），不要用 file_write 生成文件。",
   ws: "", // WebSocket 客户端（Web UI），不需要特殊提示
   cli: "你在命令行终端。使用纯文本输出，避免过多 Markdown 格式。",
 };
