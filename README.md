@@ -20,10 +20,10 @@ AgentClaw Hive（Agent 托管平台）
   │
   ├── LLM 提供商 (Claude, OpenAI, Gemini, DeepSeek, Kimi, Qwen, Doubao...)
   ├── 智能路由 (自动故障切换, Fast Provider 路由)
-  ├── 核心工具 (shell, file_read, file_write, file_edit, glob, grep, ask_user, web_fetch, web_search)
+  ├── 核心工具 (shell, file_read/write/edit, glob, grep, ask_user, web_fetch, web_search, context_search, compact)
   ├── 条件工具 (send_file, schedule, remember, use_skill, execute_code, sandbox, subagent, browser_cdp...)
   ├── 记忆 (对话历史 + 长期记忆 + 自动压缩 + namespace 隔离)
-  ├── 技能 x16 (browser, gws-calendar/gmail/drive/sheets/tasks, pdf, docx, xlsx, pptx...)
+  ├── 技能 x12 (gws-calendar/gmail/drive/sheets/tasks, pdf, docx, xlsx, pptx, bilingual-subtitle...)
   ├── 子代理 (并行任务派发与汇总)
   ├── 工具钩子 (before/after 拦截 + allow/deny 策略)
   └── MCP 集成 (外部工具服务器)
@@ -49,13 +49,13 @@ agentclaw/
 │   ├── providers/   — LLM 适配器 (Claude, OpenAI兼容, Gemini) + FailoverProvider
 │   ├── tools/       — 工具注册表 + 分层内置工具 + MCP 客户端
 │   ├── memory/      — SQLite 持久化 (会话/消息/记忆/Traces/Token日志)
-│   ├── core/        — Agent Loop + Orchestrator + Planner + ContextManager + SkillRegistry
+│   ├── core/        — Agent Loop + Orchestrator + ContextManager + SkillRegistry
 │   ├── gateway/     — Fastify HTTP/WS + 多渠道 Bot + 定时调度 + TaskManager
 │   ├── cli/         — 终端交互式对话
 │   ├── web/         — React 19 + Vite 前端
 │   └── desktop/     — Tauri v2 桌面客户端 (Windows/macOS/Linux)
-├── skills/          — 16 个技能定义 (SKILL.md)
-├── docs/            — 架构文档 + 路线图
+├── skills/          — 12 个技能定义 (SKILL.md)
+├── docs/            — 架构文档 + 路线图 + 技术文章系列
 └── data/            — 运行时数据 (部分 gitignored)
     └── agents/      — Agent 人格配置 (config.json + SOUL.md)
 ```
@@ -152,14 +152,19 @@ POST /api/v1/agents/:id/sessions/:sid/chat # 会话内对话
 - **企业微信** — WebSocket 模式，@wecom/aibot-node-sdk
 - **REST API** — 会话、消息、Traces、Token 日志、配置、记忆
 
-### 模型 Failover
-配置多个 LLM API Key 时自动按优先级尝试，主 provider 失败后无缝切换备用 provider，失败 provider 进入 60 秒冷却期。
+### 模型 Failover + 错误分类
+配置多个 LLM API Key 时自动按优先级尝试。7 类错误自动分类（auth/quota/rate_limit/overloaded/server_error/config/network），按类型决定冷却时间（429→60s, 503→15s），冷却中的模型降优先级而非移除。三振升级机制检测模型卡住（连续 3 次相似输出），自动注入策略变更提示。
 
-### 安全执行
-- **Shell 沙箱**：拦截不可逆破坏性命令（`rm -rf /`、`shutdown`、`format`、fork bomb 等），`SHELL_SANDBOX=false` 可禁用
-- **Docker 沙箱**：`sandbox` 工具在 Docker 容器内执行命令，资源限制（512MB/1CPU），超时控制，自动清理
-- **Memory 内容审查**：remember 工具写入前扫描 prompt injection、隐形 unicode 和凭证窃取 payload，拦截恶意记忆注入
-- **系统提示词裁剪**：agent 有工具白名单时，自动移除提示词中引用不可用工具的规则，防止 LLM 从提示词"发现"不可用工具
+### 安全纵深防御
+- **Shell 沙箱**：拦截不可逆破坏性命令 + printenv/env + 元数据服务地址
+- **SSRF 防护**：web_fetch 拦截内网地址（127/10/172.16/192.168/169.254）
+- **路径遍历防护**：file_read 正则黑名单拦截 .env.*/SSH 密钥/proc/sys 系统路径
+- **Trace 混淆**：工具结果写入 trace 前通过 env-obfuscator 替换敏感环境变量值
+- **Subagent 封堵**：工具黑名单 + sendFile/saveMemory 回调不透传子代理
+- **MCP 消毒**：外部 MCP server 返回内容检测 prompt injection 并标记
+- **Memory 审查**：remember 写入前扫描 prompt injection（含中文）、隐形 unicode、凭证窃取
+- **Docker 沙箱**：sandbox 工具在容器内执行，资源限制（512MB/1CPU），超时控制
+- **系统提示词裁剪**：agent 有工具白名单时，自动移除引用不可用工具的规则
 
 ### Agent Handoff（代理交接）
 对话中 Agent 可通过 `handoff` 工具将对话交给更合适的专家 Agent 继续处理。交接后保留完整对话历史，目标 Agent 使用自己的人格、模型和工具集继续响应。最多 3 次连续交接防止循环。
@@ -178,8 +183,12 @@ POST /api/v1/agents/:id/sessions/:sid/chat # 会话内对话
 ### 长期记忆
 自动从对话中提取事实、偏好、实体、经验，去重存储，上下文中自动注入相关记忆。按 agent 命名空间隔离，Web UI 支持按 agent 筛选管理。
 
-### 对话压缩
-超过 20 轮对话后自动调用 LLM 生成摘要，减少 token 消耗。压缩时自动保护 tool_call/tool_result 配对完整性，防止 API 报错。
+### 上下文压缩（多层流水线）
+- **L6 观察压缩**：旧 tool_result 智能提取错误行/状态/JSON 关键字段（80-95% token 节省）
+- **L2+L5 基础压缩**：空白规范化 + JSON minify，所有 tool_result 自动应用
+- **三层摘要瀑布**：LLM 正常 → LLM 低温 → 确定性截断（永远成功）
+- **Tool pair 保护**：压缩后自动修复孤立的 tool_call/tool_result（block 级清理）
+- **Frozen Snapshot**：动态上下文每 session 只构建一次，最大化 prompt cache 命中率
 
 ### TTS 语音回复
 用户发语音时 AI 以语音回复，支持 edge-tts 和 vibevoice 引擎。
@@ -199,6 +208,8 @@ POST /api/v1/agents/:id/sessions/:sid/chat # 会话内对话
 | 核心 | `ask_user` | 向用户提问 |
 | 核心 | `web_fetch` | 抓取网页内容（Readability 正文提取 + SPA 自动降级 Playwright） |
 | 核心 | `web_search` | 搜索互联网（SearXNG + Serper fallback） |
+| 核心 | `context_search` | 搜索当前会话上下文 |
+| 核心 | `compact` | 主动压缩上下文（LLM 管理 token 预算） |
 | 条件 | `execute_code` | 沙箱执行 JS/Python 脚本（Programmatic Tool Calling） |
 | 条件 | `send_file` | 发送文件给用户 |
 | 条件 | `schedule` | 创建定时任务 |
@@ -214,12 +225,11 @@ POST /api/v1/agents/:id/sessions/:sid/chat # 会话内对话
 
 ## 技能系统
 
-LLM 自主判断是否需要技能，通过 `use_skill` 工具调用。支持在 Web UI 中启用/禁用单个技能，以及从 GitHub 或 zip 导入社区技能。16 个内置技能：
+LLM 自主判断是否需要技能，通过 `use_skill` 工具调用。支持在 Web UI 中启用/禁用单个技能，以及从 GitHub 或 zip 导入社区技能。12 个内置技能：
 
 | 技能 | 说明 |
 |------|------|
-| `bilingual-subtitle` | 视频字幕提取、翻译、双语合并、烧录 |
-| `browser` | 浏览器自动化（点击、输入、截图），需登录态时使用 |
+| `bilingual-subtitle` | 视频字幕提取（Whisper 自动语言检测）、翻译、双语合并、烧录 |
 | `comfyui` | AI 图片生成（文生图、去背景、放大），需本地 ComfyUI |
 | `create-skill` | 创建自定义技能 |
 | `docx` | 创建/编辑/分析 Word 文档 |
@@ -230,8 +240,6 @@ LLM 自主判断是否需要技能，通过 `use_skill` 工具调用。支持在
 | `gws-tasks` | Google Tasks 待办管理（通过 gws CLI） |
 | `pdf` | PDF 提取文字/表格、合并拆分、创建 |
 | `pptx` | 创建/编辑 PowerPoint 演示文稿 |
-| `web-fetch` | 抓取网页内容 |
-| `web-search` | 搜索互联网信息（备用） |
 | `xlsx` | 创建/编辑/分析 Excel 表格 |
 | `yt-dlp` | 下载视频/音频 (YouTube/Bilibili/Twitter) |
 
@@ -286,6 +294,7 @@ LLM 自主判断是否需要技能，通过 `use_skill` 工具调用。支持在
 
 ## 文档
 
+- [Building AI Agent Frameworks](docs/building-ai-agents/) — 10 篇技术系列文章（By Rosibo & Claude）
 - [Hive 设计文档](docs/HIVE.md) — Agent-as-a-Service 平台架构与路线图
 - [架构设计](docs/ARCHITECTURE.md)
 - [路线图](docs/ROADMAP.md)
