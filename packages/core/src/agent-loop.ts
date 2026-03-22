@@ -954,6 +954,26 @@ export class SimpleAgentLoop implements AgentLoop {
         }
       }
 
+      // Incomplete-todo guard: if LLM wants to stop but todo has unchecked items,
+      // remind it once to continue. Works for any task combination.
+      if (
+        toolCalls.length === 0 &&
+        todoItems.length > 0 &&
+        todoAutoIndex < todoItems.length &&
+        iterations < this._config.maxIterations
+      ) {
+        const unchecked = todoItems.filter((i) => !i.done);
+        if (unchecked.length > 0) {
+          const listing = unchecked.map((i) => `- ${i.text}`).join("\n");
+          runtimeHints.push(
+            `<important>你还有未完成的任务：\n${listing}\n请继续完成所有任务后再回复用户。</important>`,
+          );
+          // Mark all remaining as done to prevent infinite reminders
+          todoAutoIndex = todoItems.length;
+          continue;
+        }
+      }
+
       // If no tool calls, this is the final turn — store cumulative totals
       if (toolCalls.length === 0) {
         const durationMs = Date.now() - startTime;
