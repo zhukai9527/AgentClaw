@@ -11,6 +11,16 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
 
 # ── Precise content selectors for known sites ──
 # When matched, only extract content from these selectors (much cleaner).
+SITE_CLEANUP_JS: dict[str, str] = {
+    "x.com": """() => {
+        // Remove interactive buttons (like, retweet, share, bookmark, analytics)
+        document.querySelectorAll('[role="group"], [data-testid="like"], [data-testid="unlike"], [data-testid="retweet"], [data-testid="reply"], [data-testid="bookmark"], [data-testid="share"], [href*="/analytics"]').forEach(el => el.remove());
+        // Remove "More" menu buttons
+        document.querySelectorAll('[data-testid="caret"]').forEach(el => el.remove());
+    }""",
+}
+SITE_CLEANUP_JS["twitter.com"] = SITE_CLEANUP_JS["x.com"]
+
 SITE_SELECTORS: dict[str, str] = {
     "x.com": 'article[data-testid="tweet"]',
     "twitter.com": 'article[data-testid="tweet"]',
@@ -87,6 +97,11 @@ def fetch(url: str, scroll: bool = False, raw: bool = False) -> str:
             # Layer 1: Generic cleanup (all sites)
             page.evaluate(GENERIC_CLEANUP_JS)
 
+            # Layer 1.5: Site-specific cleanup (remove interactive noise)
+            site_cleanup = SITE_CLEANUP_JS.get(hostname)
+            if site_cleanup:
+                page.evaluate(site_cleanup)
+
             # Layer 2: Precise selector extraction (known sites)
             site_selector = SITE_SELECTORS.get(hostname)
             if site_selector:
@@ -122,8 +137,15 @@ def html_to_markdown(html: str) -> str:
     for tag in ("script", "style", "noscript", "svg"):
         html = re.sub(rf"<{tag}[\s\S]*?</{tag}>", "", html, flags=re.IGNORECASE)
 
+    # Remove interactive/noise elements before conversion
+    for pattern in [
+        r'<[^>]* role="group"[^>]*>[\s\S]*?</[^>]+>',
+        r'<[^>]* data-testid="(?:like|unlike|retweet|reply|bookmark|share)"[^>]*/?>',
+    ]:
+        html = re.sub(pattern, "", html, flags=re.IGNORECASE)
+
     md = markdownify(
-        html, heading_style="ATX", strip=["img", "input", "button", "form"]
+        html, heading_style="ATX", strip=["img", "input", "button", "form", "svg"]
     )
 
     # Collapse excessive blank lines
