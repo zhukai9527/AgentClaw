@@ -17,7 +17,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve, basename } from "node:path";
 import * as Sentry from "@sentry/node";
-import { WSClient } from "@wecom/aibot-node-sdk";
+import { WSClient, generateReqId } from "@wecom/aibot-node-sdk";
 import type {
   WsFrame,
   BaseMessage,
@@ -91,6 +91,53 @@ async function downloadWithSdk(
   } catch (err) {
     console.error("[wecom] Failed to download file:", err);
     return null;
+  }
+}
+
+// ─── WeCom MCP discovery ────────────────────────────────────────────
+
+/** MCP categories to auto-discover from enterprise WeChat */
+const WECOM_MCP_CATEGORIES = ["doc"];
+
+/**
+ * Fetch MCP server URLs from enterprise WeChat via the existing WebSocket
+ * connection and register them as MCP tools in AgentClaw.
+ */
+async function registerWeComMcp(
+  client: WSClient,
+  appCtx: AppContext,
+): Promise<void> {
+  for (const category of WECOM_MCP_CATEGORIES) {
+    try {
+      const reqId = generateReqId("mcp_config");
+      const response = await client.reply(
+        { headers: { req_id: reqId } },
+        { biz_type: category },
+        "aibot_get_mcp_config",
+      );
+      const body = (response as { body?: { url?: string } }).body;
+      if (!body?.url) {
+        console.warn(`[wecom] MCP config for "${category}": no url returned`);
+        continue;
+      }
+      // Register as an HTTP MCP server
+      const tools = await appCtx.mcpManager.addServer({
+        name: `wecom_${category}`,
+        transport: "http",
+        url: body.url,
+      });
+      for (const tool of tools) {
+        appCtx.toolRegistry.register(tool);
+      }
+      console.log(
+        `[wecom] MCP "${category}" registered: ${tools.length} tools from ${body.url}`,
+      );
+    } catch (err) {
+      console.warn(
+        `[wecom] MCP "${category}" discovery failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 }
 
@@ -415,6 +462,10 @@ export async function startWeComBot(
   // Event handlers
   client.on("authenticated", () => {
     console.log("[wecom] WebSocket authenticated successfully");
+    // Discover and register enterprise WeChat MCP servers (doc, contact, etc.)
+    registerWeComMcp(client, appCtx).catch((err) => {
+      console.warn("[wecom] MCP discovery failed (non-fatal):", err.message);
+    });
   });
 
   client.on("disconnected", (reason) => {
