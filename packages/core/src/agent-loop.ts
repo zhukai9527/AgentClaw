@@ -1535,7 +1535,8 @@ export class SimpleAgentLoop implements AgentLoop {
             r.effectiveToolName === "send_file" ||
             r.effectiveToolName === "update_todo",
         );
-      if (allToolsAreAutoSend && iterationErrorCount === 0) {
+      const todoComplete = todoItems.length === 0 || todoAutoIndex >= todoItems.length;
+      if (allToolsAreAutoSend && iterationErrorCount === 0 && todoComplete) {
         const durationMs = Date.now() - startTime;
 
         // Build response from sent files

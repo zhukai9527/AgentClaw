@@ -7,6 +7,8 @@
 - **todo 触发条件统一**：系统提示词从"复杂任务（3+ 步）"改为"请求包含多个独立部分"，update_todo 描述去掉 ONLY TWICE 限制
 - **todo 进度改为框架自动推进**：删掉 nag 提示（浪费 token 且 LLM 不听），改为每轮迭代有成功工具时自动勾下一项，零 LLM 参与
 - **incomplete-todo guard**：LLM 想结束但 todo 有未完成项时，注入未完成任务列表提醒继续
+- **auto_send "False" 字符串被当 truthy**：LLM 传 `auto_send: "False"`（字符串）在 JS 中为 truthy，导致非预期触发文件发送和 autoComplete；改为严格比较 `=== true || === "true"`
+- **autoComplete 退出路径尊重 todo**：即使所有工具都是 auto-send，todo 有未完成项时也不提前终止
 
 ## [1.5.5] - 2026-03-21
 
