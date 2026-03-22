@@ -1515,7 +1515,7 @@ export class SimpleAgentLoop implements AgentLoop {
       if (
         todoItems.length > 0 &&
         todoAutoIndex < todoItems.length &&
-        allExecResults.some((r) => !r.result.isError && r.effectiveToolName !== "use_skill" && r.effectiveToolName !== "update_todo")
+        allExecResults.some((r) => !r.result.isError && r.effectiveToolName !== "update_todo")
       ) {
         todoItems[todoAutoIndex].done = true;
         todoAutoIndex++;
