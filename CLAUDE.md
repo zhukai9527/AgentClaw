@@ -48,6 +48,18 @@ pnpm --filter @agentclaw/memory test
 npx vitest run packages/memory/src/__tests__/store.test.ts   # 单文件测试
 ```
 
+桌面应用打包（Tauri + Bun sidecar）：
+```bash
+# 本地打包（当前平台）
+npm run build                                           # 先编译所有包
+cd packages/desktop && npm run build:desktop            # sidecar 编译 + Tauri 打包（一条命令）
+# 产物：packages/desktop/src-tauri/target/release/bundle/nsis/AgentClaw_x.x.x_x64-setup.exe
+
+# GitHub Actions 全量发布（Windows/macOS/Linux 三平台）
+git tag v1.5.5 && git push --tags                       # 推 tag 自动触发 desktop-release.yml
+# 或在 GitHub Actions 页面手动触发 workflow_dispatch
+```
+
 ## 架构
 
 Monorepo（pnpm workspaces + Turborepo），所有包用 tsup 构建为 ESM。
