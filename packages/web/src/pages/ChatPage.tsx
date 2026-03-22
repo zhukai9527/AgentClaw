@@ -32,6 +32,11 @@ import {
 import { useSessionWebSocket } from "../hooks/useSessionWebSocket";
 import { useStreamingState } from "../hooks/useStreamingState";
 import { CodeBlock } from "../components/CodeBlock";
+import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism";
+import {
+  oneDark,
+  oneLight,
+} from "react-syntax-highlighter/dist/esm/styles/prism";
 import { FileDropZone } from "../components/FileDropZone";
 import { useSession } from "../components/SessionContext";
 import { useTheme } from "../components/ThemeProvider";
@@ -335,12 +340,29 @@ function PreviewPanel({
   onClose: () => void;
 }) {
   const { t } = useTranslation();
+  const { theme } = useTheme();
   const { href, filename, downloadHref } = file;
   // Binary files: no source view or copy
   const isBinary =
     /\.(pptx?|xlsx?|xls|pdf|docx?|zip|rar|7z|tar|gz|bz2|exe|dll|so|dylib|png|jpe?g|gif|bmp|webp|ico|svg|mp[34]|wav|ogg|flac|m4a|avi|mov|mkv|webm)$/i.test(
       filename,
     );
+  // Text files: render with syntax highlighting instead of iframe
+  const extMatch = filename.match(/\.(\w+)$/i);
+  const ext = extMatch ? extMatch[1].toLowerCase() : "";
+  const EXT_TO_LANG: Record<string, string> = {
+    txt: "text", srt: "text", vtt: "text", ass: "text", log: "text",
+    json: "json", xml: "xml", yaml: "yaml", yml: "yaml", toml: "toml",
+    ini: "ini", conf: "ini", env: "bash",
+    py: "python", js: "javascript", ts: "typescript", sh: "bash", bash: "bash",
+    css: "css", sql: "sql", r: "r", go: "go", rs: "rust", java: "java",
+    kt: "kotlin", c: "c", cpp: "cpp", h: "c", hpp: "cpp", rb: "ruby",
+    pl: "perl", lua: "lua", swift: "swift", zig: "zig",
+    ps1: "powershell", bat: "batch", cmd: "batch",
+    dockerfile: "dockerfile", gitignore: "text",
+  };
+  const syntaxLang = EXT_TO_LANG[ext];
+  const isTextFile = syntaxLang !== undefined;
   const [needsDevServer, setNeedsDevServer] = useState(false);
   const [iframeLoading, setIframeLoading] = useState(true);
   const [panelWidth, setPanelWidth] = useState(50); // percentage
@@ -517,6 +539,21 @@ function PreviewPanel({
           <pre className="preview-panel-source">
             <code>{sourceContent}</code>
           </pre>
+        ) : isTextFile ? (
+          sourceContent ? (
+            <SyntaxHighlighter
+              style={theme === "dark" ? oneDark : oneLight}
+              language={syntaxLang}
+              customStyle={{ margin: 0, height: "100%", overflow: "auto", fontSize: "13px" }}
+              showLineNumbers
+            >
+              {sourceContent}
+            </SyntaxHighlighter>
+          ) : (
+            <div className="preview-panel-loading">
+              <span className="preview-panel-spinner" />
+            </div>
+          )
         ) : (
           <>
             {iframeLoading && (
@@ -728,6 +765,12 @@ const mdComponents = {
             filename={filename}
             downloadHref={href}
           />
+        );
+      }
+      // Text files: preview with syntax highlighting
+      if (/\.(txt|srt|vtt|ass|json|log|xml|yaml|yml|toml|ini|conf|py|js|ts|sh|bash|css|sql|r|go|rs|java|kt|c|cpp|h|hpp|rb|pl|lua|swift|zig|ps1|bat|cmd|env|gitignore|dockerfile)$/i.test(href)) {
+        return (
+          <HtmlPreviewCard href={href} filename={filename} />
         );
       }
     }
