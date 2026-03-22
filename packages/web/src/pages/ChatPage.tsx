@@ -1830,7 +1830,9 @@ export function ChatPage() {
           return;
         }
       } catch {
-        // 配置接口失败，继续发送让 gateway 报错
+        // 配置接口失败（gateway 未启动等），引导用户去设置页
+        navigate("/settings");
+        return;
       }
     }
 
