@@ -594,8 +594,8 @@ export class SimpleAgentLoop implements AgentLoop {
     let useSkillRollbacks = 0;
     let consecutiveErrors = 0;
     let lastFullText = ""; // Keep last LLM text for fallback response
-    let roundsSinceUpdateTodo = -1; // -1 = never used todo; >=0 = rounds since last call
-    let lastIterationHadSuccess = false; // Tracks if previous iteration had successful tool calls
+    let todoItems: Array<{ text: string; done: boolean }> = [];
+    let todoAutoIndex = 0; // Next item to auto-check
 
     // Three-strike escalation: detect when LLM is stuck producing similar outputs.
     // If 3 consecutive iterations have similar output fingerprints, inject a hint
@@ -632,17 +632,6 @@ export class SimpleAgentLoop implements AgentLoop {
       }
       iterations++;
       this.iterationBudget?.consume();
-
-      // ── Todo auto-nag: after every iteration with successful tools ──
-      // Engineering-level enforcement: don't rely on LLM remembering to update.
-      // If todo is active and last iteration had successful tools, inject reminder.
-      if (roundsSinceUpdateTodo > 0 && lastIterationHadSuccess) {
-        runtimeHints.push(
-          "<todo>Tools succeeded. Call update_todo NOW to mark completed items before proceeding.</todo>",
-        );
-      }
-      lastIterationHadSuccess = false;
-      if (roundsSinceUpdateTodo >= 0) roundsSinceUpdateTodo++;
 
       // ── Drain background task results ──
       // Completed background tasks are injected as runtime hints so the LLM
@@ -1297,10 +1286,19 @@ export class SimpleAgentLoop implements AgentLoop {
           }
 
           if (r.result.autoComplete) hasAutoComplete = true;
-          if (!r.result.isError) lastIterationHadSuccess = true;
           if (r.effectiveToolName === "update_todo") {
-            roundsSinceUpdateTodo = 0;
-            lastIterationHadSuccess = false; // Don't nag right after an update
+            // Capture todo items for auto-progress
+            const todoMatch = r.result.content.matchAll(
+              /^[-*]\s*\[([ xX])\]\s*(.+)/gm,
+            );
+            const parsed = [...todoMatch].map((m) => ({
+              text: m[2].trim(),
+              done: m[1] !== " ",
+            }));
+            if (parsed.length > 0) {
+              todoItems = parsed;
+              todoAutoIndex = parsed.filter((i) => i.done).length;
+            }
           }
 
           // Handoff: signal orchestrator to switch agent
@@ -1490,6 +1488,20 @@ export class SimpleAgentLoop implements AgentLoop {
           }
         }
         context.sentFiles.length = 0;
+      }
+
+      // Auto-progress: advance todo by one item per iteration (not per tool call).
+      // One iteration ≈ one logical step, regardless of how many tools were called.
+      if (
+        todoItems.length > 0 &&
+        todoAutoIndex < todoItems.length &&
+        allExecResults.some((r) => !r.result.isError && r.effectiveToolName !== "use_skill")
+      ) {
+        todoItems[todoAutoIndex].done = true;
+        todoAutoIndex++;
+        if (context?.todoNotify) {
+          context.todoNotify([...todoItems]);
+        }
       }
 
       // Auto-complete: skip further LLM calls only when ALL tools in this
