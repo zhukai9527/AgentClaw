@@ -32,7 +32,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["data/agents/**"],
+    "resources": [
+      "data/agents/default/*",
+      "data/agents/analyst/*",
+      "data/agents/coder/*",
+      "data/agents/researcher/*",
+      "data/agents/writer/*"
+    ],
     "externalBin": ["binaries/agentclaw-server"],
     "windows": {
       "webviewInstallMode": {
