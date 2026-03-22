@@ -596,6 +596,7 @@ export class SimpleAgentLoop implements AgentLoop {
     let lastFullText = ""; // Keep last LLM text for fallback response
     let todoItems: Array<{ text: string; done: boolean }> = [];
     let todoAutoIndex = 0; // Next item to auto-check
+    let firstUseSkillCounted = false;
 
     // Three-strike escalation: detect when LLM is stuck producing similar outputs.
     // If 3 consecutive iterations have similar output fingerprints, inject a hint
@@ -1515,7 +1516,14 @@ export class SimpleAgentLoop implements AgentLoop {
       if (
         todoItems.length > 0 &&
         todoAutoIndex < todoItems.length &&
-        allExecResults.some((r) => !r.result.isError && r.effectiveToolName !== "update_todo")
+        allExecResults.some((r) => {
+          if (r.result.isError || r.effectiveToolName === "update_todo") return false;
+          if (r.effectiveToolName === "use_skill") {
+            if (firstUseSkillCounted) return false; // Only the first use_skill counts
+            firstUseSkillCounted = true;
+          }
+          return true;
+        })
       ) {
         todoItems[todoAutoIndex].done = true;
         todoAutoIndex++;
