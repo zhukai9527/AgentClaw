@@ -9,6 +9,7 @@
 - **incomplete-todo guard**：LLM 想结束但 todo 有未完成项时，注入未完成任务列表提醒继续
 - **auto_send "False" 字符串被当 truthy**：LLM 传 `auto_send: "False"`（字符串）在 JS 中为 truthy，导致非预期触发文件发送和 autoComplete；改为严格比较 `=== true || === "true"`
 - **autoComplete 退出路径尊重 todo**：即使所有工具都是 auto-send，todo 有未完成项时也不提前终止
+- **todo 自动推进排除 update_todo**：创建/更新计划不算完成任务，只有真正干活的工具才推进进度
 
 ## [1.5.5] - 2026-03-21
 
