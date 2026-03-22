@@ -97,6 +97,8 @@ async function downloadWithSdk(
 // ─── WeCom MCP discovery ────────────────────────────────────────────
 
 /** MCP categories to auto-discover from enterprise WeChat */
+// Only "doc" is supported by enterprise WeChat MCP as of 2026-03-22.
+// contact/message/calendar return "unsupported mcp biz type".
 const WECOM_MCP_CATEGORIES = ["doc"];
 
 /**
