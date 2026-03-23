@@ -75,6 +75,7 @@ export interface AppConfig {
   ollamaBaseUrl?: string;
   ollamaModel?: string;
   disableThinking?: boolean;
+  disabledTools?: string[];
   volcanoEmbeddingKey?: string;
   searxngUrl?: string; // 旧格式，迁移用
 }

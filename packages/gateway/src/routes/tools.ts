@@ -12,19 +12,23 @@ import {
 } from "node:fs";
 import path from "node:path";
 import type { AppContext } from "../bootstrap.js";
+import { loadConfig, saveConfig } from "../config.js";
 
 export function registerToolRoutes(
   app: FastifyInstance,
   ctx: AppContext,
 ): void {
-  // GET /api/tools - List tools
+  // GET /api/tools - List tools (with disabled state)
   app.get("/api/tools", async (_req, reply) => {
     try {
       const tools = ctx.toolRegistry.list();
+      const cfg = loadConfig();
+      const disabled = new Set(cfg.disabledTools || []);
       const result = tools.map((t) => ({
         name: t.name,
         description: t.description,
         category: t.category,
+        disabled: disabled.has(t.name),
       }));
       return reply.send(result);
     } catch (err: unknown) {
@@ -32,6 +36,31 @@ export function registerToolRoutes(
       return reply.status(500).send({ error: message });
     }
   });
+
+  // PUT /api/tools/:name/disabled - Toggle tool disabled state
+  app.put<{ Params: { name: string }; Body: { disabled: boolean } }>(
+    "/api/tools/:name/disabled",
+    async (req, reply) => {
+      try {
+        const { name } = req.params;
+        const { disabled } = req.body;
+        const cfg = loadConfig();
+        const set = new Set(cfg.disabledTools || []);
+        if (disabled) set.add(name);
+        else set.delete(name);
+        const list = [...set];
+        saveConfig({ disabledTools: list });
+        // Update orchestrator in real-time
+        (
+          ctx.orchestrator as { setDisabledTools?: (t: string[]) => void }
+        ).setDisabledTools?.(list);
+        return reply.send({ name, disabled });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
 
   // GET /api/skills - List skills
   app.get("/api/skills", async (_req, reply) => {

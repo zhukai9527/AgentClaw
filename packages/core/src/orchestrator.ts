@@ -46,6 +46,7 @@ export class SimpleOrchestrator implements Orchestrator {
   private skillRegistry?: SkillRegistryImpl;
   private tmpDir?: string;
   private agents: Map<string, AgentProfile>;
+  private disabledTools?: Set<string>;
   /** Optional callback for LLM errors — wired to SmartRouter.reportError in gateway */
   private onLLMError?: (
     providerName: string,
@@ -65,6 +66,7 @@ export class SimpleOrchestrator implements Orchestrator {
     skillRegistry?: SkillRegistryImpl;
     tmpDir?: string;
     agents?: AgentProfile[];
+    disabledTools?: string[];
     /** Report LLM errors to router for classification & cooldown */
     onLLMError?: (
       providerName: string,
@@ -88,7 +90,14 @@ export class SimpleOrchestrator implements Orchestrator {
     this.skillRegistry = options.skillRegistry;
     this.tmpDir = options.tmpDir;
     this.agents = new Map((options.agents ?? []).map((a) => [a.id, a]));
+    this.disabledTools = options.disabledTools?.length
+      ? new Set(options.disabledTools)
+      : undefined;
     this.onLLMError = options.onLLMError;
+  }
+
+  setDisabledTools(tools: string[]): void {
+    this.disabledTools = tools.length ? new Set(tools) : undefined;
   }
 
   async createSession(metadata?: Record<string, unknown>): Promise<Session> {
@@ -613,11 +622,17 @@ export class SimpleOrchestrator implements Orchestrator {
     if (agent?.temperature !== undefined)
       config.temperature = agent.temperature;
 
-    // Agent-specific tool filtering
+    // Global disabled tools filtering
     let toolRegistry = this.toolRegistry;
+    if (this.disabledTools?.size) {
+      const disabled = this.disabledTools;
+      toolRegistry = toolRegistry.filter((t) => !disabled.has(t.name));
+    }
+
+    // Agent-specific tool filtering
     if (agent?.tools) {
       const allowed = new Set(agent.tools);
-      toolRegistry = this.toolRegistry.filter((t) => allowed.has(t.name));
+      toolRegistry = toolRegistry.filter((t) => allowed.has(t.name));
     }
 
     // Inject knowledge source tools (HTTP API → dynamic tools, File → RAG search tools)

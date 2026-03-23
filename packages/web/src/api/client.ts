@@ -430,6 +430,7 @@ export interface ToolInfo {
   name: string;
   description: string;
   category: string;
+  disabled?: boolean;
 }
 
 export interface SkillInfo {
@@ -441,6 +442,16 @@ export interface SkillInfo {
 
 export function listTools(): Promise<ToolInfo[]> {
   return request("/tools");
+}
+
+export function setToolDisabled(
+  name: string,
+  disabled: boolean,
+): Promise<{ name: string; disabled: boolean }> {
+  return request(`/tools/${encodeURIComponent(name)}/disabled`, {
+    method: "PUT",
+    body: JSON.stringify({ disabled }),
+  });
 }
 
 export function listSkills(): Promise<SkillInfo[]> {

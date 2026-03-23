@@ -447,6 +447,7 @@ export async function bootstrap(): Promise<AppContext> {
     skillRegistry,
     tmpDir: tempDir,
     agents,
+    disabledTools: cfg.disabledTools,
     ...(maxIterations ? { agentConfig: { maxIterations } } : {}),
   });
 

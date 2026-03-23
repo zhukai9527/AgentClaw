@@ -354,6 +354,15 @@
   color: var(--text-secondary);
 }
 
+.tool-disabled {
+  opacity: 0.5;
+}
+
+.tool-toggle {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 /* Badge muted */
 .badge-muted {
   background: var(--accent-subtle-bg);

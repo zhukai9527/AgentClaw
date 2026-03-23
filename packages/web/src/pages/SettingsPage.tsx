@@ -7,6 +7,7 @@ import {
   getConfig,
   getStats,
   listTools,
+  setToolDisabled,
   updateAppConfig,
   validateApiKey,
   type AppConfigInfo,
@@ -1076,6 +1077,7 @@ function SettingsTools() {
   const { t } = useTranslation();
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [togglingTool, setTogglingTool] = useState<string | null>(null);
 
   useEffect(() => {
     listTools()
@@ -1083,24 +1085,56 @@ function SettingsTools() {
       .finally(() => setLoading(false));
   }, []);
 
+  const handleToggle = async (name: string, currentDisabled: boolean) => {
+    setTogglingTool(name);
+    try {
+      await setToolDisabled(name, !currentDisabled);
+      setTools((prev) =>
+        prev.map((t) =>
+          t.name === name ? { ...t, disabled: !currentDisabled } : t,
+        ),
+      );
+    } catch {
+      // ignore
+    }
+    setTogglingTool(null);
+  };
+
   if (loading) {
     return (
       <div className="settings-loading">{t("settings.loadingSettings")}</div>
     );
   }
 
+  const enabled = tools.filter((t) => !t.disabled);
+  const disabled = tools.filter((t) => t.disabled);
+
   return (
     <section className="card settings-section">
       <h2 className="settings-section-title">
         {t("settings.tools")}
-        <span className="settings-count">{tools.length}</span>
+        <span className="settings-count">
+          {enabled.length}/{tools.length}
+        </span>
       </h2>
       <div className="tools-list">
-        {tools.map((tool) => (
-          <div key={tool.name} className="tool-item">
+        {[...enabled, ...disabled].map((tool) => (
+          <div
+            key={tool.name}
+            className={`tool-item${tool.disabled ? " tool-disabled" : ""}`}
+          >
             <div className="tool-header">
               <span className="tool-name">{tool.name}</span>
               <span className="badge badge-info">{tool.category}</span>
+              <label className="toggle-switch tool-toggle">
+                <input
+                  type="checkbox"
+                  checked={!tool.disabled}
+                  disabled={togglingTool === tool.name}
+                  onChange={() => handleToggle(tool.name, !!tool.disabled)}
+                />
+                <span className="toggle-slider" />
+              </label>
             </div>
             <div className="tool-description">{tool.description}</div>
           </div>
