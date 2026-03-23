@@ -285,10 +285,6 @@
 .agd-checkbox-item:hover {
   background: var(--bg-tertiary);
 }
-.agd-checkbox-disabled {
-  opacity: 0.4;
-  pointer-events: none;
-}
 .agd-checkbox-name {
   font-weight: 500;
   color: var(--text-primary);
