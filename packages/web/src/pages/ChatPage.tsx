@@ -1823,7 +1823,10 @@ export function ChatPage() {
     if (!configCheckedRef.current) {
       try {
         const cfg = await getConfig();
-        const hasKey = !!(cfg.anthropicApiKey || cfg.openaiApiKey || cfg.geminiApiKey);
+        const hasLegacyKey = !!(cfg.anthropicApiKey || cfg.openaiApiKey || cfg.geminiApiKey);
+        const hasProvider = Array.isArray((cfg as Record<string, unknown>).providers) &&
+          ((cfg as Record<string, unknown>).providers as Array<{ apiKey?: string }>).some((p) => p.apiKey);
+        const hasKey = hasLegacyKey || hasProvider;
         configCheckedRef.current = hasKey;
         if (!hasKey) {
           navigate("/settings");
