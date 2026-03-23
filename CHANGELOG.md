@@ -1,21 +1,22 @@
 # 更新日志
 
-## [1.5.6] - 2026-03-22
-
-### 修复
-- **多任务被 autoComplete 截断**：只要一个工具返回 autoComplete 就终止整个循环，导致视频发送后字幕/总结等后续任务被跳过；改为仅当本轮全部为 auto-send 工具时才终止
-- **todo 触发条件统一**：系统提示词从"复杂任务（3+ 步）"改为"请求包含多个独立部分"，update_todo 描述去掉 ONLY TWICE 限制
-- **todo 进度改为框架自动推进**：删掉 nag 提示（浪费 token 且 LLM 不听），改为每轮迭代有成功工具时自动勾下一项，零 LLM 参与
-- **incomplete-todo guard**：LLM 想结束但 todo 有未完成项时，注入未完成任务列表提醒继续
-- **auto_send "False" 字符串被当 truthy**：LLM 传 `auto_send: "False"`（字符串）在 JS 中为 truthy，导致非预期触发文件发送和 autoComplete；改为严格比较 `=== true || === "true"`
-- **autoComplete 退出路径尊重 todo**：即使所有工具都是 auto-send，todo 有未完成项时也不提前终止
-- **todo 自动推进排除 update_todo**：创建/更新计划不算完成任务，只有真正干活的工具才推进进度
-- **todo 自动推进精调**：第一个 use_skill 计入（对应"加载技能"步骤），后续 use_skill 排除
+## [1.5.6] - 2026-03-23
 
 ### 新功能
-- **纯文本文件预览**：txt/srt/vtt/json/log/xml/yaml/py/js/ts/sh 等 30+ 种文本格式支持侧栏预览，代码类文件带 Prism 语法高亮和行号
-- **企业微信 MCP 自动发现**：WebSocket 连接成功后自动从企业微信拉取 MCP 配置（文档、表格等 8 个工具），动态注册为 AgentClaw 工具
-- **MCP HTTP 客户端 Accept 头修复**：添加 `text/event-stream` 支持 Streamable HTTP 协议，解决企业微信 MCP Server 返回 406 的问题
+- **claude_code SDK 模式**：优先使用 Claude Agent SDK（会话连续性 + 无冷启动），不可用时自动 fallback CLI。同一会话内多次调用共享上下文
+- **工具全局启用/禁用**：设置页工具列表加开关，禁用的工具 LLM 完全不可见。agent 详情页同步隐藏
+- **企业微信 MCP 自动发现**：WebSocket 连接后动态获取企业微信文档/表格 MCP（8 个工具），零配置
+- **纯文本文件预览**：30+ 种格式侧栏预览，代码类带 Prism 语法高亮 + 行号
+- **设置菜单分栏**：配置项和系统项以分隔线分组
+- **桌面版内置 5 个默认 agent**：首次启动自动部署
+- **work-report skill**：一键生成日报/周报并发邮件
+
+### 修复
+- **多任务完成率从 ~20% 提升到 100%**：5 个叠加 bug 系统性修复（autoComplete 误杀、auto_send "False"/"True" 大小写、todo 进度依赖 LLM、提示词矛盾、循环终止不检查完成度）
+- **Playwright 抓取恢复**：误删 fetch.py 导致 X/Twitter 等 SPA 站点全部返回"JavaScript 不可用"；恢复脚本并优化去除互动按钮噪音
+- **桌面版首次发消息跳设置页**：getConfig 失败或自定义 provider（智谱 GLM 等）未被识别时，引导到模型设置页
+- **restart.ps1 日志重定向截断 PATH**：回滚 -RedirectStandardOutput/Error，修复 claude_code spawn cmd.exe ENOENT
+- **MCP HTTP Accept 头**：添加 text/event-stream 支持 Streamable HTTP 协议
 
 ## [1.5.5] - 2026-03-21
 
