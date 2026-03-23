@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@agentclaw/types": "workspace:*",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
     "@mozilla/readability": "^0.6.0",
     "fast-glob": "^3.3.3",
     "linkedom": "^0.18.12",
