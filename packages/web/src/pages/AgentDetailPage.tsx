@@ -414,15 +414,19 @@ export function AgentDetailPage() {
               <p className="agd-hint-block">{d('toolsHint')}</p>
               <div className="agd-checkbox-grid">
                 {allTools.map((tool) => (
-                  <label key={tool.name} className="agd-checkbox-item" title={tool.description}>
+                  <label
+                    key={tool.name}
+                    className={`agd-checkbox-item${tool.disabled ? " agd-checkbox-disabled" : ""}`}
+                    title={tool.disabled ? `${tool.description}\n(globally disabled)` : tool.description}
+                  >
                     <input
                       type="checkbox"
-                      checked={selectedTools.length === 0 || selectedTools.includes(tool.name)}
+                      checked={!tool.disabled && (selectedTools.length === 0 || selectedTools.includes(tool.name))}
+                      disabled={tool.disabled}
                       onChange={(e) => {
                         markDirty();
                         if (selectedTools.length === 0) {
-                          // Uncheck in "allow all" mode → switch to whitelist, exclude this tool
-                          setSelectedTools(allTools.map((t) => t.name).filter((n) => n !== tool.name));
+                          setSelectedTools(allTools.filter((t) => !t.disabled).map((t) => t.name).filter((n) => n !== tool.name));
                         } else {
                           setSelectedTools((prev) =>
                             e.target.checked ? [...prev, tool.name] : prev.filter((n) => n !== tool.name),
