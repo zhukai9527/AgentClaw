@@ -168,7 +168,7 @@ export const webFetchTool: Tool = {
   ): Promise<ToolResult> {
     const url = input.url as string;
     const saveAs = input.save_as as string | undefined;
-    const autoSend = input.auto_send === true || input.auto_send === "true";
+    const autoSend = input.auto_send === true || String(input.auto_send).toLowerCase() === "true";
 
     // Validate URL
     let parsedUrl: URL;

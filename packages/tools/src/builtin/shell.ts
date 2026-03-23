@@ -533,8 +533,8 @@ export const shellTool: Tool = {
       );
       timeout *= 1000;
     }
-    // Normalize: LLMs often send string "False"/"true" instead of boolean
-    const autoSend = input.auto_send === true || input.auto_send === "true";
+    // Normalize: LLMs send boolean, "true", "True", "false", "False" etc.
+    const autoSend = input.auto_send === true || String(input.auto_send).toLowerCase() === "true";
     const background = input.background as boolean | undefined;
 
     // Shell sandbox: block destructive commands
