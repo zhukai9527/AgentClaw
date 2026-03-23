@@ -1829,12 +1829,12 @@ export function ChatPage() {
         const hasKey = hasLegacyKey || hasProvider;
         configCheckedRef.current = hasKey;
         if (!hasKey) {
-          navigate("/settings");
+          navigate("/settings/model?setup=1");
           return;
         }
       } catch {
         // 配置接口失败（gateway 未启动等），引导用户去设置页
-        navigate("/settings");
+        navigate("/settings/model?setup=1");
         return;
       }
     }

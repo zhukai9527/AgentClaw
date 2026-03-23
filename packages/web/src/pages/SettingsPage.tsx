@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, NavLink } from "react-router-dom";
+import { useParams, NavLink, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "../components/PageHeader";
 import { useTheme } from "../components/ThemeProvider";
@@ -100,10 +100,11 @@ const TABS = [
   { id: "search", icon: IconSearch },
   { id: "channels", icon: IconChannels },
   { id: "agents", icon: IconAgents },
-  { id: "subagents", icon: IconSubAgents },
-  { id: "memory", icon: IconMemory },
   { id: "tools", icon: IconTools },
   { id: "skills", icon: IconSkills },
+  { id: "divider" },
+  { id: "subagents", icon: IconSubAgents },
+  { id: "memory", icon: IconMemory },
   { id: "traces", icon: IconTraces },
   { id: "api", icon: IconApi },
   { id: "about", icon: IconInfo },
@@ -207,6 +208,8 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
 /* ── Model tab — left-right split: provider list + config form + usage stats ── */
 function SettingsModel() {
   const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isSetup = searchParams.get("setup") === "1";
   const [config, setConfig] = useState<AppConfigInfo | null>(null);
   const [stats, setStats] = useState<UsageStatsInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -363,6 +366,14 @@ function SettingsModel() {
 
   return (
     <>
+      {isSetup && (
+        <div
+          className="settings-setup-hint"
+          onClick={() => setSearchParams({})}
+        >
+          {t("settings.setupHint", "请先配置至少一个 AI 模型才能开始对话")}
+        </div>
+      )}
       {error && <div className="settings-error">{error}</div>}
 
       {/* Provider split layout */}
@@ -1208,19 +1219,23 @@ export function SettingsPage() {
       <PageHeader>{t("settings.title")}</PageHeader>
       <div className="settings-layout">
         <nav className="settings-menu">
-          {TABS.map((item) => (
-            <NavLink
-              key={item.id}
-              to={item.id === "general" ? "/settings" : `/settings/${item.id}`}
-              end={item.id === "general"}
-              className={({ isActive }) =>
-                `settings-menu-item${isActive ? " active" : ""}`
-              }
-            >
-              <item.icon size={16} />
-              <span>{t(`settings.tabs.${item.id}`)}</span>
-            </NavLink>
-          ))}
+          {TABS.map((item) =>
+            item.id === "divider" ? (
+              <hr key="divider" className="settings-menu-divider" />
+            ) : (
+              <NavLink
+                key={item.id}
+                to={item.id === "general" ? "/settings" : `/settings/${item.id}`}
+                end={item.id === "general"}
+                className={({ isActive }) =>
+                  `settings-menu-item${isActive ? " active" : ""}`
+                }
+              >
+                {item.icon && <item.icon size={16} />}
+                <span>{t(`settings.tabs.${item.id}`)}</span>
+              </NavLink>
+            ),
+          )}
         </nav>
         <div className="settings-content">{renderContent()}</div>
       </div>
