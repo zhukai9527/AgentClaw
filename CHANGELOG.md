@@ -1,23 +1,35 @@
 # 更新日志
 
-## [1.5.6] - 2026-03-23
+## [1.5.8] - 2026-03-24
+
+### 修复
+- **claude_code SDK 失败恢复**：SDK 运行时错误不再永久禁用 SDK 模式，仅 import 失败才标记不可用
+
+## [1.5.7] - 2026-03-23
 
 ### 新功能
 - **claude_code SDK 模式**：优先使用 Claude Agent SDK（会话连续性 + 无冷启动），不可用时自动 fallback CLI。同一会话内多次调用共享上下文
 - **工具全局启用/禁用**：设置页工具列表加开关，禁用的工具 LLM 完全不可见。agent 详情页同步隐藏
+- **设置菜单分栏**：配置项和系统项以分隔线分组
+
+### 修复
+- **auto_send 大小写不敏感**：兼容 "True"/"true"/"TRUE"，LLM 传大写 T 不再导致文件不发送
+- **桌面版配置自定义 LLM 后仍跳设置页**：providers 数组未被识别，现在同时检查
+- **restart.ps1 日志重定向截断 PATH**：回滚 -RedirectStandardOutput/Error，修复 claude_code spawn cmd.exe ENOENT
+
+## [1.5.6] - 2026-03-22
+
+### 新功能
 - **企业微信 MCP 自动发现**：WebSocket 连接后动态获取企业微信文档/表格 MCP（8 个工具），零配置
 - **纯文本文件预览**：30+ 种格式侧栏预览，代码类带 Prism 语法高亮 + 行号
-- **设置菜单分栏**：配置项和系统项以分隔线分组
 - **桌面版内置 5 个默认 agent**：首次启动自动部署
 - **work-report skill**：一键生成日报/周报并发邮件
 
 ### 修复
-- **多任务完成率从 ~20% 提升到 100%**：5 个叠加 bug 系统性修复（autoComplete 误杀、auto_send "False"/"True" 大小写、todo 进度依赖 LLM、提示词矛盾、循环终止不检查完成度）
+- **多任务完成率从 ~20% 提升到 100%**：5 个叠加 bug 系统性修复（autoComplete 误杀、auto_send "False" truthy、todo 进度依赖 LLM、提示词矛盾、循环终止不检查完成度）
 - **Playwright 抓取恢复**：误删 fetch.py 导致 X/Twitter 等 SPA 站点全部返回"JavaScript 不可用"；恢复脚本并优化去除互动按钮噪音
-- **桌面版首次发消息跳设置页**：getConfig 失败或自定义 provider（智谱 GLM 等）未被识别时，引导到模型设置页
-- **restart.ps1 日志重定向截断 PATH**：回滚 -RedirectStandardOutput/Error，修复 claude_code spawn cmd.exe ENOENT
+- **桌面版首次发消息跳设置页**：getConfig 失败时引导到模型设置页
 - **MCP HTTP Accept 头**：添加 text/event-stream 支持 Streamable HTTP 协议
-- **claude_code SDK 失败恢复**：SDK 运行时错误不再永久禁用 SDK 模式，仅 import 失败才标记不可用
 
 ## [1.5.5] - 2026-03-21
 
