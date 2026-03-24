@@ -434,7 +434,13 @@ export const claudeCodeTool: Tool = {
         console.log(
           `[claude_code] SDK mode failed: ${msg}, falling back to CLI`,
         );
-        sdkAvailable = false;
+        // Only permanently disable if package not installed; runtime errors retry next time
+        if (
+          msg.includes("Cannot find module") ||
+          msg.includes("ERR_MODULE_NOT_FOUND")
+        ) {
+          sdkAvailable = false;
+        }
       }
     }
 
