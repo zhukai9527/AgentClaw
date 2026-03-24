@@ -8,7 +8,6 @@ import {
   getStats,
   listTools,
   setToolDisabled,
-  setToolPermission,
   updateAppConfig,
   validateApiKey,
   type AppConfigInfo,
@@ -1079,7 +1078,6 @@ function SettingsTools() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [togglingTool, setTogglingTool] = useState<string | null>(null);
-  const [togglingPerm, setTogglingPerm] = useState<string | null>(null);
 
   useEffect(() => {
     listTools()
@@ -1100,22 +1098,6 @@ function SettingsTools() {
       // ignore
     }
     setTogglingTool(null);
-  };
-
-  const handlePermToggle = async (name: string, currentPerm: string) => {
-    const newMode = currentPerm === "deny" ? "allow" : "deny";
-    setTogglingPerm(name);
-    try {
-      await setToolPermission(name, newMode);
-      setTools((prev) =>
-        prev.map((t) =>
-          t.name === name ? { ...t, permission: newMode } : t,
-        ),
-      );
-    } catch {
-      // ignore
-    }
-    setTogglingPerm(null);
   };
 
   if (loading) {
@@ -1144,16 +1126,6 @@ function SettingsTools() {
             <div className="tool-header">
               <span className="tool-name">{tool.name}</span>
               <span className="badge badge-info">{tool.category}</span>
-              {!tool.disabled && (
-                <button
-                  className={`tool-perm-btn ${tool.permission === "deny" ? "tool-perm-deny" : "tool-perm-allow"}`}
-                  onClick={() => handlePermToggle(tool.name, tool.permission || "allow")}
-                  disabled={togglingPerm === tool.name}
-                  title={tool.permission === "deny" ? "Blocked (click to allow)" : "Allowed (click to block)"}
-                >
-                  {tool.permission === "deny" ? "blocked" : "allowed"}
-                </button>
-              )}
               <label className="toggle-switch tool-toggle">
                 <input
                   type="checkbox"
