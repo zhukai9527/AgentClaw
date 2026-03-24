@@ -214,6 +214,18 @@ export class SimpleOrchestrator implements Orchestrator {
       toolHooks: (() => {
         const hm = new ToolHookManager();
         hm.registerPresetHooks();
+        // Migrate: incomplete-todo guard as a BeforeReturn hook
+        hm.addBeforeReturnHook(async (ctx) => {
+          const unchecked = ctx.todoItems.filter((i) => !i.done);
+          if (unchecked.length > 0) {
+            const listing = unchecked.map((i) => `- ${i.text}`).join("\n");
+            return {
+              action: "continue" as const,
+              hint: `<important>你还有未完成的任务：\n${listing}\n请继续完成所有任务后再回复用户。</important>`,
+            };
+          }
+          return { action: "return" as const };
+        });
         return {
           before: (call: { name: string; input: Record<string, unknown> }) =>
             hm.runBeforeHooks(call),
@@ -221,6 +233,11 @@ export class SimpleOrchestrator implements Orchestrator {
             call: { name: string; input: Record<string, unknown> },
             result: import("@agentclaw/types").ToolResult,
           ) => hm.runAfterHooks(call, result),
+          beforeReturn: (ctx: {
+            response: string;
+            runtimeHints: string[];
+            todoItems: Array<{ text: string; done: boolean }>;
+          }) => hm.runBeforeReturnHooks(ctx),
         };
       })(),
       subAgentManager: new SimpleSubAgentManager({

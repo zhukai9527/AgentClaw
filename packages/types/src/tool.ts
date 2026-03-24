@@ -174,6 +174,12 @@ export interface ToolHooks {
     call: { name: string; input: Record<string, unknown> },
     result: ToolResult,
   ) => Promise<ToolResult>;
+  /** Called when LLM wants to stop — return "continue" to force another iteration */
+  beforeReturn?: (ctx: {
+    response: string;
+    runtimeHints: string[];
+    todoItems: Array<{ text: string; done: boolean }>;
+  }) => Promise<{ action: "return" } | { action: "continue"; hint: string }>;
 }
 
 /** Tool access policy */
