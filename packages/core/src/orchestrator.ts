@@ -47,6 +47,7 @@ export class SimpleOrchestrator implements Orchestrator {
   private tmpDir?: string;
   private agents: Map<string, AgentProfile>;
   private disabledTools?: Set<string>;
+  private hookManager: ToolHookManager;
   /** Optional callback for LLM errors — wired to SmartRouter.reportError in gateway */
   private onLLMError?: (
     providerName: string,
@@ -94,6 +95,25 @@ export class SimpleOrchestrator implements Orchestrator {
       ? new Set(options.disabledTools)
       : undefined;
     this.onLLMError = options.onLLMError;
+    this.hookManager = new ToolHookManager();
+    this.hookManager.registerPresetHooks();
+    // Register incomplete-todo guard as BeforeReturn hook
+    this.hookManager.addBeforeReturnHook(async (ctx) => {
+      const unchecked = ctx.todoItems.filter((i) => !i.done);
+      if (unchecked.length > 0) {
+        const listing = unchecked.map((i) => `- ${i.text}`).join("\n");
+        return {
+          action: "continue" as const,
+          hint: `<important>你还有未完成的任务：\n${listing}\n请继续完成所有任务后再回复用户。</important>`,
+        };
+      }
+      return { action: "return" as const };
+    });
+  }
+
+  /** Get the hook manager for external hook registration */
+  getHookManager(): ToolHookManager {
+    return this.hookManager;
   }
 
   setDisabledTools(tools: string[]): void {
@@ -211,35 +231,19 @@ export class SimpleOrchestrator implements Orchestrator {
         : undefined,
       scheduler: this.scheduler,
       skillRegistry: this.skillRegistry,
-      toolHooks: (() => {
-        const hm = new ToolHookManager();
-        hm.registerPresetHooks();
-        // Migrate: incomplete-todo guard as a BeforeReturn hook
-        hm.addBeforeReturnHook(async (ctx) => {
-          const unchecked = ctx.todoItems.filter((i) => !i.done);
-          if (unchecked.length > 0) {
-            const listing = unchecked.map((i) => `- ${i.text}`).join("\n");
-            return {
-              action: "continue" as const,
-              hint: `<important>你还有未完成的任务：\n${listing}\n请继续完成所有任务后再回复用户。</important>`,
-            };
-          }
-          return { action: "return" as const };
-        });
-        return {
-          before: (call: { name: string; input: Record<string, unknown> }) =>
-            hm.runBeforeHooks(call),
-          after: (
-            call: { name: string; input: Record<string, unknown> },
-            result: import("@agentclaw/types").ToolResult,
-          ) => hm.runAfterHooks(call, result),
-          beforeReturn: (ctx: {
-            response: string;
-            runtimeHints: string[];
-            todoItems: Array<{ text: string; done: boolean }>;
-          }) => hm.runBeforeReturnHooks(ctx),
-        };
-      })(),
+      toolHooks: {
+        before: (call: { name: string; input: Record<string, unknown> }) =>
+          this.hookManager.runBeforeHooks(call),
+        after: (
+          call: { name: string; input: Record<string, unknown> },
+          result: import("@agentclaw/types").ToolResult,
+        ) => this.hookManager.runAfterHooks(call, result),
+        beforeReturn: (ctx: {
+          response: string;
+          runtimeHints: string[];
+          todoItems: Array<{ text: string; done: boolean }>;
+        }) => this.hookManager.runBeforeReturnHooks(ctx),
+      },
       subAgentManager: new SimpleSubAgentManager({
         provider: this.provider,
         toolRegistry: this.toolRegistry,
