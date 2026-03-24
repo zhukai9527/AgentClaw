@@ -10,6 +10,7 @@ import {
   setToolDisabled,
   updateAppConfig,
   validateApiKey,
+  testSearchEngine,
   type AppConfigInfo,
   type UsageStatsInfo,
   type ToolInfo,
@@ -857,6 +858,8 @@ function SettingsSearch() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [localEngines, setLocalEngines] = useState<SearchEngineConfig[]>([]);
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; error?: string } | null>>({});
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -941,6 +944,22 @@ function SettingsSearch() {
 
   /** Whether an engine needs an API key */
   const needsApiKey = (type: string) => type !== "searxng";
+
+  const handleTest = async (engine: typeof localEngines[0]) => {
+    setTestingId(engine.id);
+    setTestResults((prev) => ({ ...prev, [engine.id]: null }));
+    try {
+      const result = await testSearchEngine({
+        type: engine.type,
+        url: engine.url,
+        apiKey: engine.apiKey,
+      });
+      setTestResults((prev) => ({ ...prev, [engine.id]: result }));
+    } catch {
+      setTestResults((prev) => ({ ...prev, [engine.id]: { success: false, error: "Request failed" } }));
+    }
+    setTestingId(null);
+  };
 
   if (loading) {
     return <div className="settings-loading">{t("settings.loadingSettings")}</div>;
@@ -1043,6 +1062,20 @@ function SettingsSearch() {
                     />
                   </div>
                 )}
+                <div className="search-engine-test-row">
+                  <button
+                    className="search-test-btn"
+                    onClick={() => handleTest(engine)}
+                    disabled={testingId === engine.id || (engine.type !== "serper" && !engine.url)}
+                  >
+                    {testingId === engine.id ? "testing..." : "test"}
+                  </button>
+                  {testResults[engine.id] && (
+                    <span className={testResults[engine.id]!.success ? "search-test-ok" : "search-test-fail"}>
+                      {testResults[engine.id]!.success ? "\u2713" : `\u2717 ${testResults[engine.id]!.error || "failed"}`}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           );

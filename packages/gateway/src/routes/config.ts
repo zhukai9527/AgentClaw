@@ -282,6 +282,50 @@ export function registerConfigRoutes(
     }
   });
 
+  // POST /api/config/test-search - Test a search engine connection
+  app.post<{
+    Body: { type: string; url?: string; apiKey?: string };
+  }>("/api/config/test-search", async (req, reply) => {
+    const { type, url, apiKey } = req.body;
+    const timeout = 10000;
+    try {
+      let testUrl: string;
+      let options: RequestInit = {};
+
+      if (type === "serper") {
+        testUrl = "https://google.serper.dev/search";
+        options = {
+          method: "POST",
+          headers: { "X-API-KEY": apiKey || "", "Content-Type": "application/json" },
+          body: JSON.stringify({ q: "test", num: 1 }),
+          signal: AbortSignal.timeout(timeout),
+        };
+      } else if (type === "querit") {
+        testUrl = url || "https://api.querit.ai/v1/search";
+        options = {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey || ""}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ query: "test", count: 1 }),
+          signal: AbortSignal.timeout(timeout),
+        };
+      } else {
+        // searxng / custom — GET request
+        const base = (url || "").replace(/\/+$/, "");
+        testUrl = `${base}/search?q=test&format=json&language=en&pageno=1`;
+        options = { signal: AbortSignal.timeout(timeout) };
+      }
+
+      const response = await fetch(testUrl, options);
+      if (!response.ok) {
+        return reply.send({ success: false, error: `HTTP ${response.status}: ${response.statusText}` });
+      }
+      return reply.send({ success: true });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.send({ success: false, error: message });
+    }
+  });
+
   // POST /api/config/validate - 验证 LLM API key 有效性
   app.post<{
     Body: {

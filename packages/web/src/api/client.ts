@@ -665,6 +665,17 @@ export function validateApiKey(
   });
 }
 
+export function testSearchEngine(params: {
+  type: string;
+  url?: string;
+  apiKey?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  return request("/config/test-search", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
 // ── Token Logs ─────────────────────────────────────
 
 export interface TokenLogEntry {
