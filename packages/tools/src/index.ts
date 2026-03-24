@@ -15,7 +15,6 @@ export {
   scheduleTool,
   rememberTool,
   executeCodeTool,
-  contextSearchTool,
 } from "./builtin/index.js";
 export type { BuiltinToolsOptions } from "./builtin/index.js";
 export {
