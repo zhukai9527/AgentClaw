@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, NavLink, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "../components/PageHeader";
-import { useTheme } from "../components/ThemeProvider";
+
 import {
   getConfig,
   getStats,
@@ -18,7 +18,6 @@ import {
   type SearchEngineConfig,
 } from "../api/client";
 import {
-  IconSettings,
   IconChannels,
   IconSubAgents,
   IconAgents,
@@ -29,7 +28,7 @@ import {
   IconInfo,
 } from "../components/Icons";
 import { formatNumber } from "../utils/format";
-import { setLanguage, getLanguage } from "../i18n";
+
 import { ChannelsPage } from "./ChannelsPage";
 import { SubagentsPage } from "./SubagentsPage";
 import { AgentsPage } from "./AgentsPage";
@@ -97,7 +96,6 @@ function IconSearch({ size = 16 }: { size?: number }) {
 }
 
 const TABS = [
-  { id: "general", icon: IconSettings },
   { id: "model", icon: IconModel },
   { id: "search", icon: IconSearch },
   { id: "channels", icon: IconChannels },
@@ -757,99 +755,6 @@ function ProviderConfigForm({
   );
 }
 
-/* ── General tab — appearance + system info only ── */
-function SettingsGeneral() {
-  const { t } = useTranslation();
-  const { theme, toggle } = useTheme();
-  const [config, setConfig] = useState<AppConfigInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [lang, setLang] = useState(getLanguage());
-
-  useEffect(() => {
-    getConfig()
-      .then(setConfig)
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="settings-loading">{t("settings.loadingSettings")}</div>
-    );
-  }
-
-  return (
-    <>
-      {/* Appearance */}
-      <section className="card settings-section">
-        <h2 className="settings-section-title">{t("settings.appearance")}</h2>
-        <div className="settings-appearance-grid">
-          <div className="settings-appearance-item">
-            <span className="stats-sys-label">{t("settings.language")}</span>
-            <select
-              className="memory-type-select"
-              value={lang}
-              onChange={(e) => {
-                setLang(e.target.value);
-                setLanguage(e.target.value);
-              }}
-            >
-              <option value="en">English</option>
-              <option value="zh">中文</option>
-            </select>
-          </div>
-          <div className="settings-appearance-item">
-            <span className="stats-sys-label">{t("settings.theme")}</span>
-            <select
-              className="memory-type-select"
-              value={theme}
-              onChange={(e) => {
-                if (e.target.value !== theme) toggle();
-              }}
-            >
-              <option value="dark">{t("settings.themeDark")}</option>
-              <option value="light">{t("settings.themeLight")}</option>
-            </select>
-          </div>
-        </div>
-      </section>
-
-      {/* System Info */}
-      {config && (
-        <section className="card settings-section">
-          <h2 className="settings-section-title">
-            {t("settings.configTitle")}
-          </h2>
-          <div
-            className="stats-system-info"
-            style={{ marginTop: 0, paddingTop: 0, borderTop: "none" }}
-          >
-            <span className="stats-sys-item">
-              <span className="stats-sys-label">{t("settings.provider")}</span>
-              <code>{config.provider}</code>
-            </span>
-            {config.model && (
-              <span className="stats-sys-item">
-                <span className="stats-sys-label">{t("settings.model")}</span>
-                <code className="model-name">{config.model}</code>
-              </span>
-            )}
-            <span className="stats-sys-item">
-              <span className="stats-sys-label">{t("settings.db")}</span>
-              <code>{config.databasePath}</code>
-            </span>
-            <span className="stats-sys-item">
-              <span className="stats-sys-label">
-                {t("settings.skillsLabel")}
-              </span>
-              <code>{config.skillsDir}</code>
-            </span>
-          </div>
-        </section>
-      )}
-    </>
-  );
-}
-
 /* ── Search tab — search engine list with enable/disable + config ── */
 function SettingsSearch() {
   const { t } = useTranslation();
@@ -1220,12 +1125,10 @@ function SettingsAbout() {
 export function SettingsPage() {
   const { t } = useTranslation();
   const { tab } = useParams<{ tab?: string }>();
-  const activeTab = tab || "general";
+  const activeTab = tab || "model";
 
   const renderContent = () => {
     switch (activeTab) {
-      case "general":
-        return <SettingsGeneral />;
       case "model":
         return <SettingsModel />;
       case "search":
@@ -1277,7 +1180,7 @@ export function SettingsPage() {
       case "about":
         return <SettingsAbout />;
       default:
-        return <SettingsGeneral />;
+        return <SettingsModel />;
     }
   };
 
@@ -1292,8 +1195,8 @@ export function SettingsPage() {
             ) : (
               <NavLink
                 key={item.id}
-                to={item.id === "general" ? "/settings" : `/settings/${item.id}`}
-                end={item.id === "general"}
+                to={item.id === "model" ? "/settings" : `/settings/${item.id}`}
+                end={item.id === "model"}
                 className={({ isActive }) =>
                   `settings-menu-item${isActive ? " active" : ""}`
                 }

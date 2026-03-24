@@ -3,6 +3,7 @@
 ## [1.5.8] - 2026-03-24
 
 ### 新功能
+- **侧边栏语言切换**：底部新增地球图标，一键中英切换，删除常规设置页（/settings 默认展示模型页）
 - **搜索引擎连通测试**：设置页搜索引擎卡片增加 test 按钮，一键验证 SearXNG/Serper/Querit/自定义引擎可达性
 - **Hook 系统**：ToolHookManager 扩展 BeforeReturn hook，散落的 incomplete-todo guard 迁移为声明式 hook，支持外部注册
 - **工具权限控制**：config.json 驱动的 allow/deny 权限，通过 PreToolUse hook 拦截，Settings 页面可视化配置

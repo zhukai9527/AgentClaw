@@ -21,7 +21,9 @@ import {
   IconMoreHorizontal,
   IconTrash,
   IconCheck,
+  IconGlobe,
 } from "./Icons";
+import { setLanguage, getLanguage } from "../i18n";
 
 function formatSessionLabel(s: {
   title?: string;
@@ -400,6 +402,16 @@ export function Layout() {
             >
               <IconSettings size={16} /> {t("nav.settings")}
             </NavLink>
+            <button
+              className="sidebar-theme-btn"
+              onClick={() => {
+                const next = getLanguage().startsWith("zh") ? "en" : "zh";
+                setLanguage(next);
+              }}
+              title={getLanguage().startsWith("zh") ? "English" : "中文"}
+            >
+              <IconGlobe size={14} />
+            </button>
             <button
               className="sidebar-theme-btn"
               onClick={toggle}
