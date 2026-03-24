@@ -184,6 +184,19 @@ export interface ToolPolicy {
   deny?: string[];
 }
 
+/** Hook called at the start of each agent-loop iteration */
+export type OnIterationHook = (context: {
+  iteration: number;
+  runtimeHints: string[];
+}) => Promise<void>;
+
+/** Hook called when LLM wants to stop (toolCalls.length === 0) before returning */
+export type BeforeReturnHook = (context: {
+  response: string;
+  runtimeHints: string[];
+  todoItems: Array<{ text: string; done: boolean }>;
+}) => Promise<{ action: "return" } | { action: "continue"; hint: string }>;
+
 /** MCP Server connection configuration */
 export interface MCPServerConfig {
   name: string;

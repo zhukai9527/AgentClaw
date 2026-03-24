@@ -1,4 +1,10 @@
-import type { ToolHooks, ToolPolicy, ToolResult } from "@agentclaw/types";
+import type {
+  ToolHooks,
+  ToolPolicy,
+  ToolResult,
+  OnIterationHook,
+  BeforeReturnHook,
+} from "@agentclaw/types";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -14,6 +20,8 @@ export class ToolHookManager {
   private globalHooks: ToolHooks[] = [];
   private perToolHooks = new Map<string, ToolHooks[]>();
   private policy: ToolPolicy = {};
+  private onIterationHooks: OnIterationHook[] = [];
+  private beforeReturnHooks: BeforeReturnHook[] = [];
 
   /** Register a global hook (applies to all tools) */
   addGlobalHook(hook: ToolHooks): void {
@@ -135,5 +143,34 @@ export class ToolHookManager {
     }
 
     return current;
+  }
+
+  addOnIterationHook(hook: OnIterationHook): void {
+    this.onIterationHooks.push(hook);
+  }
+
+  addBeforeReturnHook(hook: BeforeReturnHook): void {
+    this.beforeReturnHooks.push(hook);
+  }
+
+  async runOnIterationHooks(ctx: {
+    iteration: number;
+    runtimeHints: string[];
+  }): Promise<void> {
+    for (const hook of this.onIterationHooks) {
+      await hook(ctx);
+    }
+  }
+
+  async runBeforeReturnHooks(ctx: {
+    response: string;
+    runtimeHints: string[];
+    todoItems: Array<{ text: string; done: boolean }>;
+  }): Promise<{ action: "return" } | { action: "continue"; hint: string }> {
+    for (const hook of this.beforeReturnHooks) {
+      const result = await hook(ctx);
+      if (result.action === "continue") return result;
+    }
+    return { action: "return" };
   }
 }

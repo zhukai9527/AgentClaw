@@ -30,6 +30,8 @@ export type {
   ToolExecutionContext,
   ToolHooks,
   ToolPolicy,
+  OnIterationHook,
+  BeforeReturnHook,
   Tool,
   ToolRegistry,
   MCPServerConfig,
