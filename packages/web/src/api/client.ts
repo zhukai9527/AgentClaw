@@ -431,6 +431,7 @@ export interface ToolInfo {
   description: string;
   category: string;
   disabled?: boolean;
+  permission?: string;
 }
 
 export interface SkillInfo {
@@ -451,6 +452,17 @@ export function setToolDisabled(
   return request(`/tools/${encodeURIComponent(name)}/disabled`, {
     method: "PUT",
     body: JSON.stringify({ disabled }),
+  });
+}
+
+export function setToolPermission(
+  name: string,
+  mode: string,
+  blockedPatterns?: string[],
+): Promise<{ name: string; mode: string }> {
+  return request(`/tools/${encodeURIComponent(name)}/permissions`, {
+    method: "PUT",
+    body: JSON.stringify({ mode, blockedPatterns }),
   });
 }
 

@@ -363,6 +363,32 @@
   flex-shrink: 0;
 }
 
+.tool-perm-btn {
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tool-perm-allow {
+  background: var(--success-subtle-bg, rgba(0, 128, 0, 0.1));
+  color: var(--accent);
+  border-color: var(--accent-subtle-border, var(--border));
+}
+
+.tool-perm-deny {
+  background: var(--error-subtle-bg, rgba(255, 0, 0, 0.1));
+  color: var(--error, #e53e3e);
+  border-color: var(--error-subtle-border, var(--border));
+}
+
+.tool-perm-btn:hover {
+  opacity: 0.8;
+}
+
 /* Badge muted */
 .badge-muted {
   background: var(--accent-subtle-bg);
