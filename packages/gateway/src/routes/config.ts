@@ -286,7 +286,16 @@ export function registerConfigRoutes(
   app.post<{
     Body: { type: string; url?: string; apiKey?: string };
   }>("/api/config/test-search", async (req, reply) => {
-    const { type, url, apiKey } = req.body;
+    const { type, url, apiKey: frontendKey } = req.body;
+    // Use real API key from config if frontend sent a masked value
+    let apiKey = frontendKey;
+    if (!apiKey || apiKey.startsWith("****")) {
+      const cfg = loadConfig();
+      const engine = cfg.searchEngines?.find(
+        (e) => e.type === type && (e.url === url || type === "serper"),
+      );
+      apiKey = engine?.apiKey || "";
+    }
     const timeout = 10000;
     try {
       let testUrl: string;
@@ -296,7 +305,10 @@ export function registerConfigRoutes(
         testUrl = "https://google.serper.dev/search";
         options = {
           method: "POST",
-          headers: { "X-API-KEY": apiKey || "", "Content-Type": "application/json" },
+          headers: {
+            "X-API-KEY": apiKey || "",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({ q: "test", num: 1 }),
           signal: AbortSignal.timeout(timeout),
         };
@@ -304,7 +316,10 @@ export function registerConfigRoutes(
         testUrl = url || "https://api.querit.ai/v1/search";
         options = {
           method: "POST",
-          headers: { Authorization: `Bearer ${apiKey || ""}`, "Content-Type": "application/json" },
+          headers: {
+            Authorization: `Bearer ${apiKey || ""}`,
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({ query: "test", count: 1 }),
           signal: AbortSignal.timeout(timeout),
         };
@@ -317,7 +332,10 @@ export function registerConfigRoutes(
 
       const response = await fetch(testUrl, options);
       if (!response.ok) {
-        return reply.send({ success: false, error: `HTTP ${response.status}: ${response.statusText}` });
+        return reply.send({
+          success: false,
+          error: `HTTP ${response.status}: ${response.statusText}`,
+        });
       }
       return reply.send({ success: true });
     } catch (err: unknown) {
