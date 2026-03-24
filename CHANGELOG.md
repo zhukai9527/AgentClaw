@@ -2,6 +2,10 @@
 
 ## [1.5.8] - 2026-03-24
 
+### 新功能
+- **Hook 系统**：ToolHookManager 扩展 BeforeReturn hook，散落的 incomplete-todo guard 迁移为声明式 hook，支持外部注册
+- **工具权限控制**：config.json 驱动的 allow/deny 权限，通过 PreToolUse hook 拦截，Settings 页面可视化配置
+
 ### 修复
 - **claude_code SDK 失败恢复**：SDK 运行时错误不再永久禁用 SDK 模式，仅 import 失败才标记不可用
 
