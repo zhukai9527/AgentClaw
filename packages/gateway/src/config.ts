@@ -76,6 +76,10 @@ export interface AppConfig {
   ollamaModel?: string;
   disableThinking?: boolean;
   disabledTools?: string[];
+  toolPermissions?: Record<string, {
+    mode: "allow" | "deny";
+    blockedPatterns?: string[];
+  }>;
   volcanoEmbeddingKey?: string;
   searxngUrl?: string; // 旧格式，迁移用
 }

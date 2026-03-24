@@ -451,6 +451,24 @@ export async function bootstrap(): Promise<AppContext> {
     ...(maxIterations ? { agentConfig: { maxIterations } } : {}),
   });
 
+  // Config-driven tool permissions
+  if (cfg.toolPermissions) {
+    const perms = cfg.toolPermissions;
+    orchestrator.getHookManager().addGlobalHook({
+      before: async (call) => {
+        const perm = perms[call.name];
+        if (!perm) return call;
+        if (perm.mode === "deny") return null;
+        if (perm.blockedPatterns?.length) {
+          const inputStr = JSON.stringify(call.input);
+          if (perm.blockedPatterns.some((p) => inputStr.includes(p)))
+            return null;
+        }
+        return call;
+      },
+    });
+  }
+
   const config: AppRuntimeConfig = {
     provider: providerName,
     model,

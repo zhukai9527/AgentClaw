@@ -24,11 +24,13 @@ export function registerToolRoutes(
       const tools = ctx.toolRegistry.list();
       const cfg = loadConfig();
       const disabled = new Set(cfg.disabledTools || []);
+      const perms = cfg.toolPermissions || {};
       const result = tools.map((t) => ({
         name: t.name,
         description: t.description,
         category: t.category,
         disabled: disabled.has(t.name),
+        permission: perms[t.name]?.mode || "allow",
       }));
       return reply.send(result);
     } catch (err: unknown) {
@@ -61,6 +63,29 @@ export function registerToolRoutes(
       }
     },
   );
+
+  // PUT /api/tools/:name/permissions - Set tool permission mode
+  app.put<{
+    Params: { name: string };
+    Body: { mode: string; blockedPatterns?: string[] };
+  }>("/api/tools/:name/permissions", async (req, reply) => {
+    try {
+      const { name } = req.params;
+      const { mode, blockedPatterns } = req.body;
+      const cfg = loadConfig();
+      const perms = { ...(cfg.toolPermissions || {}) };
+      if (mode === "allow" && !blockedPatterns?.length) {
+        delete perms[name];
+      } else {
+        perms[name] = { mode: mode as "allow" | "deny", blockedPatterns };
+      }
+      saveConfig({ toolPermissions: perms });
+      return reply.send({ name, mode, blockedPatterns });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
 
   // GET /api/skills - List skills
   app.get("/api/skills", async (_req, reply) => {
