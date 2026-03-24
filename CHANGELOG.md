@@ -17,6 +17,7 @@
 - **桌面版首次发消息跳设置页**：getConfig 失败或自定义 provider（智谱 GLM 等）未被识别时，引导到模型设置页
 - **restart.ps1 日志重定向截断 PATH**：回滚 -RedirectStandardOutput/Error，修复 claude_code spawn cmd.exe ENOENT
 - **MCP HTTP Accept 头**：添加 text/event-stream 支持 Streamable HTTP 协议
+- **claude_code SDK 失败恢复**：SDK 运行时错误不再永久禁用 SDK 模式，仅 import 失败才标记不可用
 
 ## [1.5.5] - 2026-03-21
 
