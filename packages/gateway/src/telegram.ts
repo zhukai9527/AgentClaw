@@ -15,6 +15,7 @@ import {
 import { PLATFORM_HINTS } from "./platform-hints.js";
 import {
   getPublicUrl,
+  buildFileUrl,
   createPromptUser,
   restoreChatTargets,
 } from "./channel-utils.js";
@@ -47,7 +48,7 @@ function createSendFile(
     const { InputFile } = await import("grammy");
     const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
     const filename = basename(filePath);
-    const url = `/files/${encodeURIComponent(filename)}`;
+    const url = buildFileUrl(filePath);
 
     // Track for persistence (agent-loop will generate markdown links)
     sentFiles?.push({ url, filename });

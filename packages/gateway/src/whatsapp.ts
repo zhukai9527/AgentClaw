@@ -21,6 +21,7 @@ import {
   errorMessage,
 } from "./utils.js";
 import { PLATFORM_HINTS } from "./platform-hints.js";
+import { buildFileUrl } from "./channel-utils.js";
 
 /** Map WhatsApp JID → AgentClaw session ID */
 const chatSessionMap = new Map<string, string>();
@@ -78,7 +79,7 @@ function createSendFile(
     const { basename } = await import("node:path");
     const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
     const filename = basename(filePath);
-    const fileUrl = `/files/${encodeURIComponent(filename)}`;
+    const fileUrl = buildFileUrl(filePath);
 
     // Large files: send download link instead of inline upload
     try {

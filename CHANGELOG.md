@@ -1,5 +1,10 @@
 # 更新日志
 
+## [1.5.9] - 2026-03-27
+
+### 修复
+- **文件链接缺少 session 路径**：Telegram/钉钉/飞书/QQ/企微/WhatsApp 渠道发送文件后，WebUI 中的预览链接缺少 conversationId 路径段（如 `/files/video.mp4` → `/files/mn31qyc3-mqf8t3gu/video.mp4`），导致点击 404
+
 ## [1.5.8] - 2026-03-24
 
 ### 新功能

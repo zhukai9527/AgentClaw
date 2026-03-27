@@ -5,6 +5,7 @@
  * 减少代码重复，保持行为一致性。
  */
 
+import { resolve, relative, basename } from "node:path";
 import * as Sentry from "@sentry/node";
 import type { Message, ToolExecutionContext } from "@agentclaw/types";
 import type { AppContext } from "./bootstrap.js";
@@ -27,11 +28,20 @@ export function getPublicUrl(): string {
 }
 
 /**
- * 根据文件名构建对外可访问的文件 URL 路径。
- * @returns 例如 `/files/report.pdf`
+ * 根据文件完整路径构建对外可访问的文件 URL 路径。
+ * 自动计算相对于 data/tmp/ 的路径（含 session 子目录）。
+ * @returns 例如 `/files/mn31qyc3-mqf8t3gu/report.pdf`
  */
-export function buildFileUrl(filename: string): string {
-  return `/files/${encodeURIComponent(filename)}`;
+export function buildFileUrl(filePath: string): string {
+  const tmpDir = resolve(process.cwd(), "data", "tmp");
+  const abs = resolve(filePath);
+  let relPath: string;
+  if (abs.startsWith(tmpDir)) {
+    relPath = relative(tmpDir, abs).replace(/\\/g, "/");
+  } else {
+    relPath = basename(filePath);
+  }
+  return `/files/${relPath.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 // ── 2. promptUser 超时逻辑 ──────────────────────────────────────────
@@ -82,9 +92,8 @@ export function createLinkSendFile(
   sendLink: (text: string) => Promise<unknown>,
 ): NonNullable<ToolExecutionContext["sendFile"]> {
   return async (filePath: string, caption?: string) => {
-    const { basename } = await import("node:path");
     const filename = basename(filePath);
-    const url = buildFileUrl(filename);
+    const url = buildFileUrl(filePath);
     sentFiles.push({ url, filename });
     const host = getPublicUrl();
     await sendLink(`📎 ${caption || filename}\n${host}${url}`);

@@ -266,7 +266,7 @@ async function handleMessage(
     },
     sendFile: async (filePath: string, caption?: string) => {
       const filename = basename(filePath);
-      const fileUrl = buildFileUrl(filename);
+      const fileUrl = buildFileUrl(filePath);
       sentFiles.push({ url: fileUrl, filename });
       const chatid = msg.chatid || msg.from.userid;
       try {
