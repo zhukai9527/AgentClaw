@@ -1,7 +1,20 @@
 import { spawn } from "node:child_process";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import type { Tool, ToolResult, ToolExecutionContext } from "@agentclaw/types";
+
+/** Find Git Bash on Windows (avoids cmd.exe dependency). */
+function findBash(): string | undefined {
+  const candidates = [
+    "C:/Program Files/Git/bin/bash.exe",
+    "C:/Program Files (x86)/Git/bin/bash.exe",
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return undefined;
+}
 
 const DEFAULT_TIMEOUT = 600_000; // 10 minutes
 const DEFAULT_OUTPUT_DIR = join(process.cwd(), "data", "tmp").replace(
@@ -233,13 +246,18 @@ async function runClaudeCLI(
     "--verbose",
   ];
 
+  // On Windows, use Git Bash as shell instead of cmd.exe.
+  // Start-Process (restart.ps1) can create processes where cmd.exe is
+  // unreachable despite being on PATH, causing shell:true to ENOENT.
+  const winShell = process.platform === "win32" ? findBash() : undefined;
+
   return new Promise<ToolResult>((resolve) => {
     const child = spawn("claude", args, {
       stdio: ["pipe", "pipe", "pipe"],
       timeout,
       cwd: cwd || process.cwd(),
       env: { ...process.env, CLAUDECODE: undefined },
-      shell: process.platform === "win32",
+      shell: winShell || process.platform === "win32",
       windowsHide: true,
     });
 

@@ -4,6 +4,7 @@
 
 ### 修复
 - **文件链接缺少 session 路径**：Telegram/钉钉/飞书/QQ/企微/WhatsApp 渠道发送文件后，WebUI 中的预览链接缺少 conversationId 路径段（如 `/files/video.mp4` → `/files/mn31qyc3-mqf8t3gu/video.mp4`），导致点击 404
+- **claude_code 工具 Windows 下 ENOENT**：`shell: true` 依赖 `cmd.exe`，但 `Start-Process -WindowStyle Hidden` 启动的 gateway 进程中 `cmd.exe` 不可达，改用 Git Bash 作为 shell
 
 ## [1.5.8] - 2026-03-24
 
