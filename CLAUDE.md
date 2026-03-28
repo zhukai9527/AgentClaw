@@ -106,6 +106,9 @@ Orchestrator.processInputStream() → Gateway (WS JSON / Telegram / QQ / 钉钉 
 - **Frozen Snapshot**：`context-manager.ts` 中 `dynamicContextCache` 每个 conversationId 只构建一次系统提示词，session 内不再重建。memory 写入持久化到 SQLite 但不改变当前 session 的系统提示词，提高 Anthropic prompt cache 命中率
 - **Context 压缩 tool pair 保护**：`sanitizeToolPairs()` 修复压缩后孤立的 tool_call/tool_result 对，压缩边界自动对齐避免在 pair 中间切割
 - **渠道格式提示（Platform Hints）**：`gateway/platform-hints.ts` 定义各渠道格式建议，通过 session metadata 传入 orchestrator，解析 `{{platformHint}}` 模板变量注入系统提示词
+- **Loop Detection（三层防护）**：`agent-loop.ts` 中三层机制防止工具调用死循环：(1) 相同 tool+params 超过 `MAX_DUPLICATE_CALLS`(2) 次 → 直接拦截；(2) 单工具总调用次数上限（`TOOL_TOTAL_LIMITS`，如 web_search/web_fetch 各 8 次）；(3) 三击升级：最近 3 次响应 80% 相似时注入 escalation 提示强制换策略。全局安全网 `MAX_TOTAL_TOOL_CALLS`(40) 兜底
+- **对话标题自动生成**：`orchestrator.ts` 的 `generateSessionTitle()` 在第一条消息后异步调 `fastProvider`（小模型）生成 ≤20 字标题，存入 session。前端 `formatSessionLabel()` 优先显示 title，无 title 时 fallback 日期时间
+- **配置热重载**：前端设置页保存触发 `PUT /api/config`，gateway 自动执行：provider 变更 → 热重建 provider；渠道变更 → `channelManager.refreshConfig()` 热重启；搜索引擎变更 → `setSearchEngines()` + 健康检查刷新。无需重启进程
 
 ### 渠道系统
 
