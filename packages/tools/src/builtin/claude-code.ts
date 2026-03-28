@@ -6,9 +6,11 @@ import type { Tool, ToolResult, ToolExecutionContext } from "@agentclaw/types";
 
 /** Find Git Bash on Windows (avoids cmd.exe dependency). */
 function findBash(): string | undefined {
+  // Use backslashes — forward-slash paths can ENOENT in spawn() when the
+  // Node process was launched outside Git Bash (e.g. PowerShell Start-Process).
   const candidates = [
-    "C:/Program Files/Git/bin/bash.exe",
-    "C:/Program Files (x86)/Git/bin/bash.exe",
+    "C:\\Program Files\\Git\\bin\\bash.exe",
+    "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;
@@ -246,18 +248,26 @@ async function runClaudeCLI(
     "--verbose",
   ];
 
-  // On Windows, use Git Bash as shell instead of cmd.exe.
-  // Start-Process (restart.ps1) can create processes where cmd.exe is
+  // On Windows, spawn via Git Bash directly instead of shell:true (cmd.exe).
+  // Start-Process -WindowStyle Hidden can create processes where cmd.exe is
   // unreachable despite being on PATH, causing shell:true to ENOENT.
-  const winShell = process.platform === "win32" ? findBash() : undefined;
+  const bash = process.platform === "win32" ? findBash() : undefined;
+  const spawnCmd = bash ? bash : "claude";
+  const spawnArgs = bash
+    ? [
+        "-c",
+        ["claude", ...args]
+          .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
+          .join(" "),
+      ]
+    : args;
 
   return new Promise<ToolResult>((resolve) => {
-    const child = spawn("claude", args, {
+    const child = spawn(spawnCmd, spawnArgs, {
       stdio: ["pipe", "pipe", "pipe"],
       timeout,
       cwd: cwd || process.cwd(),
       env: { ...process.env, CLAUDECODE: undefined },
-      shell: winShell || process.platform === "win32",
       windowsHide: true,
     });
 
