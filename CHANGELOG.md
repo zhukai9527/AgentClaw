@@ -2,6 +2,10 @@
 
 ## [1.5.9] - 2026-03-27
 
+### 新功能
+- **Jina Reader 集成**：web_fetch 优先通过 Jina Reader（`r.jina.ai`）获取 Markdown，质量更高；不可用时自动 fallback 到本地 Readability+Turndown
+- **站点配置外置**：web_fetch 的 SPA 域名、登录墙关键词、噪音模式、站点选择器等从 `skills/web-fetch/sites.json` 加载，支持用户扩展；TS 和 Python 共享同一配置
+
 ### 修复
 - **文件链接缺少 session 路径**：Telegram/钉钉/飞书/QQ/企微/WhatsApp 渠道发送文件后，WebUI 中的预览链接缺少 conversationId 路径段（如 `/files/video.mp4` → `/files/mn31qyc3-mqf8t3gu/video.mp4`），导致点击 404
 - **claude_code 工具 Windows 下 ENOENT**：`shell: true` 依赖 `cmd.exe`，但 `Start-Process -WindowStyle Hidden` 启动的 gateway 进程中 `cmd.exe` 不可达，改用 Git Bash 作为 shell

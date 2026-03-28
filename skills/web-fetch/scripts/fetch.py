@@ -2,35 +2,44 @@
 """Playwright-based web page fetcher with JS rendering support."""
 
 import argparse
+import json
 import sys
 import io
+import os
 from urllib.parse import urlparse
 
 # Force UTF-8 stdout on Windows (avoid GBK encoding errors)
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
-# ── Precise content selectors for known sites ──
-# When matched, only extract content from these selectors (much cleaner).
-SITE_CLEANUP_JS: dict[str, str] = {
-    "x.com": """() => {
-        // Remove interactive buttons (like, retweet, share, bookmark, analytics)
-        document.querySelectorAll('[role="group"], [data-testid="like"], [data-testid="unlike"], [data-testid="retweet"], [data-testid="reply"], [data-testid="bookmark"], [data-testid="share"], [href*="/analytics"]').forEach(el => el.remove());
-        // Remove "More" menu buttons
-        document.querySelectorAll('[data-testid="caret"]').forEach(el => el.remove());
-    }""",
-}
-SITE_CLEANUP_JS["twitter.com"] = SITE_CLEANUP_JS["x.com"]
+# ── Load site config from sites.json ──
+SITE_CLEANUP_JS: dict[str, str] = {}
+SITE_SELECTORS: dict[str, str] = {}
 
-SITE_SELECTORS: dict[str, str] = {
-    "x.com": 'article[data-testid="tweet"]',
-    "twitter.com": 'article[data-testid="tweet"]',
-    "zhihu.com": "div.RichContent-inner, div.Post-RichText",
-    "www.zhihu.com": "div.RichContent-inner, div.Post-RichText",
-    "weibo.com": "div.detail_wbtext_4CRf9, div.Feed_body_3R0rO",
-    "m.weibo.com": "div.weibo-text",
-    "www.xiaohongshu.com": "div#detail-desc, div.note-content",
-    "xiaohongshu.com": "div#detail-desc, div.note-content",
-}
+
+def _load_site_config():
+    """Load site-specific selectors and cleanup JS from sites.json."""
+    config_path = os.path.join(os.path.dirname(__file__), "..", "sites.json")
+    if not os.path.exists(config_path):
+        return
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except Exception:
+        return
+
+    sites = config.get("sites", {})
+    # Resolve $ref aliases
+    for domain, cfg in sites.items():
+        ref = cfg.get("$ref")
+        if ref and ref in sites:
+            cfg = sites[ref]
+        if cfg.get("selector"):
+            SITE_SELECTORS[domain] = cfg["selector"]
+        if cfg.get("cleanupJs"):
+            SITE_CLEANUP_JS[domain] = cfg["cleanupJs"]
+
+
+_load_site_config()
 
 # ── Generic noise removal JS — works on all sites ──
 GENERIC_CLEANUP_JS = """

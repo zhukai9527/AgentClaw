@@ -4,52 +4,73 @@ import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { resolve, join, basename } from "node:path";
 
 const execFileAsync = promisify(execFile);
 
+// ── 站点配置：从 sites.json 加载，缺失时用内置默认值 ──
+
+interface SiteConfig {
+  spaDomains: string[];
+  loginWallKeywords: string[];
+  noisePatterns: string[];
+  sites: Record<string, { selector?: string; cleanupJs?: string; $ref?: string }>;
+}
+
+function loadSiteConfig(): SiteConfig {
+  const configPath = resolve(process.cwd(), "skills/web-fetch/sites.json");
+  try {
+    if (existsSync(configPath)) {
+      return JSON.parse(readFileSync(configPath, "utf-8"));
+    }
+  } catch (err) {
+    console.warn("[web_fetch] Failed to load sites.json, using defaults:", err);
+  }
+  // 内置默认值（与 sites.json 同步）
+  return {
+    spaDomains: [
+      "x.com", "twitter.com", "zhihu.com", "www.zhihu.com",
+      "weibo.com", "m.weibo.com", "bilibili.com", "www.bilibili.com",
+      "douyin.com", "www.douyin.com", "xiaohongshu.com", "www.xiaohongshu.com",
+      "threads.net", "www.threads.net", "reddit.com", "www.reddit.com",
+      "chatgpt.com", "chat.openai.com",
+    ],
+    loginWallKeywords: [
+      "安全验证", "请登录", "登录后", "请先登录",
+      "login required", "sign in to", "please log in", "access denied",
+    ],
+    noisePatterns: [
+      "^Don't miss what's happening$",
+      "^People on X are the first to know\\.?$",
+      "^\\[Log in\\].*$", "^\\[Sign up\\].*$",
+      "^See new posts?$", "^## Article$", "^# Conversation$",
+      "^Discover more$", "^Trending now$",
+      "^Terms of Service", "^Privacy Policy", "^Cookie Policy",
+      "^\\[.*?\\]\\(\\/login\\)$", "^\\[.*?\\]\\(\\/i\\/flow\\/signup\\)$",
+      "^Show more$", "^Show this thread$",
+    ],
+    sites: {},
+  };
+}
+
+const siteConfig = loadSiteConfig();
+
 /** 内部硬上限：防止极端页面撑爆内存（溢出模式会在 8K 处接管 LLM 上下文保护） */
 const INTERNAL_MAX_LENGTH = 200_000;
 const FETCH_TIMEOUT = 10_000;
+/** Jina Reader 超时（毫秒）——比主 fetch 短，失败时快速 fallback */
+const JINA_TIMEOUT = 8_000;
 /** Playwright 子进程超时（毫秒） */
 const PLAYWRIGHT_TIMEOUT = 30_000;
 /** Playwright 子进程最大输出（字节） */
 const PLAYWRIGHT_MAX_BUFFER = 2 * 1024 * 1024;
 
 /** 已知 SPA/JS 渲染站点——命中时直接走 Playwright，不判断内容长度 */
-const SPA_DOMAINS = new Set([
-  "x.com",
-  "twitter.com",
-  "zhihu.com",
-  "www.zhihu.com",
-  "weibo.com",
-  "m.weibo.com",
-  "bilibili.com",
-  "www.bilibili.com",
-  "douyin.com",
-  "www.douyin.com",
-  "xiaohongshu.com",
-  "www.xiaohongshu.com",
-  "threads.net",
-  "www.threads.net",
-  "reddit.com",
-  "www.reddit.com",
-  "chatgpt.com",
-  "chat.openai.com",
-]);
+const SPA_DOMAINS = new Set(siteConfig.spaDomains);
 
 /** 登录墙关键词——命中任一则提示用户需要登录态 */
-const LOGIN_WALL_KEYWORDS = [
-  "安全验证",
-  "请登录",
-  "登录后",
-  "请先登录",
-  "login required",
-  "sign in to",
-  "please log in",
-  "access denied",
-];
+const LOGIN_WALL_KEYWORDS = siteConfig.loginWallKeywords;
 
 /** Check if hostname resolves to a private/internal address (SSRF protection) */
 function isPrivateHost(hostname: string): boolean {
@@ -83,24 +104,7 @@ const turndown = new TurndownService({
 });
 
 /** Lines commonly found in SPA page chrome (navigation, login prompts, etc.) */
-const NOISE_PATTERNS = [
-  /^Don't miss what's happening$/,
-  /^People on X are the first to know\.?$/,
-  /^\[Log in\].*$/,
-  /^\[Sign up\].*$/,
-  /^See new posts?$/,
-  /^## Article$/,
-  /^# Conversation$/,
-  /^Discover more$/,
-  /^Trending now$/,
-  /^Terms of Service/,
-  /^Privacy Policy/,
-  /^Cookie Policy/,
-  /^\[.*?\]\(\/login\)$/,
-  /^\[.*?\]\(\/i\/flow\/signup\)$/,
-  /^Show more$/i,
-  /^Show this thread$/i,
-];
+const NOISE_PATTERNS = siteConfig.noisePatterns.map((p) => new RegExp(p, "i"));
 
 /** Remove common SPA navigation noise from markdown output */
 function cleanMarkdown(md: string): string {
@@ -218,7 +222,7 @@ export const webFetchTool: Tool = {
 
       let content: string;
       // 标记最终采用的抓取策略
-      let strategy: "native" | "playwright" | "login_wall" = "native";
+      let strategy: "native" | "jina" | "playwright" | "login_wall" = "native";
 
       if (contentType.includes("application/json")) {
         // Pretty-print JSON
@@ -229,11 +233,15 @@ export const webFetchTool: Tool = {
           content = body;
         }
       } else if (contentType.includes("text/html")) {
-        content = htmlToMarkdown(body);
+        // 优先 Jina Reader（Markdown 质量更高），失败 fallback 本地 Readability
+        const jina = await tryJinaReader(url);
+        content = jina ?? htmlToMarkdown(body);
+        if (jina) strategy = "jina";
 
         // SPA 自动回退：已知 SPA 域名直接走 Playwright；其他站点内容极少时也降级
+        // Jina 已成功且内容充足时跳过 Playwright
         const isSPADomain = SPA_DOMAINS.has(parsedUrl.hostname);
-        if (isSPADomain || (content.length < 1500 && body.length > 2000)) {
+        if (strategy !== "jina" && (isSPADomain || (content.length < 1500 && body.length > 2000))) {
           // 直接带 --scroll 抓取，避免两次 Playwright 启动开销
           const pwContent = await tryPlaywrightFetch(url, true);
           if (pwContent !== null && pwContent.length >= 500) {
@@ -370,5 +378,29 @@ async function tryPlaywrightFetch(
     return result;
   } catch {
     return null;
+  }
+}
+
+/**
+ * 尝试通过 Jina Reader 获取 Markdown 内容。
+ * 免费无需 API key，20 RPM 限制。失败时静默返回 null。
+ */
+async function tryJinaReader(url: string): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), JINA_TIMEOUT);
+  try {
+    const resp = await fetch(`https://r.jina.ai/${url}`, {
+      headers: { Accept: "text/markdown" },
+      signal: controller.signal,
+    });
+    if (!resp.ok) return null;
+    const text = (await resp.text()).trim();
+    // Jina 返回空或极短内容时视为失败
+    if (text.length < 100) return null;
+    return text;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
 }

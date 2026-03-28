@@ -1,0 +1,56 @@
+{
+  "spaDomains": [
+    "x.com", "twitter.com",
+    "zhihu.com", "www.zhihu.com",
+    "weibo.com", "m.weibo.com",
+    "bilibili.com", "www.bilibili.com",
+    "douyin.com", "www.douyin.com",
+    "xiaohongshu.com", "www.xiaohongshu.com",
+    "threads.net", "www.threads.net",
+    "reddit.com", "www.reddit.com",
+    "chatgpt.com", "chat.openai.com"
+  ],
+  "loginWallKeywords": [
+    "安全验证", "请登录", "登录后", "请先登录",
+    "login required", "sign in to", "please log in", "access denied"
+  ],
+  "noisePatterns": [
+    "^Don't miss what's happening$",
+    "^People on X are the first to know\\.?$",
+    "^\\[Log in\\].*$",
+    "^\\[Sign up\\].*$",
+    "^See new posts?$",
+    "^## Article$",
+    "^# Conversation$",
+    "^Discover more$",
+    "^Trending now$",
+    "^Terms of Service",
+    "^Privacy Policy",
+    "^Cookie Policy",
+    "^\\[.*?\\]\\(\\/login\\)$",
+    "^\\[.*?\\]\\(\\/i\\/flow\\/signup\\)$",
+    "^Show more$",
+    "^Show this thread$"
+  ],
+  "sites": {
+    "x.com": {
+      "selector": "article[data-testid=\"tweet\"]",
+      "cleanupJs": "() => { document.querySelectorAll('[role=\"group\"], [data-testid=\"like\"], [data-testid=\"unlike\"], [data-testid=\"retweet\"], [data-testid=\"reply\"], [data-testid=\"bookmark\"], [data-testid=\"share\"], [href*=\"/analytics\"], [data-testid=\"caret\"]').forEach(el => el.remove()); }"
+    },
+    "twitter.com": { "$ref": "x.com" },
+    "zhihu.com": {
+      "selector": "div.RichContent-inner, div.Post-RichText"
+    },
+    "www.zhihu.com": { "$ref": "zhihu.com" },
+    "weibo.com": {
+      "selector": "div.detail_wbtext_4CRf9, div.Feed_body_3R0rO"
+    },
+    "m.weibo.com": {
+      "selector": "div.weibo-text"
+    },
+    "www.xiaohongshu.com": {
+      "selector": "div#detail-desc, div.note-content"
+    },
+    "xiaohongshu.com": { "$ref": "www.xiaohongshu.com" }
+  }
+}
