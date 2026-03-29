@@ -1,5 +1,13 @@
 # 更新日志
 
+## [1.5.10] - 2026-03-30
+
+### 清理
+- **删除 4 个死工具文件**：`compact.ts`、`context-search.ts`、`social-post.ts`、`browser.ts`——commit de10884 删了注册但遗漏了源文件（~600 行死代码）
+
+### 修复
+- **claude_code Windows spawn 最终修复**：`findBash()` 路径改回正斜杠，反斜杠在 PowerShell 启动的 Node 进程中 `existsSync()` 返回 false
+
 ## [1.5.9] - 2026-03-27
 
 ### 新功能
