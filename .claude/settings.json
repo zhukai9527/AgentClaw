@@ -8,6 +8,11 @@
             "type": "command",
             "command": "powershell -ExecutionPolicy Bypass -File \".claude/hooks/check-changelog.ps1\"",
             "statusMessage": "Checking CHANGELOG..."
+          },
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \".claude/hooks/guard-sensitive-files.ps1\"",
+            "statusMessage": "Sensitive file check..."
           }
         ]
       }
