@@ -6,11 +6,11 @@ import type { Tool, ToolResult, ToolExecutionContext } from "@agentclaw/types";
 
 /** Find Git Bash on Windows (avoids cmd.exe dependency). */
 function findBash(): string | undefined {
-  // Use backslashes — forward-slash paths can ENOENT in spawn() when the
-  // Node process was launched outside Git Bash (e.g. PowerShell Start-Process).
+  // MUST use forward slashes: backslash paths fail existsSync() in Node
+  // processes launched by PowerShell Start-Process (escape handling differs).
   const candidates = [
-    "C:\\Program Files\\Git\\bin\\bash.exe",
-    "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+    "C:/Program Files/Git/bin/bash.exe",
+    "C:/Program Files (x86)/Git/bin/bash.exe",
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;
