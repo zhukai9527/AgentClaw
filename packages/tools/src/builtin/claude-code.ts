@@ -1,21 +1,41 @@
-import { spawn } from "node:child_process";
-import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { spawn, execFileSync } from "node:child_process";
+import { join, dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import type { Tool, ToolResult, ToolExecutionContext } from "@agentclaw/types";
 
-/** Find Git Bash on Windows (avoids cmd.exe dependency). */
-function findBash(): string | undefined {
-  // MUST use forward slashes: backslash paths fail existsSync() in Node
-  // processes launched by PowerShell Start-Process (escape handling differs).
-  const candidates = [
-    "C:/Program Files/Git/bin/bash.exe",
-    "C:/Program Files (x86)/Git/bin/bash.exe",
-  ];
-  for (const p of candidates) {
-    if (existsSync(p)) return p;
+/**
+ * Resolve the absolute path to Claude Code's cli.js entry point.
+ * On Windows, parses claude.cmd to find the cli.js path, then spawns
+ * via process.execPath (Node itself) — no bash/cmd.exe dependency.
+ * Returns undefined on non-Windows or if resolution fails.
+ */
+function findClaudeCliJs(): string | undefined {
+  if (process.platform !== "win32") return undefined;
+  try {
+    // Locate claude.cmd via `where`
+    const cmdPath = execFileSync("where", ["claude"], {
+      timeout: 3000,
+      encoding: "utf8",
+      windowsHide: true,
+    })
+      .trim()
+      .split(/\r?\n/)
+      .find((l) => l.endsWith(".cmd"));
+    if (!cmdPath) return undefined;
+
+    // Parse cli.js path from claude.cmd content
+    const content = readFileSync(cmdPath, "utf8");
+    const match = content.match(
+      /node_modules[\\/]@anthropic-ai[\\/]claude-code[\\/]cli\.js/,
+    );
+    if (!match) return undefined;
+
+    const cliJs = join(dirname(cmdPath), match[0]).replace(/\\/g, "/");
+    return existsSync(cliJs) ? cliJs : undefined;
+  } catch {
+    return undefined;
   }
-  return undefined;
 }
 
 const DEFAULT_TIMEOUT = 600_000; // 10 minutes
@@ -248,19 +268,12 @@ async function runClaudeCLI(
     "--verbose",
   ];
 
-  // On Windows, spawn via Git Bash directly instead of shell:true (cmd.exe).
-  // Start-Process -WindowStyle Hidden can create processes where cmd.exe is
-  // unreachable despite being on PATH, causing shell:true to ENOENT.
-  const bash = process.platform === "win32" ? findBash() : undefined;
-  const spawnCmd = bash ? bash : "claude";
-  const spawnArgs = bash
-    ? [
-        "-c",
-        ["claude", ...args]
-          .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
-          .join(" "),
-      ]
-    : args;
+  // On Windows, spawn Node directly with cli.js — no bash/cmd.exe dependency.
+  // Both bash and cmd.exe are intermittently unreachable from Start-Process contexts.
+  // process.execPath (the running Node binary) is always available.
+  const cliJs = findClaudeCliJs();
+  const spawnCmd = cliJs ? process.execPath : "claude";
+  const spawnArgs = cliJs ? [cliJs, ...args] : args;
 
   return new Promise<ToolResult>((resolve) => {
     const child = spawn(spawnCmd, spawnArgs, {

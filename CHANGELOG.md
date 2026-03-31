@@ -6,7 +6,7 @@
 - **删除 4 个死工具文件**：`compact.ts`、`context-search.ts`、`social-post.ts`、`browser.ts`——commit de10884 删了注册但遗漏了源文件（~600 行死代码）
 
 ### 修复
-- **claude_code Windows spawn 最终修复**：`findBash()` 路径改回正斜杠，反斜杠在 PowerShell 启动的 Node 进程中 `existsSync()` 返回 false
+- **claude_code Windows spawn 彻底修复**：不再依赖 bash 或 cmd.exe，改为解析 `claude.cmd` 找到 `cli.js` 入口，用 `process.execPath`（Node 自身）直接 spawn，彻底消除 shell 间歇性 ENOENT
 
 ## [1.5.9] - 2026-03-27
 
