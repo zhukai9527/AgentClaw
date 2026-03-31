@@ -422,7 +422,7 @@ async function runClaudeCLI(
 
     child.on("error", (err) => {
       resolve({
-        content: `Failed to spawn claude CLI: ${err.message}\nClaude Code is temporarily unavailable. Use other tools (bash, file_write, etc.) to complete the task instead.`,
+        content: `Failed to spawn claude CLI: ${err.message}\nClaude Code is temporarily unavailable. Tell the user that claude_code failed to start and they may need to retry. Do NOT attempt to find or run scripts as a workaround.`,
         isError: true,
       });
     });
@@ -487,14 +487,22 @@ export const claudeCodeTool: Tool = {
       }
     }
 
-    // Fallback to CLI mode
-    const result = await runClaudeCLI(prompt, cwd, timeout, context);
-    // Retry once on ENOENT
-    if (result.isError && result.content.includes("ENOENT")) {
-      console.log("[claude_code] ENOENT on first attempt, retrying...");
-      await new Promise((r) => setTimeout(r, 1000));
-      return runClaudeCLI(prompt, cwd, timeout, context);
+    // Fallback to CLI mode with retry on ENOENT (Windows intermittent spawn failure)
+    const MAX_RETRIES = 3;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      const result = await runClaudeCLI(prompt, cwd, timeout, context);
+      if (!result.isError || !result.content.includes("ENOENT")) {
+        return result;
+      }
+      if (attempt < MAX_RETRIES) {
+        console.log(
+          `[claude_code] ENOENT attempt ${attempt}/${MAX_RETRIES}, retrying in ${attempt}s...`,
+        );
+        await new Promise((r) => setTimeout(r, attempt * 1000));
+      } else {
+        return result;
+      }
     }
-    return result;
+    return { content: "claude_code: all retries exhausted", isError: true };
   },
 };
