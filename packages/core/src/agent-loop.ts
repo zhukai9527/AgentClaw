@@ -129,12 +129,14 @@ function pruneSystemPromptForTools(
 }
 
 /**
- * Micro-compact: silently replace old tool_result content with short placeholders.
- * Keeps the most recent KEEP_RECENT tool-result turns intact; older ones get
- * their content shrunk. Runs every iteration, no LLM involved.
+ * Micro-compact: silently truncate old tool_result content to save context space.
+ * Keeps the most recent KEEP_RECENT tool-result turns intact; older ones with
+ * content exceeding COMPACT_THRESHOLD get truncated to COMPACT_PREVIEW chars
+ * plus a length marker. Runs every iteration, no LLM involved.
  */
 const MICRO_COMPACT_KEEP_RECENT = 3;
-const MICRO_COMPACT_MIN_LENGTH = 100;
+const MICRO_COMPACT_THRESHOLD = 800;
+const MICRO_COMPACT_PREVIEW = 200;
 /** Tool names whose input arguments should be truncated after execution */
 const TRUNCATE_ARG_TOOLS = new Set(["file_write", "file_edit", "execute_code", "bash"]);
 const TRUNCATE_ARG_KEYS = new Set(["content", "new_string", "code", "command"]);
@@ -154,6 +156,18 @@ function microCompact(messages: Message[]): void {
     toolMsgIndices.length - MICRO_COMPACT_KEEP_RECENT,
   );
 
+  let truncatedCount = 0;
+  let savedChars = 0;
+
+  /** Truncate a single tool_result content string if over threshold */
+  const truncateContent = (content: string): string | null => {
+    if (content.length <= MICRO_COMPACT_THRESHOLD) return null;
+    const originalLength = content.length;
+    truncatedCount++;
+    savedChars += originalLength - MICRO_COMPACT_PREVIEW;
+    return content.slice(0, MICRO_COMPACT_PREVIEW) + `\n\n[... truncated from ${originalLength} chars]`;
+  };
+
   for (const idx of toCompact) {
     const msg = messages[idx];
     if (typeof msg.content === "string") {
@@ -163,27 +177,32 @@ function microCompact(messages: Message[]): void {
         for (const block of blocks) {
           if (
             block.type === "tool_result" &&
-            typeof (block as ToolResultContent).content === "string" &&
-            (block as ToolResultContent).content.length > MICRO_COMPACT_MIN_LENGTH
+            typeof (block as ToolResultContent).content === "string"
           ) {
-            (block as ToolResultContent).content = "[previous tool result]";
-            changed = true;
+            const result = truncateContent((block as ToolResultContent).content);
+            if (result !== null) {
+              (block as ToolResultContent).content = result;
+              changed = true;
+            }
           }
         }
         if (changed) msg.content = JSON.stringify(blocks);
       } catch {
-        if (msg.content.length > MICRO_COMPACT_MIN_LENGTH) {
-          msg.content = "[previous tool result]";
+        const result = truncateContent(msg.content);
+        if (result !== null) {
+          msg.content = result;
         }
       }
     } else if (Array.isArray(msg.content)) {
       for (const block of msg.content) {
         if (
           block.type === "tool_result" &&
-          typeof (block as ToolResultContent).content === "string" &&
-          (block as ToolResultContent).content.length > MICRO_COMPACT_MIN_LENGTH
+          typeof (block as ToolResultContent).content === "string"
         ) {
-          (block as ToolResultContent).content = "[previous tool result]";
+          const result = truncateContent((block as ToolResultContent).content);
+          if (result !== null) {
+            (block as ToolResultContent).content = result;
+          }
         }
       }
     }
@@ -211,6 +230,10 @@ function microCompact(messages: Message[]): void {
         }
       }
     }
+  }
+
+  if (truncatedCount > 0) {
+    console.log(`[microCompact] truncated ${truncatedCount} tool_result(s), saved ${savedChars} chars`);
   }
 }
 
