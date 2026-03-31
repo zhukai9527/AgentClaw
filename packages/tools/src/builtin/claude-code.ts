@@ -271,8 +271,10 @@ async function runClaudeCLI(
   // On Windows, spawn Node directly with cli.js — no bash/cmd.exe dependency.
   // Both bash and cmd.exe are intermittently unreachable from Start-Process contexts.
   // process.execPath (the running Node binary) is always available.
+  // CRITICAL: process.execPath returns backslash path on Windows which can
+  // ENOENT in spawn(). Must normalize to forward slashes.
   const cliJs = findClaudeCliJs();
-  const spawnCmd = cliJs ? process.execPath : "claude";
+  const spawnCmd = cliJs ? process.execPath.replace(/\\/g, "/") : "claude";
   const spawnArgs = cliJs ? [cliJs, ...args] : args;
 
   return new Promise<ToolResult>((resolve) => {
