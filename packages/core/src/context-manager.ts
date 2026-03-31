@@ -543,9 +543,16 @@ export class SimpleContextManager implements ContextManager {
               createdAt: new Date(),
             },
           ],
-          systemPrompt:
-            "Summarize this conversation in 3-5 bullet points. Keep key facts, decisions, and user preferences. Reply in the same language the user used. Be concise (under 500 chars).",
-          maxTokens: 300,
+          systemPrompt: `Summarize this conversation using this exact structure. Fill each section (skip empty ones). Reply in the same language the user used. Be concise (under 800 chars total).
+
+**User Request:** What the user originally asked for (1 sentence)
+**Current State:** What has been done so far, current status
+**Key Decisions:** Important choices made, constraints established
+**Files & Code:** Files read/written/edited, key code changes
+**Errors & Fixes:** Problems encountered and how they were resolved
+**Next Steps:** What still needs to be done (if anything)
+**User Messages:** Preserve the user's exact key instructions/preferences verbatim`,
+          maxTokens: 500,
         });
         const text =
           typeof resp.message.content === "string" ? resp.message.content : "";
