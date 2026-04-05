@@ -147,27 +147,33 @@ export class SkillRegistryImpl implements SkillRegistry {
         // Normalize path separators (Windows may use backslashes)
         const normalized = filename.replace(/\\/g, "/");
 
-        // Only react to .md files
-        if (!normalized.endsWith(".md")) return;
-
-        const fullPath = path.resolve(dir, filename);
+        // Resolve the target: either a .md file directly, or a new directory
+        // that may contain SKILL.md (e.g. git clone creates a new subdirectory)
+        let targetPath: string;
+        if (normalized.endsWith(".md")) {
+          targetPath = path.resolve(dir, filename);
+        } else {
+          // New directory or non-.md file — check for SKILL.md inside
+          const candidate = path.resolve(dir, normalized.split("/")[0], "SKILL.md");
+          targetPath = candidate;
+        }
 
         // Debounce: clear any pending timer for this file
-        const existing = this.debounceTimers.get(fullPath);
+        const existing = this.debounceTimers.get(targetPath);
         if (existing) {
           clearTimeout(existing);
         }
 
         this.debounceTimers.set(
-          fullPath,
+          targetPath,
           setTimeout(async () => {
-            this.debounceTimers.delete(fullPath);
+            this.debounceTimers.delete(targetPath);
 
-            const loaded = await this.loadSkillFile(fullPath);
+            const loaded = await this.loadSkillFile(targetPath);
             if (loaded) {
-              console.log(`[skills] Reloaded: ${filename}`);
+              console.log(`[skills] Reloaded: ${path.relative(dir, targetPath)}`);
             }
-          }, 300),
+          }, 500),
         );
       });
 
