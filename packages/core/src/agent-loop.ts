@@ -270,6 +270,10 @@ function applyOverflow(
   if (result.isError || result.content.length <= OVERFLOW_THRESHOLD)
     return null;
 
+  // Never overflow use_skill — skill content is instructions that must be
+  // fully visible to the LLM, truncating defeats the purpose
+  if (toolName === "use_skill") return null;
+
   // Never overflow file_read of an overflow file — prevents infinite loop
   // where LLM reads overflow → result overflows → LLM reads new overflow → ...
   if (toolName === "file_read" && typeof toolInput?.path === "string") {
