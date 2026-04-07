@@ -1,6 +1,6 @@
 ---
 name: pdf
-description: PDF文档处理，提取文字和表格、合并拆分、创建PDF | PDF manipulation - extract text/tables, merge/split, create PDFs
+description: PDF 处理：提取文字表格、合并拆分、创建。不用于：Word/Excel、网页转PDF
 ---
 
 All output files go to the working directory (工作目录). Use `file_write` to create the Python script, then `shell` to execute it.

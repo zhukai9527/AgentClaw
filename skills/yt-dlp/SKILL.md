@@ -1,6 +1,6 @@
 ---
 name: yt-dlp
-description: 下载视频/音频（YouTube、Bilibili、Twitter等），支持格式选择和字幕提取 | Download video/audio from YouTube, Bilibili, Twitter etc.
+description: 下载视频/音频（YouTube、B站、Twitter等）。不用于：网页抓取（用 web_fetch）、直播录制
 ---
 
 All output files go to the working directory (工作目录). Always use `auto_send: true` on the shell call.

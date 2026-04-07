@@ -1,6 +1,6 @@
 ---
 name: docx
-description: 创建、编辑和分析Word文档，支持格式设置、表格、图片插入 | Create, edit and analyze Word documents (.docx)
+description: 创建和编辑 Word 文档（.docx）。不用于：PDF、纯文本、Markdown
 ---
 
 All output files go to the working directory (工作目录). Use `file_write` to create the Python script, then `shell` to execute it.

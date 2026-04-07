@@ -1,6 +1,6 @@
 ---
 name: xlsx
-description: 创建、编辑和分析Excel表格，支持公式、图表、数据处理 | Create, edit and analyze Excel spreadsheets (.xlsx)
+description: 创建和编辑 Excel 表格。不用于：Google Sheets（用 gws-sheets）、数据库操作
 ---
 
 All output files go to the working directory (工作目录). Use `file_write` to create the Python script, then `shell` to execute it.

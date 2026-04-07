@@ -1,6 +1,6 @@
 ---
 name: gws-drive
-description: Google Drive文件管理——搜索、上传、下载、共享文件 | Google Drive via gws CLI (search, upload, download, share files)
+description: Google Drive 文件：搜索/上传/下载/共享。不用于：本地文件操作、其他云盘
 ---
 
 Requires: `gws` CLI installed and authenticated (`gws auth login`).

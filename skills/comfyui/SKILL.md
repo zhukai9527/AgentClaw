@@ -1,6 +1,6 @@
 ---
 name: comfyui
-description: AI图片生成和处理（文生图、图生图、去背景、放大），需本地运行 ComfyUI | AI image generation (text-to-image, remove background, upscale), requires local ComfyUI
+description: AI图片生成（文生图、图生图、去背景、放大），需本地 ComfyUI。不用于：截图、网页抓图、非AI图片处理
 ---
 
 **前置条件**：ComfyUI 必须在 http://127.0.0.1:8000 运行中。如果报连接错误，提示用户先启动 ComfyUI。

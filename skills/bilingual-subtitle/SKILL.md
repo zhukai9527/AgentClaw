@@ -1,6 +1,6 @@
 ---
 name: bilingual-subtitle
-description: 视频字幕提取、翻译、双语合并、烧录（GPU加速Whisper + Google翻译）| Extract subtitles from video, translate, merge bilingual, burn into video
+description: 视频字幕提取、翻译、双语合并、烧录。不用于：纯音频转文字、翻译文本文件、视频剪辑
 ---
 
 Extract subtitles from video using Whisper (GPU-accelerated), translate to Chinese, and optionally burn bilingual subtitles into video.

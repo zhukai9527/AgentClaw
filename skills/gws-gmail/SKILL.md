@@ -1,6 +1,6 @@
 ---
 name: gws-gmail
-description: Gmail邮件管理——搜索、阅读、发送、管理邮件 | Gmail via gws CLI (search, read, send, manage emails)
+description: Gmail 邮件：搜索/阅读/发送/管理。不用于：其他邮箱、Telegram 消息
 ---
 
 Requires: `gws` CLI installed and authenticated (`gws auth login`).

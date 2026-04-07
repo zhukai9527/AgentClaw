@@ -1,6 +1,6 @@
 ---
 name: gws-tasks
-description: Google Tasks待办管理——查看、创建、完成、删除任务 | Google Tasks via gws CLI (list, create, complete, delete)
+description: Google Tasks 待办管理。不用于：本地待办（用 update_todo）、日历事件（用 gws-calendar）
 ---
 
 Requires: `gws` CLI installed and authenticated (`gws auth login`).

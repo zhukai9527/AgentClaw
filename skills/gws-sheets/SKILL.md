@@ -1,6 +1,6 @@
 ---
 name: gws-sheets
-description: Google Sheets电子表格——读取、写入、追加数据 | Google Sheets via gws CLI (read, write, append spreadsheet data)
+description: Google Sheets 读写数据。不用于：本地 Excel/CSV（用 xlsx 技能）
 ---
 
 Requires: `gws` CLI installed and authenticated (`gws auth login`).

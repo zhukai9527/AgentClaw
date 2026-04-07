@@ -1,6 +1,6 @@
 ---
 name: pptx
-description: 创建、编辑和分析PowerPoint演示文稿，支持幻灯片布局、图表、动画 | Create, edit and analyze PowerPoint presentations (.pptx)
+description: 创建和编辑 PPT 演示文稿。不用于：Word 文档（用 docx）、PDF
 ---
 
 All output files go to the working directory (工作目录). Use `file_write` to create the Python script, then `shell` to execute it.

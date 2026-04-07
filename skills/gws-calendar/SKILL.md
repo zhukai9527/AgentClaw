@@ -1,6 +1,6 @@
 ---
 name: gws-calendar
-description: Google日历管理——查看日程、创建/修改/删除事件 | Google Calendar via gws CLI (list, create, update, delete events)
+description: Google 日历：查看/创建/修改/删除日程。不用于：本地待办（用 update_todo）、提醒闹钟
 ---
 
 Requires: `gws` CLI installed and authenticated (`gws auth login`).

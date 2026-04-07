@@ -1,6 +1,6 @@
 ---
 name: create-skill
-description: 创建可复用的自定义技能，保存工作流为技能 | Create reusable custom skills and save workflows
+description: 创建自定义技能（SKILL.md）。不用于：执行已有技能、修改代码、一次性脚本
 ---
 
 ## Step 1: Create skill directory

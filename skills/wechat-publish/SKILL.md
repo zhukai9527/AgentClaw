@@ -1,6 +1,6 @@
 ---
 name: wechat-publish
-description: 将 Markdown 文章转换为微信公众号排版并发布草稿 | Convert Markdown to styled WeChat article and publish as draft
+description: Markdown 转微信公众号排版并发布草稿。不用于：写文章内容、其他平台发布
 ---
 
 ## 用法
