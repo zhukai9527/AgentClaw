@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { BrailleSpinner } from "./BrailleSpinner";
 import { useTheme } from "./ThemeProvider";
 import { useSession } from "./SessionContext";
 import { updateSession, renameSession } from "../api/client";
@@ -346,7 +347,10 @@ export function Layout() {
                   <span className="sidebar-session-label">
                     {(s.id === streamingSessionId ||
                       activeLoopIds.has(s.id)) && (
-                      <span className="sidebar-session-spinner" />
+                      <BrailleSpinner
+                        name="braille"
+                        className="sidebar-session-spinner"
+                      />
                     )}
                     {s.status === "waiting" && (
                       <span className="sidebar-session-waiting" />

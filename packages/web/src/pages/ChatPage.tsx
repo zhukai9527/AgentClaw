@@ -31,6 +31,7 @@ import {
 } from "../api/client";
 import { useSessionWebSocket } from "../hooks/useSessionWebSocket";
 import { useStreamingState } from "../hooks/useStreamingState";
+import { BrailleSpinner } from "../components/BrailleSpinner";
 import { CodeBlock } from "../components/CodeBlock";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism";
 import {
@@ -1107,9 +1108,7 @@ function ThinkingIndicator() {
     <div className="message-row assistant">
       <div className="message-bubble thinking-bubble">
         <div className="thinking-indicator">
-          <div className="thinking-dots">
-            <span /><span /><span />
-          </div>
+          <BrailleSpinner name="helix" className="thinking-braille" />
           <span className="thinking-phrase" key={index}>
             {phrases[index]}…
           </span>
