@@ -1108,7 +1108,7 @@ function ThinkingIndicator() {
     <div className="message-row assistant">
       <div className="message-bubble thinking-bubble">
         <div className="thinking-indicator">
-          <BrailleSpinner name="helix" className="thinking-braille" />
+          <BrailleSpinner name="braille" className="thinking-braille" />
           <span className="thinking-phrase" key={index}>
             {phrases[index]}…
           </span>
