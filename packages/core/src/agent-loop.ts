@@ -996,6 +996,38 @@ export class SimpleAgentLoop implements AgentLoop {
         }
       }
 
+      // ── Auto-send unsent files mentioned in response ──
+      // If the LLM mentions a data/tmp/ file path but didn't call send_file,
+      // automatically send it. Prevents "here's your file at D:/..." on IM channels.
+      if (toolCalls.length === 0 && context?.sendFile && fullText) {
+        const filePathPattern =
+          /[A-Za-z]:\/[^\s"'<>|]*data\/tmp\/[^\s"'<>|]+\.[a-z]{1,5}/gi;
+        const mentionedPaths = fullText.match(filePathPattern) || [];
+        const sentUrls = new Set(allSentFiles.map((f) => f.url));
+        for (const filePath of mentionedPaths) {
+          const normalized = filePath.replace(/\\/g, "/");
+          const filename = normalized.split("/").pop() || "";
+          // Skip if already sent or if it's an overflow file
+          if (
+            sentUrls.has(`/files/${filename}`) ||
+            filename.startsWith("overflow_")
+          ) {
+            continue;
+          }
+          try {
+            const { existsSync } = await import("node:fs");
+            if (existsSync(normalized)) {
+              await context.sendFile(normalized, filename);
+              console.log(
+                `[agent-loop] Auto-sent unsent file: ${filename}`,
+              );
+            }
+          } catch {
+            // Best-effort, don't block response
+          }
+        }
+      }
+
       // If no tool calls, this is the final turn — store cumulative totals
       if (toolCalls.length === 0) {
         const durationMs = Date.now() - startTime;
