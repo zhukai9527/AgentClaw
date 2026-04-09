@@ -532,26 +532,48 @@ export class SimpleContextManager implements ContextManager {
     const transcript = this.buildTranscript(turns);
 
     if (this.provider) {
-      // Tier 1: Normal LLM summarization
-      try {
-        const resp = await this.provider.chat({
-          messages: [
-            {
-              id: "sum",
-              role: "user",
-              content: transcript,
-              createdAt: new Date(),
-            },
-          ],
-          systemPrompt: `Summarize this conversation using this exact structure. Fill each section (skip empty ones). Reply in the same language the user used. Be concise (under 800 chars total).
+      // Detect previous summary for incremental update
+      const prevSummary = turns[0]?.content?.startsWith(
+        "[Earlier conversation summary",
+      )
+        ? turns[0].content
+        : null;
 
+      const incrementalPrompt = prevSummary
+        ? `You have a previous summary of this conversation. Update it incrementally with the new information below. Do NOT regenerate from scratch — preserve all existing facts and add/modify only what changed.
+
+Previous summary:
+${prevSummary}
+
+New conversation since last summary:
+${transcript}
+
+Output the updated summary using this exact structure (skip empty sections). Same language as user. Under 800 chars.`
+        : `Summarize this conversation using this exact structure. Fill each section (skip empty ones). Reply in the same language the user used. Be concise (under 800 chars total).
+
+${transcript}`;
+
+      const structureTemplate = `
 **User Request:** What the user originally asked for (1 sentence)
 **Current State:** What has been done so far, current status
 **Key Decisions:** Important choices made, constraints established
 **Files & Code:** Files read/written/edited, key code changes
 **Errors & Fixes:** Problems encountered and how they were resolved
 **Next Steps:** What still needs to be done (if anything)
-**User Messages:** Preserve the user's exact key instructions/preferences verbatim`,
+**User Messages:** Preserve the user's exact key instructions/preferences verbatim`;
+
+      // Tier 1: Normal LLM summarization (incremental if previous summary exists)
+      try {
+        const resp = await this.provider.chat({
+          messages: [
+            {
+              id: "sum",
+              role: "user",
+              content: incrementalPrompt,
+              createdAt: new Date(),
+            },
+          ],
+          systemPrompt: structureTemplate,
           maxTokens: 500,
         });
         const text =
