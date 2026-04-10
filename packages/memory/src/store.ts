@@ -1403,9 +1403,20 @@ export class SQLiteMemoryStore implements MemoryStore {
     limit = 20,
     offset = 0,
     agentId?: string,
+    conversationId?: string,
   ): Promise<{ items: Trace[]; total: number }> {
-    const where = agentId ? "WHERE agent_id = ?" : "";
-    const params = agentId ? [agentId] : [];
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+    if (agentId) {
+      conditions.push("agent_id = ?");
+      params.push(agentId);
+    }
+    if (conversationId) {
+      conditions.push("conversation_id = ?");
+      params.push(conversationId);
+    }
+    const where =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
     const { total } = this.db
       .prepare(`SELECT COUNT(*) AS total FROM traces ${where}`)

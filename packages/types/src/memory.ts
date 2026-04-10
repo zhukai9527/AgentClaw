@@ -181,6 +181,8 @@ export interface MemoryStore {
   getTraces(
     limit?: number,
     offset?: number,
+    agentId?: string,
+    conversationId?: string,
   ): Promise<{ items: Trace[]; total: number }>;
 
   /** Create a project */

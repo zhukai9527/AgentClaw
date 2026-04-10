@@ -446,7 +446,7 @@ export class SimpleOrchestrator implements Orchestrator {
 
     // Background operational learning: analyze latest trace for failures
     this.memoryStore
-      .getTraces(1, 0)
+      .getTraces(1, 0, undefined, session.conversationId)
       .then(({ items }) => {
         const latest = items[0];
         if (!latest) return;
