@@ -39,7 +39,7 @@ export const scheduleTool: Tool = {
     input: Record<string, unknown>,
     context?: ToolExecutionContext,
   ): Promise<ToolResult> {
-    const op = (input.op ?? input.action) as string;
+    const op = String(input.op ?? input.action ?? "").trim();
 
     // We need access to the scheduler - pass it through context
     if (!context?.scheduler) {

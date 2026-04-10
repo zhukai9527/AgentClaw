@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
+import { dirname, basename } from "node:path";
 import type { Tool, ToolResult, ToolExecutionContext } from "@agentclaw/types";
 
 export const grepTool: Tool = {
@@ -78,6 +79,47 @@ export const grepTool: Tool = {
     }
 
     try {
+      // If searchPath is a file, search just that file
+      const pathStat = await stat(searchPath).catch(() => null);
+      if (pathStat?.isFile()) {
+        const content = await readFile(searchPath, "utf-8");
+        const lines = content.split("\n");
+        const matches: string[] = [];
+        let totalMatches = 0;
+        const displayPath = searchPath.replace(/\\/g, "/");
+
+        for (let i = 0; i < lines.length; i++) {
+          if (totalMatches >= maxResults) break;
+          if (!regex.test(lines[i])) continue;
+          totalMatches++;
+          if (contextLines > 0) {
+            const start = Math.max(0, i - contextLines);
+            const end = Math.min(lines.length - 1, i + contextLines);
+            matches.push(`${displayPath}:${i + 1}:`);
+            for (let j = start; j <= end; j++) {
+              const prefix = j === i ? ">" : " ";
+              matches.push(`${prefix} ${j + 1} | ${lines[j]}`);
+            }
+            matches.push("");
+          } else {
+            matches.push(`${displayPath}:${i + 1}: ${lines[i]}`);
+          }
+        }
+
+        if (matches.length === 0) {
+          return {
+            content: `0 matches for /${pattern}/${ignoreCase ? "i" : ""} in ${displayPath}`,
+            isError: false,
+            metadata: { matchCount: 0, filesSearched: 1 },
+          };
+        }
+        return {
+          content: `matches[${totalMatches}]:\n${matches.join("\n")}\n\nhint: use file_read(path, offset) to see full context around a match`,
+          isError: false,
+          metadata: { matchCount: totalMatches, filesSearched: 1 },
+        };
+      }
+
       const fg = await import("fast-glob");
       const files = await fg.default(filePattern, {
         cwd: searchPath,
