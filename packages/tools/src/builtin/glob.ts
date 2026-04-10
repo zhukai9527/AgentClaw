@@ -51,14 +51,20 @@ export const globTool: Tool = {
       });
 
       const limited = files.slice(0, maxResults);
-      const result = limited.join("\n") || "(no matches)";
+      if (limited.length === 0) {
+        return {
+          content: `0 files matching "${pattern}" in ${cwd}`,
+          isError: false,
+          metadata: { matchCount: 0, shown: 0, cwd },
+        };
+      }
       const suffix =
         files.length > maxResults
-          ? `\n\n(showing ${maxResults} of ${files.length} total matches)`
+          ? `\n(showing ${maxResults} of ${files.length} total)`
           : "";
 
       return {
-        content: result + suffix,
+        content: `files[${files.length}]:\n${limited.join("\n")}${suffix}\n\nhint: use file_read(path) to read file content`,
         isError: false,
         metadata: { matchCount: files.length, shown: limited.length, cwd },
       };

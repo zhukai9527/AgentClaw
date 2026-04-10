@@ -145,7 +145,7 @@ export const grepTool: Tool = {
 
       if (matches.length === 0) {
         return {
-          content: `No matches for /${pattern}/${ignoreCase ? "i" : ""} in ${searchPath}`,
+          content: `0 matches for /${pattern}/${ignoreCase ? "i" : ""} in ${searchPath} (searched ${files.length} files)`,
           isError: false,
           metadata: { matchCount: 0, filesSearched: files.length },
         };
@@ -153,11 +153,11 @@ export const grepTool: Tool = {
 
       const suffix =
         totalMatches >= maxResults
-          ? `\n(showing first ${maxResults} matches, there may be more)`
+          ? `\n(showing first ${maxResults} of ${totalMatches}+ matches)`
           : "";
 
       return {
-        content: matches.join("\n") + suffix,
+        content: `matches[${totalMatches}]:\n${matches.join("\n")}${suffix}\n\nhint: use file_read(path, offset) to see full context around a match`,
         isError: false,
         metadata: {
           matchCount: totalMatches,

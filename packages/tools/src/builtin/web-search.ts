@@ -84,7 +84,8 @@ async function searchSearXNG(
         snippet: r.content,
       }));
 
-    if (results.length === 0 && lines.length === 0) return null;
+    if (results.length === 0 && lines.length === 0)
+      return `0 results for "${query}". Try different keywords or a broader query.`;
 
     lines.push(...formatResults(results));
 
@@ -140,7 +141,8 @@ async function searchSerper(
 
     // Organic results
     const items = data.organic ?? [];
-    if (items.length === 0 && lines.length === 0) return null;
+    if (items.length === 0 && lines.length === 0)
+      return `0 results for "${query}". Try different keywords or a broader query.`;
 
     const results: SearchResult[] = items.map(
       (item: Record<string, string>) => ({
@@ -188,7 +190,8 @@ async function searchQuerit(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();
     const items = data.results?.result ?? data.results ?? data.organic ?? [];
-    if (items.length === 0) return null;
+    if (items.length === 0)
+      return `0 results for "${query}". Try different keywords or a broader query.`;
 
     const results: SearchResult[] = items.map(
       (item: Record<string, string>) => ({
@@ -281,10 +284,18 @@ export const webSearchTool: Tool = {
       }
     }
 
+    if (enabled.length === 0) {
+      return {
+        content:
+          "Error: No search backend available. Configure search engines in Settings.",
+        isError: true,
+      };
+    }
+
     return {
-      content:
-        "Error: No search backend available. Configure search engines in Settings.",
-      isError: true,
+      content: `0 results for "${query}" across ${enabled.length} search engine(s). Try different keywords.`,
+      isError: false,
+      metadata: { query, maxResults },
     };
   },
 };
