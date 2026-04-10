@@ -39,7 +39,7 @@ const TOOL_ALIASES: Record<string, string> = {
 const RUNNER_CODE = `
 /*
  * Available async globals (all require await):
- *   await web_search(query)        → string[] (one entry per result)
+ *   await web_search(query)        → {title,url,snippet}[] (structured results)
  *   await web_fetch(url)           → string (page content as Markdown, NOT HTML)
  *   await file_read(path)          → string (file content)
  *   await file_write(path, content)→ string (confirmation)
@@ -49,7 +49,7 @@ const RUNNER_CODE = `
  *   await callTool(name, inputObj) → string (raw tool result)
  *
  * IMPORTANT: All functions are async — always use await!
- * web_search, glob, grep return arrays. Others return strings.
+ * web_search returns {title,url,snippet}[] objects. glob, grep return string[]. Others return strings.
  * Do NOT use require() or import external packages.
  */
 
@@ -71,8 +71,21 @@ function callTool(name, input) {
 // Tool stubs — glob and grep return arrays, others return strings
 globalThis.web_search = async (query, max_results) => {
   const raw = await callTool('web_search', { query, ...(max_results != null ? { max_results } : {}) });
-  // Split into per-result blocks (separated by blank lines)
-  return raw.trim().split(/\\n\\n+/).filter(Boolean);
+  // Parse TOON format into structured objects: {title, url, snippet}[]
+  const lines = raw.trim().split('\\n');
+  const results = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    // URL line (starts with http)
+    if (/^https?:\\/\\//.test(line) && results.length > 0) {
+      results[results.length - 1].url = line;
+    // Title line with snippet (contains " — ")
+    } else if (line && !line.startsWith('results[') && !line.startsWith('hint:')) {
+      const parts = line.split(' — ');
+      results.push({ title: parts[0].trim(), url: '', snippet: (parts[1] || '').trim() });
+    }
+  }
+  return results.filter(r => r.url);
 };
 globalThis.web_fetch = (url) => callTool('web_fetch', { url });
 globalThis.file_read = (path) => callTool('file_read', { path });
@@ -108,7 +121,7 @@ export const executeCodeTool: Tool = {
   description:
     "Execute JavaScript in a child process with programmatic tool access. " +
     "ES module, top-level await. Globals (no import needed, all async — must await): " +
-    "web_search(query)→string[], web_fetch(url)→string(Markdown, not HTML!), " +
+    "web_search(query)→{title,url,snippet}[], web_fetch(url)→string(Markdown, not HTML!), " +
     "file_read(path)→string, file_write(path,content)→string, shell(command)→string, " +
     "glob(pattern)→string[], grep(pattern,{path})→string[]. " +
     "callTool(name, inputObj)→string for raw access. " +
