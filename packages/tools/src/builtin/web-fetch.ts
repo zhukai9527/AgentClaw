@@ -316,7 +316,7 @@ export const webFetchTool: Tool = {
       }
 
       return {
-        content,
+        content: content + "\n\nhint: use file_write(path, content) to save this content, or web_search(query) to find more sources",
         isError: false,
         metadata: {
           url,

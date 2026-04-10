@@ -95,13 +95,20 @@ export const scheduleTool: Tool = {
       case "list": {
         const tasks = scheduler.list();
         if (tasks.length === 0) {
-          return { content: "No scheduled tasks.", isError: false };
+          return {
+            content:
+              "0 scheduled tasks.\n\nhint: use schedule(op='create', name='...', cron='...', message='...') to create one",
+            isError: false,
+          };
         }
         const lines = tasks.map(
           (t) =>
             `• ${t.name} (ID: ${t.id})\n  Cron: ${t.cron}\n  Next: ${t.nextRunAt?.toLocaleString() ?? "N/A"}\n  Message: ${t.action}`,
         );
-        return { content: lines.join("\n\n"), isError: false };
+        return {
+          content: `tasks[${tasks.length}]:\n${lines.join("\n\n")}\n\nhint: use schedule(op='delete', task_id='...') to remove a task`,
+          isError: false,
+        };
       }
 
       case "delete": {
