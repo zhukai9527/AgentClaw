@@ -7,7 +7,7 @@
  * Default testcase file: data/golden-testcases.json
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   evaluateBatch,
@@ -34,6 +34,10 @@ for (let i = 0; i < args.length; i++) {
 
 // Load test cases
 const filePath = resolve(process.cwd(), testCaseFile);
+if (!existsSync(filePath)) {
+  console.error(`Error: test case file not found: ${filePath}`);
+  process.exit(1);
+}
 const testCases = JSON.parse(readFileSync(filePath, "utf-8"));
 
 console.log(`Loaded ${testCases.length} test cases from ${filePath}`);

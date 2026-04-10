@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../bootstrap.js";
@@ -37,6 +37,11 @@ export function registerEvalRoutes(
           process.cwd(),
           req.body?.file ?? "data/golden-testcases.json",
         );
+        if (!existsSync(filePath)) {
+          return reply
+            .status(404)
+            .send({ error: `Test case file not found: ${filePath}` });
+        }
         const raw = readFileSync(filePath, "utf-8");
         testCases = JSON.parse(raw) as TrajectoryTestCase[];
       }

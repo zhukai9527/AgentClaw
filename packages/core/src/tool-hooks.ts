@@ -111,8 +111,8 @@ export class ToolHookManager {
         const filePath = call.input.path as string | undefined;
         if (!filePath || result.isError) return result;
         if (!/\.json$/i.test(filePath)) return result;
-        const content = call.input.content as string | undefined;
-        if (!content) return result;
+        const content = call.input.content;
+        if (!content || typeof content !== "string") return result;
         try {
           JSON.parse(content);
           return result;
@@ -133,7 +133,8 @@ export class ToolHookManager {
         if (!filePath || result.isError) return result;
         if (!/\.py$/i.test(filePath)) return result;
         try {
-          await execFileAsync("python3", ["-m", "py_compile", filePath], {
+          const pythonBin = process.platform === "win32" ? "python" : "python3";
+          await execFileAsync(pythonBin, ["-m", "py_compile", filePath], {
             timeout: 10000,
           });
           return result;
