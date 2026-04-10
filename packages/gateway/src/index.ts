@@ -115,12 +115,21 @@ async function main(): Promise<void> {
     try {
       const text = await collectResponse(ctx.orchestrator, task.action, {
         sendFile: async (filePath: string, caption?: string) => {
-          const { basename } = await import("node:path");
-          const filename = caption || basename(filePath);
-          const { buildFileUrl } = await import("./channel-utils.js");
-          const { getPublicUrl } = await import("./channel-utils.js");
+          const { basename, extname } = await import("node:path");
+          const { readFileSync } = await import("node:fs");
+          const ext = extname(filePath).toLowerCase();
+          // Text files: broadcast content directly (IM channels can't open localhost links)
+          if ([".md", ".txt", ".csv", ".json", ".html"].includes(ext)) {
+            try {
+              const content = readFileSync(filePath, "utf-8");
+              await broadcastAll(content.slice(0, 4000));
+              return;
+            } catch { /* fall through to link */ }
+          }
+          // Binary files: broadcast download link
+          const { buildFileUrl, getPublicUrl } = await import("./channel-utils.js");
           const url = buildFileUrl(filePath);
-          await broadcastAll(`📎 ${filename}\n${getPublicUrl()}${url}`);
+          await broadcastAll(`📎 ${caption || basename(filePath)}\n${getPublicUrl()}${url}`);
         },
       });
       await broadcastAll(text.trim() || `✅ 定时任务「${task.name}」已执行完成。`);
