@@ -123,6 +123,18 @@ export interface ToolExecutionContext {
   agentId?: string;
   /** Force-compress conversation context (for compact tool) */
   compactContext?: () => Promise<{ deleted: number; summary: string }>;
+  /** Search long-term memory (read-only, for recall tool) */
+  searchMemory?: (
+    query: string,
+    options?: { type?: string; limit?: number },
+  ) => Promise<
+    Array<{
+      content: string;
+      type: string;
+      importance: number;
+      createdAt: string;
+    }>
+  >;
 }
 
 /** A tool that can be executed */

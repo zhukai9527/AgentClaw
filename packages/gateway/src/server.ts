@@ -31,6 +31,7 @@ import { registerSubAgentRoutes } from "./routes/subagents.js";
 import { registerAgentRoutes } from "./routes/agents.js";
 import { registerAgentApiRoutes } from "./routes/agent-api.js";
 import { registerChannelRoutes } from "./routes/channels.js";
+import { registerEvalRoutes } from "./routes/eval.js";
 import { registerAuth } from "./auth.js";
 import type { ChannelManager } from "./channel-manager.js";
 import * as Sentry from "@sentry/node";
@@ -98,6 +99,7 @@ export async function createServer(
   registerSubAgentRoutes(app, ctx);
   registerAgentRoutes(app, ctx);
   registerAgentApiRoutes(app, ctx);
+  registerEvalRoutes(app, ctx);
   if (options.channelManager) {
     registerChannelRoutes(app, options.channelManager);
   }

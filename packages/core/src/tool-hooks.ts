@@ -105,6 +105,48 @@ export class ToolHookManager {
       },
     });
 
+    // file_write: validate JSON syntax
+    this.addToolHook("file_write", {
+      after: async (call, result) => {
+        const filePath = call.input.path as string | undefined;
+        if (!filePath || result.isError) return result;
+        if (!/\.json$/i.test(filePath)) return result;
+        const content = call.input.content as string | undefined;
+        if (!content) return result;
+        try {
+          JSON.parse(content);
+          return result;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return {
+            ...result,
+            content: `${result.content}\n⚠️ [hook] JSON syntax error: ${msg}. The file was written but contains invalid JSON.`,
+          };
+        }
+      },
+    });
+
+    // file_write: validate Python syntax via py_compile
+    this.addToolHook("file_write", {
+      after: async (call, result) => {
+        const filePath = call.input.path as string | undefined;
+        if (!filePath || result.isError) return result;
+        if (!/\.py$/i.test(filePath)) return result;
+        try {
+          await execFileAsync("python3", ["-m", "py_compile", filePath], {
+            timeout: 10000,
+          });
+          return result;
+        } catch (err: unknown) {
+          const stderr = (err as { stderr?: string }).stderr || String(err);
+          return {
+            ...result,
+            content: `${result.content}\n⚠️ [hook] Python syntax error:\n${stderr.slice(0, 500)}`,
+          };
+        }
+      },
+    });
+
     // shell: warn on non-zero exit code
     this.addToolHook("shell", {
       after: async (_call, result) => {

@@ -14,6 +14,7 @@ export {
   sendFileTool,
   scheduleTool,
   rememberTool,
+  recallTool,
   executeCodeTool,
 } from "./builtin/index.js";
 export type { BuiltinToolsOptions } from "./builtin/index.js";

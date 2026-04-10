@@ -9,6 +9,7 @@ import { askUserTool } from "./ask-user.js";
 import { sendFileTool } from "./send-file.js";
 import { scheduleTool } from "./schedule.js";
 import { rememberTool } from "./remember.js";
+import { recallTool } from "./recall.js";
 import { useSkillTool } from "./use-skill.js";
 import { claudeCodeTool } from "./claude-code.js";
 import { updateTodoTool } from "./update-todo.js";
@@ -31,6 +32,7 @@ export { askUserTool } from "./ask-user.js";
 export { sendFileTool } from "./send-file.js";
 export { scheduleTool } from "./schedule.js";
 export { rememberTool } from "./remember.js";
+export { recallTool } from "./recall.js";
 export { sandboxTool } from "./sandbox.js";
 export { subagentTool } from "./subagent.js";
 export { browserCdpTool } from "./browser-cdp.js";
@@ -78,7 +80,7 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
     );
   }
   if (options?.memory) {
-    tools.push(rememberTool);
+    tools.push(rememberTool, recallTool);
   }
   if (options?.skills) {
     tools.push(useSkillTool);

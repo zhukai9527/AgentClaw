@@ -12,6 +12,8 @@ import type {
   MemoryStore,
   MemoryType,
   ConversationTurn,
+  Trace,
+  TraceStep,
 } from "@agentclaw/types";
 import { generateId } from "@agentclaw/providers";
 
@@ -178,5 +180,119 @@ export class MemoryExtractor {
     }
 
     return stored;
+  }
+
+  /**
+   * Extract operational lessons from a trace that had errors or retries.
+   * Only processes traces with tool errors, escalation, or explicit error field.
+   * Returns the number of new lessons stored.
+   */
+  async processTrace(
+    trace: Trace,
+    namespace = "default",
+  ): Promise<number> {
+    const steps: TraceStep[] =
+      typeof trace.steps === "string" ? JSON.parse(trace.steps) : trace.steps;
+
+    // Count tool errors and retries
+    const toolErrors = steps.filter(
+      (s) => s.type === "tool_result" && s.isError,
+    );
+    const hasEscalation = trace.error === "max_iterations_reached";
+
+    // Only process traces with failures
+    if (toolErrors.length === 0 && !hasEscalation && !trace.error) return 0;
+
+    // Build a failure summary for LLM analysis
+    const failureSummary = toolErrors
+      .map((s) => {
+        // Find the preceding tool_call
+        const idx = steps.indexOf(s);
+        const call = idx > 0 ? steps[idx - 1] : null;
+        const toolName = (call?.name as string) ?? "unknown";
+        const errorContent = String(s.content ?? "").slice(0, 300);
+        return `- ${toolName}: ${errorContent}`;
+      })
+      .join("\n");
+
+    const context = [
+      `User request: ${trace.userInput}`,
+      `Tool errors:\n${failureSummary}`,
+      trace.error ? `Final error: ${trace.error}` : "",
+      trace.response ? `Agent response: ${String(trace.response).slice(0, 500)}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    try {
+      const response = await this.provider.chat({
+        messages: [
+          {
+            id: generateId(),
+            role: "user",
+            content: context,
+            createdAt: new Date(),
+          },
+        ],
+        systemPrompt: `你是一个操作经验提取器。分析以下失败的 agent trace，提取可复用的操作经验教训。
+
+只提取满足以下条件的教训：
+1. 是通用的（不是一次性的特殊情况）
+2. 可以在未来类似场景中避免同样的错误
+3. 格式：在什么条件下 → 什么操作失败了 → 正确做法是什么
+
+输出 JSON 数组：[{"content": "条件→失败→正确做法", "importance": 0.0-1.0}]
+无教训则返回：[]
+用中文写 content。`,
+        temperature: 0.1,
+        maxTokens: 512,
+      });
+
+      let text: string;
+      if (typeof response.message.content === "string") {
+        text = response.message.content;
+      } else {
+        text = response.message.content
+          .filter((b) => b.type === "text")
+          .map((b) => (b as { text: string }).text)
+          .join("");
+      }
+
+      text = text
+        .replace(/```json?\s*/g, "")
+        .replace(/```\s*/g, "")
+        .trim();
+      const lessons: Array<{ content: string; importance: number }> =
+        JSON.parse(text);
+
+      if (!Array.isArray(lessons)) return 0;
+
+      let stored = 0;
+      for (const lesson of lessons) {
+        if (!lesson.content) continue;
+
+        const similar = await this.memoryStore.findSimilar(
+          lesson.content,
+          "episodic",
+          0.75,
+          namespace,
+        );
+        if (similar) continue;
+
+        await this.memoryStore.add(
+          {
+            type: "episodic",
+            content: lesson.content,
+            importance: Math.max(0, Math.min(1, lesson.importance ?? 0.7)),
+          },
+          namespace,
+        );
+        stored++;
+      }
+
+      return stored;
+    } catch {
+      return 0;
+    }
   }
 }

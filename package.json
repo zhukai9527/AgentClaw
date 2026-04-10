@@ -16,7 +16,8 @@
     "test": "turbo test",
     "test:watch": "vitest",
     "format": "biome format --write .",
-    "lint:biome": "biome lint ."
+    "lint:biome": "biome lint .",
+    "eval": "node scripts/eval.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.5",

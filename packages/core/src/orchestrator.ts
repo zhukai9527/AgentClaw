@@ -225,6 +225,23 @@ export class SimpleOrchestrator implements Orchestrator {
           memoryNamespace,
         );
       },
+      searchMemory: async (query, options) => {
+        const results = await memoryStore.search({
+          query,
+          type: options?.type as import("@agentclaw/types").MemoryType,
+          limit: options?.limit ?? 5,
+          namespace: memoryNamespace,
+        });
+        return results.map((r) => ({
+          content: r.entry.content,
+          type: r.entry.type,
+          importance: r.entry.importance,
+          createdAt:
+            r.entry.createdAt instanceof Date
+              ? r.entry.createdAt.toISOString()
+              : String(r.entry.createdAt),
+        }));
+      },
       searchHistory: memoryStore.searchHistory
         ? (query: string, limit?: number) =>
             memoryStore.searchHistory!(session.conversationId, query, limit)
@@ -426,6 +443,32 @@ export class SimpleOrchestrator implements Orchestrator {
           console.error("[memory] Extraction failed:", err);
         });
     }
+
+    // Background operational learning: analyze latest trace for failures
+    this.memoryStore
+      .getTraces(1, 0)
+      .then(({ items }) => {
+        const latest = items[0];
+        if (!latest) return;
+        // Only process traces with errors (tool errors or loop exhaustion)
+        const steps =
+          typeof latest.steps === "string"
+            ? JSON.parse(latest.steps)
+            : latest.steps;
+        const hasToolErrors = steps.some(
+          (s: { type: string; isError?: boolean }) =>
+            s.type === "tool_result" && s.isError,
+        );
+        if (!hasToolErrors && !latest.error) return;
+        return this.memoryExtractor.processTrace(latest, memoryNamespace);
+      })
+      .then((n) => {
+        if (n && n > 0)
+          console.log(`[memory] Extracted ${n} operational lessons from trace`);
+      })
+      .catch((err) => {
+        console.error("[memory] Trace learning failed:", err);
+      });
 
     if (count === 1 && session.title === undefined) {
       const rawText =
