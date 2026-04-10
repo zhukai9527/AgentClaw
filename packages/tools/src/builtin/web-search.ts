@@ -27,16 +27,17 @@ interface SearchResult {
   snippet?: string;
 }
 
-/** Format search results into numbered lines */
+/** Format search results in TOON (Token-Optimized Object Notation) format */
 function formatResults(results: SearchResult[]): string[] {
   const lines: string[] = [];
-  for (let i = 0; i < results.length; i++) {
-    const r = results[i];
-    lines.push(`${i + 1}. ${r.title}`);
-    lines.push(`   ${r.url}`);
-    if (r.snippet) lines.push(`   ${r.snippet}`);
-    lines.push("");
+  lines.push(`results[${results.length}]{title,url}:`);
+  for (const r of results) {
+    const snippet = r.snippet ? ` — ${r.snippet.slice(0, 120)}` : "";
+    lines.push(`  ${r.title}${snippet}`);
+    lines.push(`  ${r.url}`);
   }
+  lines.push("");
+  lines.push("hint: use web_fetch(url) to read full page content");
   return lines;
 }
 
