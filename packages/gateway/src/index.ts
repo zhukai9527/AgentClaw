@@ -113,7 +113,16 @@ async function main(): Promise<void> {
       `[scheduler] Running task "${task.name}" through orchestrator...`,
     );
     try {
-      const text = await collectResponse(ctx.orchestrator, task.action);
+      const text = await collectResponse(ctx.orchestrator, task.action, {
+        sendFile: async (filePath: string, caption?: string) => {
+          const { basename } = await import("node:path");
+          const filename = caption || basename(filePath);
+          const { buildFileUrl } = await import("./channel-utils.js");
+          const { getPublicUrl } = await import("./channel-utils.js");
+          const url = buildFileUrl(filePath);
+          await broadcastAll(`📎 ${filename}\n${getPublicUrl()}${url}`);
+        },
+      });
       await broadcastAll(text.trim() || `✅ 定时任务「${task.name}」已执行完成。`);
     } catch (err) {
       Sentry.captureException(err);

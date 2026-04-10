@@ -81,9 +81,11 @@ export async function collectResponse(
     processInputStream: (
       id: string,
       input: string,
+      context?: Record<string, unknown>,
     ) => AsyncIterable<{ type: string; data: unknown }>;
   },
   prompt: string,
+  context?: Record<string, unknown>,
 ): Promise<string> {
   // Background sessions are always hidden from the sidebar
   const session = await orchestrator.createSession({
@@ -95,6 +97,7 @@ export async function collectResponse(
   for await (const event of orchestrator.processInputStream(
     session.id,
     prompt,
+    context,
   )) {
     if (event.type === "response_chunk") {
       text += (event.data as { text: string }).text;
