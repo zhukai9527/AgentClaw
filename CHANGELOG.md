@@ -1,5 +1,17 @@
 # 更新日志
 
+## [1.5.13] - 2026-04-10
+
+### 新功能
+- **AXI 工具输出优化**：web_search 改为 TOON 格式（带结果总数），glob/grep/web_fetch/schedule 增加下一步 hint 提示，引导 agent 高效串联工具调用
+- **明确空状态**：glob 0 匹配、grep 0 命中、web_search 0 结果时返回明确信息（含搜索范围），区分"没结果"和"工具失败"
+- **迭代式压缩摘要**：上下文多次压缩时增量更新前次摘要，而非从头重建，长对话关键信息保留率提升
+- **Unicode braille 动画**：聊天页思考动画和侧边栏 spinner 替换为 unicode-animations braille 字符动画
+
+### 修复
+- **自动补发未 send_file 的文件**：LLM 偶尔跳过 send_file 直接贴本地路径，框架层兜底扫描回复文本自动补发
+- **Skill description 增加反例**：15 个 skill 统一加"不用于"反例，路由准确率提升
+
 ## [1.5.12] - 2026-04-05
 
 ### 新功能
