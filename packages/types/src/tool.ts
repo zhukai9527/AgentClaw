@@ -74,7 +74,9 @@ export interface ToolExecutionContext {
   };
   /** Skill registry for use_skill tool */
   skillRegistry?: {
-    get(id: string): { name: string; instructions: string } | undefined;
+    get(
+      id: string,
+    ): { name: string; instructions: string; path?: string } | undefined;
     list(): Array<{
       id: string;
       name: string;

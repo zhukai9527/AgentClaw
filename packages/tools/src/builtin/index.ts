@@ -11,6 +11,7 @@ import { scheduleTool } from "./schedule.js";
 import { rememberTool } from "./remember.js";
 import { recallTool } from "./recall.js";
 import { useSkillTool } from "./use-skill.js";
+import { skillManageTool } from "./skill-manage.js";
 import { claudeCodeTool } from "./claude-code.js";
 import { updateTodoTool } from "./update-todo.js";
 import { sandboxTool } from "./sandbox.js";
@@ -38,6 +39,7 @@ export { subagentTool } from "./subagent.js";
 export { browserCdpTool } from "./browser-cdp.js";
 export { handoffTool } from "./handoff.js";
 export { executeCodeTool } from "./execute-code.js";
+export { skillManageTool } from "./skill-manage.js";
 
 /** Options for configuring which conditional tools to include */
 export interface BuiltinToolsOptions {
@@ -83,7 +85,7 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
     tools.push(rememberTool, recallTool);
   }
   if (options?.skills) {
-    tools.push(useSkillTool);
+    tools.push(useSkillTool, skillManageTool);
   }
   if (options?.claudeCode) {
     tools.push(claudeCodeTool);

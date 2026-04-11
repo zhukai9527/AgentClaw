@@ -25,6 +25,7 @@ const SUBAGENT_BLOCKED_TOOLS = new Set([
   "send_file", // 防止跨渠道副作用
   "social_post", // 防止社交平台副作用
   "execute_code", // 防止子代理中执行任意代码
+  "skill_manage", // 防止子代理修改 skill 文件
 ]);
 
 interface SubAgentEntry {

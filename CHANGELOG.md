@@ -1,5 +1,18 @@
 # 更新日志
 
+## [1.5.15] - 2026-04-12
+
+### 新功能
+- **skill_manage 工具（技能自修复）**：agent 发现 skill 指令有误时可用 `skill_manage(action="patch")` 原地修补 SKILL.md，修复自动热重载，经验永久固化而非软提示
+- **Anthropic prompt cache 三点标记**：系统提示词 + 最后一个工具定义 + 对话历史倒数第二条消息注入 `cache_control: ephemeral`，最大化 Claude API 缓存命中率
+
+### 修复
+- **schedule op 参数空白容错**：LLM 输出含制表符/换行时自动 trim
+- **grep 支持单文件路径**：传文件路径不再报 ENOTDIR
+- **execute_code web_search 解析加固**：跳过 Direct answer/Infobox 前缀，防止 URL 错位
+- **claude_code stderr 64KB 上限**：防止极端错误输出导致 OOM
+- **file_write JSON/Python 语法检查**：写入后自动验证，Python hook Windows 用 `python` 而非 `python3`
+
 ## [1.5.14] - 2026-04-10
 
 ### 新功能

@@ -227,6 +227,27 @@ export class ClaudeProvider extends BaseLLMProvider {
       }
     }
 
+    // Cache breakpoint on the second-to-last message (last "old" turn before
+    // the new user message). This makes the entire conversation prefix cacheable.
+    if (result.length >= 2) {
+      const target = result[result.length - 2];
+      const content = target.content;
+      if (typeof content === "string") {
+        target.content = [
+          {
+            type: "text" as const,
+            text: content,
+            cache_control: { type: "ephemeral" as const },
+          },
+        ];
+      } else if (Array.isArray(content) && content.length > 0) {
+        const last = content[content.length - 1];
+        (last as unknown as Record<string, unknown>).cache_control = {
+          type: "ephemeral",
+        };
+      }
+    }
+
     return result;
   }
 
@@ -281,7 +302,7 @@ export class ClaudeProvider extends BaseLLMProvider {
   }
 
   private convertTools(tools: ToolDefinition[]): Anthropic.Tool[] {
-    return tools.map((t) => ({
+    return tools.map((t, i) => ({
       name: t.name,
       description: t.description,
       input_schema: {
@@ -289,6 +310,10 @@ export class ClaudeProvider extends BaseLLMProvider {
         properties: t.parameters.properties as Record<string, unknown>,
         ...(t.parameters.required ? { required: t.parameters.required } : {}),
       },
+      // Cache breakpoint on last tool — tools list is stable per session
+      ...(i === tools.length - 1
+        ? { cache_control: { type: "ephemeral" as const } }
+        : {}),
     }));
   }
 
