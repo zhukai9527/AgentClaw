@@ -74,15 +74,26 @@ globalThis.web_search = async (query, max_results) => {
   // Parse TOON format into structured objects: {title, url, snippet}[]
   const lines = raw.trim().split('\\n');
   const results = [];
+  let inResultsBlock = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    // URL line (starts with http)
-    if (/^https?:\\/\\//.test(line) && results.length > 0) {
+    if (!line) continue;
+    // Skip everything before the results header
+    if (line.startsWith('results[')) { inResultsBlock = true; continue; }
+    if (!inResultsBlock) continue;
+    // Skip meta lines
+    if (line.startsWith('hint:') || line.startsWith('(showing')) continue;
+    // URL line — attach to previous entry
+    if (/^https?:\\/\\//.test(line) && results.length > 0 && !results[results.length - 1].url) {
       results[results.length - 1].url = line;
-    // Title line with snippet (contains " — ")
-    } else if (line && !line.startsWith('results[') && !line.startsWith('hint:')) {
-      const parts = line.split(' — ');
-      results.push({ title: parts[0].trim(), url: '', snippet: (parts[1] || '').trim() });
+    // Title line — first " — " splits title from snippet
+    } else {
+      const idx = line.indexOf(' — ');
+      if (idx > 0) {
+        results.push({ title: line.slice(0, idx).trim(), url: '', snippet: line.slice(idx + 3).trim() });
+      } else {
+        results.push({ title: line.trim(), url: '', snippet: '' });
+      }
     }
   }
   return results.filter(r => r.url);

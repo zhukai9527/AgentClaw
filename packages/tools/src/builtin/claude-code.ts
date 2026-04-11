@@ -364,9 +364,17 @@ async function runClaudeCLI(
       }
     });
 
+    const MAX_STDERR = 64 * 1024; // 64KB cap to prevent OOM
     let stderrBuf = "";
     child.stderr?.on("data", (data: Buffer) => {
-      stderrBuf += data.toString();
+      if (stderrBuf.length >= MAX_STDERR) return;
+      const chunk = data.toString();
+      const remaining = MAX_STDERR - stderrBuf.length;
+      if (chunk.length > remaining) {
+        stderrBuf += chunk.slice(0, remaining) + "\n...(truncated)";
+      } else {
+        stderrBuf += chunk;
+      }
     });
 
     child.stdin!.write(
