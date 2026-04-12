@@ -7,6 +7,9 @@
 - **Anthropic prompt cache 三点标记**：系统提示词 + 最后一个工具定义 + 对话历史倒数第二条消息注入 `cache_control: ephemeral`，最大化 Claude API 缓存命中率
 
 ### 修复
+- **PDF/二进制下载损坏根治**：系统提示词明确禁止 web_fetch 下载二进制文件，强制 `bash curl` 下载 + `pdftotext` 提取。修复前 PDF 任务 52 次调用/182K tok/277s，修复后 4 次/42K tok/32s
+- **execute_code 误写 Python 根治**：工具描述强化 "JavaScript ONLY (NOT Python)"，系统提示词明确 Python 必须走 bash
+- **skill_manage 安全加固**：patch 前自动创建 .bak 备份，新增 rollback action 还原，系统提示词改为三步安全流程（patch→验证→失败则rollback）
 - **schedule op 参数空白容错**：LLM 输出含制表符/换行时自动 trim
 - **grep 支持单文件路径**：传文件路径不再报 ENOTDIR
 - **execute_code web_search 解析加固**：跳过 Direct answer/Infobox 前缀，防止 URL 错位
