@@ -44,6 +44,16 @@ If download fails with 403 or low quality, try with cookies:
 ```
 Playlists can be large — do NOT auto_send. Tell user the folder path instead.
 
+## YouTube cookies（必读）
+YouTube 需要登录才能下载。**所有 YouTube URL 必须加 `--cookies 'D:/mycode/agentclaw/data/youtube-cookies.txt'`**。
+- 先检查文件是否存在：`ls D:/mycode/agentclaw/data/youtube-cookies.txt`
+- 存在 → 在 yt-dlp 命令中 `--no-warnings` 后面加 `--cookies 'D:/mycode/agentclaw/data/youtube-cookies.txt'`
+- 不存在 → 告诉用户用浏览器扩展「Get Cookies.txt」导出 YouTube cookies，你保存到该路径后再下载
+- 非 YouTube 网站（B站、Twitter 等）不需要加此参数
+
+## Download time range (e.g. 4-5 minutes only)
+在命令中加 `--download-sections "*00:04:00-00:05:00"`（替换为实际时间范围），直接下载指定片段，不要下载全视频再裁剪。
+
 ## Rules
 - NEVER add `--proxy` flag. The network is already routed through a proxy at the router level. Adding a local proxy address will BREAK the connection.
 - ALWAYS copy the JSON template above EXACTLY. Do not improvise commands.
@@ -51,6 +61,6 @@ Playlists can be large — do NOT auto_send. Tell user the folder path instead.
 - ALWAYS quote the URL with single quotes (URLs contain special chars like & that bash interprets).
 - timeout MUST be 300000 (5min) for single video, 600000 (10min) for playlists. NEVER use default timeout.
 - Once download succeeds (exit code 0 and file exists), do NOT retry with different quality/format. Proceed to the user's next step if any.
-- If download fails, try `--cookies-from-browser chrome` (many sites need login for HD).
+- If download fails on non-YouTube sites, try `--cookies-from-browser chrome` (many sites need login for HD).
 - For Twitter/X: URLs like `https://x.com/user/status/123` work directly.
 - One command per video. Do NOT batch multiple URLs in one command.

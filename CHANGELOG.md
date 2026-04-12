@@ -3,13 +3,15 @@
 ## [1.5.15] - 2026-04-12
 
 ### 新功能
-- **skill_manage 工具（技能自修复）**：agent 发现 skill 指令有误时可用 `skill_manage(action="patch")` 原地修补 SKILL.md，修复自动热重载，经验永久固化而非软提示
 - **Anthropic prompt cache 三点标记**：系统提示词 + 最后一个工具定义 + 对话历史倒数第二条消息注入 `cache_control: ephemeral`，最大化 Claude API 缓存命中率
+- **yt-dlp YouTube cookies 自动化**：skill 内置 cookies 路径检查指引 + 时间范围下载模板，新会话无需用户重新提供 cookies
+
+### 移除
+- **skill_manage 工具**：实测 agent 改坏 skill 的风险远大于收益（135K token 浪费 + 错误 patch），skill 维护回归人工控制
 
 ### 修复
 - **PDF/二进制下载损坏根治**：系统提示词明确禁止 web_fetch 下载二进制文件，强制 `bash curl` 下载 + `pdftotext` 提取。修复前 PDF 任务 52 次调用/182K tok/277s，修复后 4 次/42K tok/32s
 - **execute_code 误写 Python 根治**：工具描述强化 "JavaScript ONLY (NOT Python)"，系统提示词明确 Python 必须走 bash
-- **skill_manage 安全加固**：patch 前自动创建 .bak 备份，新增 rollback action 还原，系统提示词改为三步安全流程（patch→验证→失败则rollback）
 - **schedule op 参数空白容错**：LLM 输出含制表符/换行时自动 trim
 - **grep 支持单文件路径**：传文件路径不再报 ENOTDIR
 - **execute_code web_search 解析加固**：跳过 Direct answer/Infobox 前缀，防止 URL 错位
