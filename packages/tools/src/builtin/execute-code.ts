@@ -130,7 +130,7 @@ try {
 export const executeCodeTool: Tool = {
   name: "execute_code",
   description:
-    "Execute JavaScript in a child process with programmatic tool access. " +
+    "Execute **JavaScript ONLY** (NOT Python) in a child process with programmatic tool access. " +
     "ES module, top-level await. Globals (no import needed, all async — must await): " +
     "web_search(query)→{title,url,snippet}[], web_fetch(url)→string(Markdown, not HTML!), " +
     "file_read(path)→string, file_write(path,content)→string, shell(command)→string, " +
