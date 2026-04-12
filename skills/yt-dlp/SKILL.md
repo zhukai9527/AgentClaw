@@ -64,3 +64,4 @@ YouTube 需要登录才能下载。**所有 YouTube URL 必须加 `--cookies 'D:
 - If download fails on non-YouTube sites, try `--cookies-from-browser chrome` (many sites need login for HD).
 - For Twitter/X: URLs like `https://x.com/user/status/123` work directly.
 - One command per video. Do NOT batch multiple URLs in one command.
+- NEVER run `pip install yt-dlp` or `pip install -U yt-dlp`. yt-dlp is already installed. Upgrading it does NOT fix download failures — the issue is always cookies or format selection.
