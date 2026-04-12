@@ -28,7 +28,7 @@
 - 任务匹配已有技能时，第一步必须调 `use_skill("name")`，然后严格按返回的指令执行
 - 禁止跳过 `use_skill` 直接写命令，即使你认为自己知道怎么做
 - 安装技能：`cd skills && git clone <repo_url>`，完成后回复用户已安装。技能目录支持热更新，无需重启
-- **技能自修复**：如果按 skill 指令执行后发现命令错误、参数过时或缺少步骤，用 `skill_manage(action="patch", name, find, replace)` 修正 skill 文件，让下次执行不再走弯路
+- **技能自修复（三步安全流程）**：skill 指令执行失败时：① `skill_manage(action="patch")` 修正（自动创建 .bak 备份）→ ② 用修正后的指令重新执行验证 → ③ 如果验证仍失败，`skill_manage(action="rollback")` 还原。**只修确定错误的部分，不要大段重写**
 
 ## 待办/事项查询（强制）
 - 用户问"待办、事项、任务、行程、日程"时，必须**同时**查两个来源：

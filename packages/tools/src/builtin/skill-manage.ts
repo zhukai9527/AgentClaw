@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, copyFile } from "node:fs/promises";
 import type { Tool, ToolResult, ToolExecutionContext } from "@agentclaw/types";
 
 export const skillManageTool: Tool = {
@@ -13,9 +13,9 @@ export const skillManageTool: Tool = {
     properties: {
       action: {
         type: "string",
-        enum: ["patch", "view"],
+        enum: ["patch", "view", "rollback"],
         description:
-          "patch: apply a find/replace fix to the skill file; view: show current skill content",
+          "patch: apply a find/replace fix (creates .bak backup); view: show current content; rollback: restore from .bak backup",
       },
       name: {
         type: "string",
@@ -108,6 +108,10 @@ export const skillManageTool: Tool = {
           };
         }
 
+        // Safety: create .bak backup before patching
+        const backupPath = skillPath + ".bak";
+        await copyFile(skillPath, backupPath);
+
         const occurrences = content.split(find).length - 1;
         const updated = content.replace(find, replace);
         await writeFile(skillPath, updated, "utf-8");
@@ -117,7 +121,8 @@ export const skillManageTool: Tool = {
           content:
             `Patched ${skill.name}: replaced ${occurrences} occurrence(s) in ${skillPath}\n` +
             `- Old: ${find.slice(0, 150)}\n` +
-            `+ New: ${replace.slice(0, 150)}`,
+            `+ New: ${replace.slice(0, 150)}\n` +
+            `Backup: ${backupPath} (restore with skill_manage action="rollback" if the patch causes issues)`,
           isError: false,
         };
       } catch (err) {
@@ -129,8 +134,24 @@ export const skillManageTool: Tool = {
       }
     }
 
+    if (action === "rollback") {
+      const backupPath = skillPath + ".bak";
+      try {
+        await copyFile(backupPath, skillPath);
+        return {
+          content: `Rolled back ${skill.name} from ${backupPath}. Skill restored to pre-patch state.`,
+          isError: false,
+        };
+      } catch {
+        return {
+          content: `No backup found at ${backupPath}. Nothing to rollback.`,
+          isError: true,
+        };
+      }
+    }
+
     return {
-      content: `Unknown action: ${action}. Use "patch" or "view".`,
+      content: `Unknown action: ${action}. Use "patch", "view", or "rollback".`,
       isError: true,
     };
   },
