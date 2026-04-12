@@ -45,11 +45,12 @@ If download fails with 403 or low quality, try with cookies:
 Playlists can be large — do NOT auto_send. Tell user the folder path instead.
 
 ## YouTube cookies（必读）
-YouTube 需要登录才能下载。**所有 YouTube URL 必须加 `--cookies 'D:/mycode/agentclaw/data/youtube-cookies.txt'`**。
-- 先检查文件是否存在：`ls D:/mycode/agentclaw/data/youtube-cookies.txt`
-- 存在 → 在 yt-dlp 命令中 `--no-warnings` 后面加 `--cookies 'D:/mycode/agentclaw/data/youtube-cookies.txt'`
-- 不存在 → 告诉用户用浏览器扩展「Get Cookies.txt」导出 YouTube cookies，你保存到该路径后再下载
-- 非 YouTube 网站（B站、Twitter 等）不需要加此参数
+YouTube 需要登录才能下载。**yt-dlp 的 --cookies 会回写文件，所以必须用临时副本，保护原始文件不被覆盖。**
+- 原始文件：`D:/mycode/agentclaw/data/youtube-cookies.txt`
+- 下载前先复制：`cp D:/mycode/agentclaw/data/youtube-cookies.txt {WORKDIR}/yt-cookies-tmp.txt`
+- 然后在 yt-dlp 命令中加 `--cookies '{WORKDIR}/yt-cookies-tmp.txt'`
+- 如果原始文件不存在，告诉用户用浏览器扩展「Get Cookies.txt」导出 YouTube cookies，你保存到 `D:/mycode/agentclaw/data/youtube-cookies.txt`
+- 非 YouTube 网站（B站、Twitter 等）不需要 cookies
 
 ## Download time range (e.g. 4-5 minutes only)
 在命令中加 `--download-sections "*00:04:00-00:05:00"`（替换为实际时间范围），直接下载指定片段，不要下载全视频再裁剪。
