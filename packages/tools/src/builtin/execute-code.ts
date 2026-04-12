@@ -14,6 +14,35 @@ import { webSearchTool } from "./web-search.js";
 
 const MAX_OUTPUT = 12_000;
 const MAX_STDOUT = 256_000; // 256KB cap to prevent OOM
+const MAX_SANDBOX_TOOL_CALLS = 40; // Limit tool calls inside execute_code
+
+/** Env vars safe to pass to child process (no API keys/secrets) */
+const SAFE_ENV_KEYS = new Set([
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "SHELL",
+  "COMSPEC",
+  "SystemRoot",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "ProgramFiles",
+  "ProgramFiles(x86)",
+  "CommonProgramFiles",
+  "windir",
+  "OS",
+  "PROCESSOR_ARCHITECTURE",
+  "NUMBER_OF_PROCESSORS",
+  "NODE_ENV",
+  "PYTHONIOENCODING",
+  "PYTHONUTF8",
+]);
 
 /** Direct references to sandbox-allowed tools */
 const SANDBOX_TOOLS: Record<string, Tool> = {
@@ -193,10 +222,14 @@ export const executeCodeTool: Tool = {
       };
 
       // Always use project root as cwd (not session workDir which is an empty temp dir)
+      const safeEnv: Record<string, string> = {};
+      for (const [k, v] of Object.entries(process.env)) {
+        if (v && SAFE_ENV_KEYS.has(k)) safeEnv[k] = v;
+      }
       const child: ChildProcess = fork(runnerPath, [], {
         cwd: process.cwd(),
         stdio: ["ignore", "pipe", "pipe", "ipc"],
-        env: { ...process.env },
+        env: safeEnv,
       });
 
       const timer = setTimeout(() => {
@@ -233,6 +266,18 @@ export const executeCodeTool: Tool = {
       child.on("message", async (msg: Record<string, unknown>) => {
         if (msg.type === "tool_call") {
           toolCallCount++;
+
+          // Enforce tool call limit
+          if (toolCallCount > MAX_SANDBOX_TOOL_CALLS) {
+            child.send?.({
+              type: "tool_result",
+              id: msg.id,
+              content: `Tool call limit reached (${MAX_SANDBOX_TOOL_CALLS}). Use console.log() to output what you have so far.`,
+              isError: true,
+            });
+            return;
+          }
+
           const rawName = msg.name as string;
           const toolName = TOOL_ALIASES[rawName] || rawName;
           const tool = SANDBOX_TOOLS[toolName];
@@ -248,9 +293,9 @@ export const executeCodeTool: Tool = {
           }
 
           try {
-            // Build isolated context: no interactive callbacks, no workDir override
             const sandboxContext: ToolExecutionContext = {
               abortSignal: context?.abortSignal,
+              workDir: context?.workDir,
             };
             const result = await tool.execute(
               msg.input as Record<string, unknown>,
