@@ -1191,6 +1191,24 @@ export class SimpleAgentLoop implements AgentLoop {
           // Detect repetitive calls — same tool+params called too many times
           if (result) {
             // Already blocked by global limit above
+          } else if (
+            executeCodeNudged &&
+            !usedExecuteCode &&
+            (effectiveToolName === "web_search" ||
+              effectiveToolName === "web_fetch")
+          ) {
+            // After nudge fired, hard-block further web_search/web_fetch
+            // until the model uses execute_code to batch remaining work.
+            console.log(
+              `[agent-loop] execute_code nudge: blocking ${effectiveToolName} (use execute_code instead)`,
+            );
+            result = {
+              content:
+                "已拦截：你必须用 execute_code 写 JS 脚本来批量完成剩余的搜索和抓取工作，不能再逐个调用 web_search/web_fetch。" +
+                "用 fetch() 并行请求多个 URL，在脚本内提取和汇总数据，然后直接输出最终结果给用户。" +
+                "如果你已经收集了足够的信息，直接用已有内容生成最终回复。",
+              isError: true,
+            };
           } else if (totalLimit && nameCount > totalLimit) {
             console.log(
               `[agent-loop] Total call limit reached: ${effectiveToolName} (${nameCount}/${totalLimit})`,
