@@ -3,7 +3,7 @@
 ## [1.5.16] - 2026-04-13
 
 ### 优化
-- **execute_code nudge 机制**：agent-loop 检测 web_search/web_fetch 累计 ≥3 次且未用 execute_code 时，注入提醒 + 硬拦截后续 fetch/search。最佳情况 token 从 103K→15K（-85%），平均 token 减少 ~60%
+- **execute_code nudge 机制**：agent-loop 检测 web_search/web_fetch 累计 ≥3 次且未用 execute_code 时，智能提醒 + 硬拦截。已有 2+ 次 web_fetch 时引导直接输出，否则引导用 execute_code 批量化。最佳 token 103K→15K（-85%）
 
 ## [1.5.15] - 2026-04-12
 

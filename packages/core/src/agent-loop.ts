@@ -1202,12 +1202,15 @@ export class SimpleAgentLoop implements AgentLoop {
             console.log(
               `[agent-loop] execute_code nudge: blocking ${effectiveToolName} (use execute_code instead)`,
             );
+            // Check if model already has enough fetched content
             result = {
               content:
-                "已拦截：你必须用 execute_code 写 JS 脚本来批量完成剩余的搜索和抓取工作，不能再逐个调用 web_search/web_fetch。" +
-                "在 execute_code 中使用内置全局函数 await web_fetch(url) 和 await web_search(query)（无需 import），" +
-                "用 Promise.all 并行请求，console.log() 输出结果。" +
-                "如果你已经收集了足够的信息，直接用已有内容生成最终回复。",
+                (toolNameCounts.get("web_fetch") ?? 0) >= 2
+                  ? "已拦截：你已经收集了足够的信息，不能再调用 web_search/web_fetch。" +
+                    "请立即用已有内容直接生成最终回复给用户，不要再调用任何搜索或抓取工具。"
+                  : "已拦截：不能再逐个调用 web_search/web_fetch。" +
+                    "用 execute_code 写 JS 脚本批量完成：在脚本中使用内置全局函数 await web_fetch(url) 和 await web_search(query)（无需 import），" +
+                    "用 Promise.all 并行请求，console.log() 输出结果。",
               isError: true,
             };
           } else if (totalLimit && nameCount > totalLimit) {
@@ -1590,13 +1593,21 @@ export class SimpleAgentLoop implements AgentLoop {
             (toolNameCounts.get("web_fetch") ?? 0);
           if (fetchSearchTotal >= FETCH_SEARCH_NUDGE_THRESHOLD) {
             executeCodeNudged = true;
+            // If we already have successful web_fetch results, the model has
+            // enough data — nudge it to output directly instead of pushing
+            // execute_code (which often fails on CJK string escaping).
+            const hasEnoughData =
+              (toolNameCounts.get("web_fetch") ?? 0) >= 2;
             runtimeHints.push(
-              "<execute_code_hint>你已经逐个调用了 " +
-                fetchSearchTotal +
-                " 次 web_search/web_fetch。系统规则要求：多步链式操作（搜索→读取→汇总，≥3 次工具调用）必须用 execute_code 写 JS 脚本一次完成。" +
-                "请立即改用 execute_code，在脚本中用 await web_fetch(url) 和 await web_search(query) " +
-                "（execute_code 内置全局函数，无需 import）并行抓取多个 URL（Promise.all），" +
-                "在脚本内完成数据提取和汇总，用 console.log() 输出最终结果。</execute_code_hint>",
+              hasEnoughData
+                ? "<execute_code_hint>你已经成功抓取了多个网页内容，信息量足够。" +
+                  "不要再调用 web_search/web_fetch，立即用已收集的内容生成最终回复。</execute_code_hint>"
+                : "<execute_code_hint>你已经逐个调用了 " +
+                  fetchSearchTotal +
+                  " 次 web_search/web_fetch。系统规则要求：多步链式操作必须用 execute_code 写 JS 脚本一次完成。" +
+                  "请立即改用 execute_code，在脚本中用 await web_fetch(url) 和 await web_search(query) " +
+                  "（execute_code 内置全局函数，无需 import）并行抓取多个 URL（Promise.all），" +
+                  "在脚本内完成数据提取和汇总，用 console.log() 输出最终结果。</execute_code_hint>",
             );
             console.warn(
               `[agent-loop] execute_code nudge triggered: ${fetchSearchTotal} fetch/search calls without execute_code`,
