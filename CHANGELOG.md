@@ -1,5 +1,10 @@
 # 更新日志
 
+## [1.5.16] - 2026-04-13
+
+### 优化
+- **execute_code nudge 机制**：agent-loop 检测 web_search/web_fetch 累计 ≥3 次且未用 execute_code 时，注入一次性提醒强制批量化。实测同任务 token 减少 65%、耗时减少 59%
+
 ## [1.5.15] - 2026-04-12
 
 ### 新功能

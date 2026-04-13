@@ -632,6 +632,12 @@ export class SimpleAgentLoop implements AgentLoop {
     let escalated = false;
     const STRIKE_THRESHOLD = 3;
 
+    // execute_code nudge: when agent uses 3+ web_search/web_fetch calls without
+    // using execute_code, inject a hint reminding it to batch via execute_code.
+    let executeCodeNudged = false;
+    let usedExecuteCode = false;
+    const FETCH_SEARCH_NUDGE_THRESHOLD = 3;
+
     // Pre-compute tool pruning data (fixed for the entire loop)
     const loopToolDefs = this.toolRegistry.definitions();
     const loopAvailableTools = new Set(loopToolDefs.map((t) => t.name));
@@ -1549,6 +1555,30 @@ export class SimpleAgentLoop implements AgentLoop {
             );
             console.warn(
               `[agent-loop] Three-strike escalation triggered at iteration ${iterations}`,
+            );
+          }
+        }
+      }
+
+      // ── execute_code nudge: detect sequential web_search/web_fetch abuse ──
+      // System prompt says "≥3 tool calls chain → use execute_code", but weak
+      // models ignore this. After 3+ fetch/search calls, inject a one-time hint.
+      if (!executeCodeNudged && loopAvailableTools.has("execute_code")) {
+        if (toolNameCounts.has("execute_code")) usedExecuteCode = true;
+        if (!usedExecuteCode) {
+          const fetchSearchTotal =
+            (toolNameCounts.get("web_search") ?? 0) +
+            (toolNameCounts.get("web_fetch") ?? 0);
+          if (fetchSearchTotal >= FETCH_SEARCH_NUDGE_THRESHOLD) {
+            executeCodeNudged = true;
+            runtimeHints.push(
+              "<execute_code_hint>你已经逐个调用了 " +
+                fetchSearchTotal +
+                " 次 web_search/web_fetch。系统规则要求：多步链式操作（搜索→读取→汇总，≥3 次工具调用）必须用 execute_code 写 JS 脚本一次完成。" +
+                "请立即改用 execute_code，用 fetch() 并行抓取多个 URL，在脚本内完成数据提取和汇总，然后直接输出最终结果。</execute_code_hint>",
+            );
+            console.warn(
+              `[agent-loop] execute_code nudge triggered: ${fetchSearchTotal} fetch/search calls without execute_code`,
             );
           }
         }
