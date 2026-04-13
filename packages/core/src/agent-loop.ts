@@ -1205,7 +1205,8 @@ export class SimpleAgentLoop implements AgentLoop {
             result = {
               content:
                 "已拦截：你必须用 execute_code 写 JS 脚本来批量完成剩余的搜索和抓取工作，不能再逐个调用 web_search/web_fetch。" +
-                "用 fetch() 并行请求多个 URL，在脚本内提取和汇总数据，然后直接输出最终结果给用户。" +
+                "在 execute_code 中使用内置全局函数 await web_fetch(url) 和 await web_search(query)（无需 import），" +
+                "用 Promise.all 并行请求，console.log() 输出结果。" +
                 "如果你已经收集了足够的信息，直接用已有内容生成最终回复。",
               isError: true,
             };
@@ -1593,7 +1594,9 @@ export class SimpleAgentLoop implements AgentLoop {
               "<execute_code_hint>你已经逐个调用了 " +
                 fetchSearchTotal +
                 " 次 web_search/web_fetch。系统规则要求：多步链式操作（搜索→读取→汇总，≥3 次工具调用）必须用 execute_code 写 JS 脚本一次完成。" +
-                "请立即改用 execute_code，用 fetch() 并行抓取多个 URL，在脚本内完成数据提取和汇总，然后直接输出最终结果。</execute_code_hint>",
+                "请立即改用 execute_code，在脚本中用 await web_fetch(url) 和 await web_search(query) " +
+                "（execute_code 内置全局函数，无需 import）并行抓取多个 URL（Promise.all），" +
+                "在脚本内完成数据提取和汇总，用 console.log() 输出最终结果。</execute_code_hint>",
             );
             console.warn(
               `[agent-loop] execute_code nudge triggered: ${fetchSearchTotal} fetch/search calls without execute_code`,
