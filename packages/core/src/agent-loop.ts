@@ -1207,7 +1207,8 @@ export class SimpleAgentLoop implements AgentLoop {
               content:
                 (toolNameCounts.get("web_fetch") ?? 0) >= 2
                   ? "已拦截：你已经收集了足够的信息，不能再调用 web_search/web_fetch。" +
-                    "请立即用已有内容直接生成最终回复给用户，不要再调用任何搜索或抓取工具。"
+                    "也不要用 file_read/grep 去读 overflow 文件。" +
+                    "请立即用你已经收到的内容（包括预览）直接生成最终回复给用户。"
                   : "已拦截：不能再逐个调用 web_search/web_fetch。" +
                     "用 execute_code 写 JS 脚本批量完成：在脚本中使用内置全局函数 await web_fetch(url) 和 await web_search(query)（无需 import），" +
                     "用 Promise.all 并行请求，console.log() 输出结果。",
@@ -1601,7 +1602,8 @@ export class SimpleAgentLoop implements AgentLoop {
             runtimeHints.push(
               hasEnoughData
                 ? "<execute_code_hint>你已经成功抓取了多个网页内容，信息量足够。" +
-                  "不要再调用 web_search/web_fetch，立即用已收集的内容生成最终回复。</execute_code_hint>"
+                  "不要再调用 web_search/web_fetch，也不要用 file_read/grep 去读 overflow 文件。" +
+                  "直接用你已经收到的内容（包括预览）生成最终回复给用户。</execute_code_hint>"
                 : "<execute_code_hint>你已经逐个调用了 " +
                   fetchSearchTotal +
                   " 次 web_search/web_fetch。系统规则要求：多步链式操作必须用 execute_code 写 JS 脚本一次完成。" +

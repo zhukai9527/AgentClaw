@@ -3,7 +3,7 @@
 ## [1.5.16] - 2026-04-13
 
 ### 优化
-- **execute_code nudge 机制**：agent-loop 检测 web_search/web_fetch 累计 ≥3 次且未用 execute_code 时，智能提醒 + 硬拦截。已有 2+ 次 web_fetch 时引导直接输出，否则引导用 execute_code 批量化。最佳 token 103K→15K（-85%）
+- **execute_code nudge 机制**：agent-loop 检测 web_search/web_fetch 累计 ≥3 次时智能干预。已有足够数据时引导直接输出（禁止 file_read/grep overflow），否则引导用 execute_code 批量化。军事新闻测试 110K→26K（-76%）、10 轮→3 轮
 
 ## [1.5.15] - 2026-04-12
 
