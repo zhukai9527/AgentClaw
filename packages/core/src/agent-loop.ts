@@ -1259,7 +1259,7 @@ export class SimpleAgentLoop implements AgentLoop {
           const notAllowed = allow && !allow.includes(effectiveToolName);
           if (denied || notAllowed) {
             result = {
-              content: `Tool "${effectiveToolName}" is blocked by policy`,
+              content: `Tool "${effectiveToolName}" is disabled by policy. Do NOT retry — use an alternative approach.`,
               isError: true,
             };
             blockedByPolicy = true;
@@ -1274,7 +1274,7 @@ export class SimpleAgentLoop implements AgentLoop {
           });
           if (modified === null) {
             result = {
-              content: `Tool "${effectiveToolName}" was blocked by a before hook`,
+              content: `Tool "${effectiveToolName}" is disabled by configuration. Do NOT retry this tool — use an alternative approach (e.g., if glob is blocked, try grep or file_read with a known path).`,
               isError: true,
             };
             blockedByPolicy = true;

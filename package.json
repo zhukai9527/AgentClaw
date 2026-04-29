@@ -43,7 +43,6 @@
       "axios": ">=1.15.0",
       "postcss": ">=8.5.10",
       "smol-toml": ">=1.6.1",
-      "uuid": ">=14.0.0",
       "music-metadata": ">=11.12.3",
       "file-type": ">=21.3.2"
     }
