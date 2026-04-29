@@ -300,8 +300,8 @@ function applyOverflow(
 
   result.content =
     cleanPreview +
-    `\n\n... [输出过长，完整内容已保存: ${filePath} (${totalLines} 行, ${totalChars} 字符)]\n` +
-    `用 file_read 查看完整内容，或用 grep 搜索关键信息。`;
+    `\n\n... [输出过长，已截断。完整内容已保存: ${filePath}]\n` +
+    `预览中的信息通常足够回答问题。只有当预览缺少关键信息时，才用 grep 搜索具体关键词。`;
 
   // Record overflow info in metadata
   if (!result.metadata) result.metadata = {};
