@@ -1,5 +1,14 @@
 # AgentClaw
 
+<p align="center">
+  <a href="https://github.com/vorojar/AgentClaw/blob/master/LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
+  </a>
+  <a href="https://github.com/vorojar/AgentClaw">
+    <img src="https://img.shields.io/github/stars/vorojar/AgentClaw?style=social" alt="GitHub Stars" />
+  </a>
+</p>
+
 > 你的 24/7 AI 指挥官——理解意图、规划任务、调度工具、记住一切的智能调度中心。
 
 AgentClaw 是一个指挥官级别的个人 AI 助理，同时也是一个 **Agent 托管平台（Hive）**。它自己不写代码（调用编程技能），自己不搜索（调用搜索技能），但它理解你的意图、规划复杂任务、调度合适的工具和技能，并通过 Web UI / Telegram / WhatsApp / 钉钉 / 飞书 / QQ 全天候待命。
@@ -281,6 +290,66 @@ LLM 自主判断是否需要技能，通过 `use_skill` 工具调用。支持在
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 否 | 启用飞书 Bot |
 | `QQ_BOT_APP_ID` / `QQ_BOT_APP_SECRET` | 否 | 启用 QQ Bot |
 | `WECOM_BOT_ID` / `WECOM_BOT_SECRET` | 否 | 启用企业微信 Bot |
+
+## 常见问题
+
+<details>
+<summary><b>Q: 启动后提示 "No valid API key found"？</b></summary>
+
+确保 `.env` 中至少配置了一个有效的 API key（三选一）：
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-xxx    # Claude 系列
+OPENAI_API_KEY=sk-xxx           # GPT 系列 / OpenAI 兼容
+GEMINI_API_KEY=AIzaSy-xxx       # Gemini 系列
+```
+
+检查：key 前后无多余空格/引号，key 未过期，Docker 部署时 `.env` 在 `docker-compose.yml` 同级目录。
+
+</details>
+
+<details>
+<summary><b>Q: Docker 部署后 Web UI 打不开？</b></summary>
+
+```bash
+# 确认容器正在运行
+docker compose ps
+
+# 检查日志
+docker compose logs gateway
+
+# 确认端口映射（默认 3100）
+# 云服务器需放行防火墙
+sudo ufw allow 3100
+```
+
+</details>
+
+<details>
+<summary><b>Q: 应该选哪个模型？</b></summary>
+
+| 场景 | 推荐 | 原因 |
+|------|------|------|
+| 日常对话 + 工具调用 | Claude Sonnet 4 | 性价比最优 |
+| 复杂推理 / 代码生成 | Claude Opus 4 | 最强推理 |
+| 预算有限 | GPT-4o-mini / DeepSeek | 便宜够用 |
+| 本地离线 | Ollama + Qwen3 | 零成本，需 GPU |
+
+</details>
+
+<details>
+<summary><b>Q: 工具被禁用后 agent 一直重试？</b></summary>
+
+已修复（v1.5.17+）。如果仍遇到，检查 `data/config.json` 中 `toolPermissions` 是否有 `deny` 规则。被禁用的工具会返回明确的 "Do NOT retry" 提示，agent 应自动切换替代方案。
+
+</details>
+
+<details>
+<summary><b>Q: 长对话后响应变慢？</b></summary>
+
+这是上下文压缩触发的正常行为。系统会在 token 超限时自动压缩旧消息。主动压缩：让 agent 调用 `compact` 工具，或在 Web UI 中点击压缩按钮。压缩后 tool_result 保留关键信息（错误行/状态/JSON 字段），80-95% token 节省。
+
+</details>
 
 ## Web UI
 

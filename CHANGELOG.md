@@ -9,6 +9,7 @@
 ### 修复
 - **工具被禁用时的 agent 行为优化**：glob 等工具被 config deny 后，错误消息从 "blocked by a before hook" 改为明确告知 "disabled by configuration. Do NOT retry"。修前 agent 重试 3 次触发 max_iterations（149s），修后第 1 次被拒即改用替代方案
 - **依赖漏洞修复**：通过 pnpm overrides 修复 45 个安全漏洞（2 critical → 0），涉及 protobufjs/rollup/dompurify/fastify/axios/postcss 等 14 个传递依赖。xlsx（2 high）无补丁可用，vite 7（3 high，仅 dev）受 Node.js 版本限制暂未覆盖
+- **README 增强**：添加 MIT License + GitHub Stars badge；新增常见问题（FAQ）章节覆盖 API key 配置、Docker 部署、模型选择、工具禁用重试、上下文压缩等 5 个问题
 
 ## [1.5.16] - 2026-04-13
 
