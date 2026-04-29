@@ -29,7 +29,7 @@
     "@fastify/multipart": "^9.4.0",
     "@fastify/static": "^9.0.0",
     "@fastify/websocket": "^11.2.0",
-    "@larksuiteoapi/node-sdk": "^1.59.0",
+    "@larksuiteoapi/node-sdk": "^1.62.1",
     "@sentry/node": "^10.42.0",
     "@wecom/aibot-node-sdk": "^1.0.1",
     "@whiskeysockets/baileys": "7.0.0-rc.9",

@@ -6,6 +6,9 @@
 - **overflow 提示优化**：工具输出超长时不再提示 agent 用 file_read/grep 读取完整文件，改为"预览通常够用"。天气查询测试工具调用从 6 个降到 1 个，token 消耗从 134K 降到 28K（-79%），耗时从 63s 降到 7.7s（-88%）
 - **grep 工具增强**：新增 `exclude_dir` 参数，默认排除 node_modules/dist/.git/target/binaries 等目录。解决搜索大目录时结果混入二进制文件、agent 转向 bash 调用失败的问题
 
+### 修复
+- **依赖漏洞修复**：通过 pnpm overrides 修复 45 个安全漏洞（2 critical → 0），涉及 protobufjs/rollup/dompurify/fastify/axios/postcss 等 14 个传递依赖。xlsx（2 high）无补丁可用，vite 7（3 high，仅 dev）受 Node.js 版本限制暂未覆盖
+
 ## [1.5.16] - 2026-04-13
 
 ### 优化
