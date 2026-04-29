@@ -126,6 +126,7 @@ export function registerConfigRoutes(
   // PUT /api/config - 写入 config.json（合并写入）
   app.put<{
     Body: Partial<AppConfig> & {
+      model?: string;
       dailyBriefTime?: string;
       dailyBriefEnabled?: boolean;
     };
@@ -163,8 +164,15 @@ export function registerConfigRoutes(
       const {
         dailyBriefTime: _dbt,
         dailyBriefEnabled: _dbe,
+        model: legacyModel,
         ...configUpdates
       } = updates;
+      if (
+        legacyModel !== undefined &&
+        configUpdates.defaultModel === undefined
+      ) {
+        configUpdates.defaultModel = legacyModel;
+      }
 
       // 保护脱敏 apiKey：如果前端提交的 apiKey 是 "****" 格式，用 config.json 中的原值替换
       if (configUpdates.providers && Array.isArray(configUpdates.providers)) {
@@ -231,6 +239,9 @@ export function registerConfigRoutes(
             (ctx.orchestrator as any).setModel(newProvider.model);
           }
           (ctx as any).provider = newProvider.provider;
+        } else if (configUpdates.defaultModel !== undefined) {
+          ctx.config.model = configUpdates.defaultModel as string;
+          (ctx.orchestrator as any).setModel(configUpdates.defaultModel);
         }
       } else if (configUpdates.defaultModel !== undefined) {
         // 仅改了 defaultModel 但没改 provider 相关字段
@@ -386,7 +397,14 @@ export function registerConfigRoutes(
         // 发送一个极简请求验证 key 有效性
         let _responseText = "";
         for await (const chunk of llm.stream({
-          messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+          messages: [
+            {
+              id: "config-test",
+              role: "user",
+              content: [{ type: "text", text: "Hi" }],
+              createdAt: new Date(),
+            },
+          ],
           maxTokens: 10,
         })) {
           if (chunk.type === "text") {

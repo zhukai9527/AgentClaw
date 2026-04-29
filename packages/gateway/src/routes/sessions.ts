@@ -11,6 +11,7 @@ function serializeSession(session: {
   createdAt: Date;
   lastActiveAt: Date;
   title?: string;
+  status?: string;
   projectId?: string;
   preview?: string;
   metadata?: Record<string, unknown>;
@@ -147,16 +148,24 @@ export function registerSessionRoutes(
         if (!session) {
           return reply.status(404).send({ error: "Session not found" });
         }
-        const updated = { ...session };
-        if (req.body.title !== undefined) updated.title = req.body.title;
-        if (req.body.status !== undefined) {
-          updated.status = req.body.status as typeof updated.status;
+        const updates: Parameters<typeof ctx.orchestrator.updateSession>[1] =
+          {};
+        if (req.body.title !== undefined) {
+          updates.title = req.body.title;
+          updates.metadata = { ...session.metadata, titleSource: "manual" };
         }
+        if (req.body.status !== undefined)
+          updates.status = req.body.status as typeof updates.status;
         if (req.body.projectId !== undefined) {
-          (updated as { projectId?: string }).projectId =
-            req.body.projectId ?? undefined;
+          updates.projectId = req.body.projectId ?? undefined;
         }
-        await ctx.memoryStore.saveSession(updated);
+        const updated = await ctx.orchestrator.updateSession(
+          req.params.id,
+          updates,
+        );
+        if (!updated) {
+          return reply.status(404).send({ error: "Session not found" });
+        }
         return reply.send(serializeSession(updated));
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);

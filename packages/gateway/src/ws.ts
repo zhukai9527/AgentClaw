@@ -416,6 +416,7 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
           cacheReadTokens?: number;
           durationMs?: number;
           toolCallCount?: number;
+          agentId?: string;
         } = {};
 
         // ── 消费事件流（不受 socket 断连影响） ──
@@ -448,7 +449,7 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
               case "tool_result": {
                 const data = event.data as {
                   name: string;
-                  result: { content: string };
+                  result: { content: string; isError?: boolean };
                   durationMs?: number;
                 };
                 streamSend(
@@ -456,6 +457,7 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
                     type: "tool_result",
                     toolName: data.name,
                     toolResult: data.result.content,
+                    isError: data.result.isError ?? false,
                     durationMs: data.durationMs,
                   }),
                 );

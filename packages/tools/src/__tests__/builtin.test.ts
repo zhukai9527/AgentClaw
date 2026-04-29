@@ -46,12 +46,13 @@ describe("createBuiltinTools — 内置工具创建", () => {
       expect(names).toContain("browser_cdp");
     });
 
-    it("memory=true 应额外加载 remember", () => {
+    it("memory=true 应额外加载 remember 和 recall", () => {
       const tools = createBuiltinTools({ memory: true });
       const names = tools.map((t) => t.name);
 
-      expect(tools.length).toBe(CORE_TOOL_NAMES.length + 1);
+      expect(tools.length).toBe(CORE_TOOL_NAMES.length + 2);
       expect(names).toContain("remember");
+      expect(names).toContain("recall");
     });
 
     it("skills=true 应额外加载 use_skill", () => {
@@ -78,8 +79,8 @@ describe("createBuiltinTools — 内置工具创建", () => {
         claudeCode: true,
       });
 
-      // 9 核心 + 8 gateway + 1 memory + 1 skills + 1 claudeCode = 20
-      expect(tools).toHaveLength(20);
+      // 9 核心 + 8 gateway + 2 memory + 1 skills + 1 claudeCode = 21
+      expect(tools).toHaveLength(21);
     });
 
     it("空 options 应只加载核心工具", () => {

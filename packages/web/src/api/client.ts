@@ -1080,6 +1080,7 @@ export interface WSMessage {
     | "text"
     | "tool_call"
     | "tool_result"
+    | "tool_progress"
     | "done"
     | "error"
     | "file"
@@ -1088,15 +1089,21 @@ export interface WSMessage {
     | "todo_update"
     | "session_activity"
     | "resuming"
+    | "stopped"
+    | "thinking"
     | "handoff";
+  sessionId?: string;
+  channel?: string;
   text?: string;
   fromAgent?: string;
   toAgent?: string;
   toAgentName?: string;
   reason?: string;
+  intent?: string;
   toolName?: string;
   toolInput?: string;
   toolResult?: string;
+  isError?: boolean;
   error?: string;
   url?: string;
   filename?: string;
@@ -1105,6 +1112,9 @@ export interface WSMessage {
   tokensOut?: number;
   durationMs?: number;
   toolCallCount?: number;
+  cacheCreationTokens?: number;
+  cacheReadTokens?: number;
+  success?: boolean;
   question?: string;
   agentId?: string;
 }

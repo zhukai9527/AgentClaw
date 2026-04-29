@@ -175,7 +175,7 @@ describe("ToolRegistryImpl", () => {
 
       const result = await registry.execute("missing", {});
 
-      expect(result.content).toContain('Tool "missing" not found');
+      expect(result.content).toContain('Tool "missing" does not exist');
       expect(result.isError).toBe(true);
     });
 

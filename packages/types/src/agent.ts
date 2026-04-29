@@ -203,6 +203,14 @@ export interface Orchestrator {
   /** Get or resume an existing session */
   getSession(sessionId: string): Promise<Session | undefined>;
 
+  /** Update a session and keep orchestrator cache in sync */
+  updateSession(
+    sessionId: string,
+    updates: Partial<
+      Pick<Session, "title" | "status" | "projectId" | "metadata">
+    >,
+  ): Promise<Session | undefined>;
+
   /** Process user input within a session（支持文本或多模态内容） */
   processInput(
     sessionId: string,
@@ -222,6 +230,9 @@ export interface Orchestrator {
 
   /** Stop a running session */
   stopSession(sessionId: string): boolean;
+
+  /** Return IDs of sessions that have an active agent loop running */
+  getActiveSessionIds(): string[];
 
   /** Close a session */
   closeSession(sessionId: string): Promise<void>;

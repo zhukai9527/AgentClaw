@@ -1531,7 +1531,7 @@ export function ChatPage() {
                 toolCalls[i] = {
                   ...toolCalls[i],
                   toolResult: msg.toolResult ?? "",
-                  isError: false,
+                  isError: msg.isError ?? false,
                   durationMs: msg.durationMs ?? undefined,
                 };
                 break;

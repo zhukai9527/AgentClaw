@@ -7,7 +7,8 @@ import type { TaskScheduler } from "../scheduler.js";
  * 序列化 TaskRow → 前端友好的 JSON 对象
  * snake_case → camelCase，JSON 字段解析
  */
-function serializeTask(row: Record<string, unknown>) {
+function serializeTask(task: object) {
+  const row = task as Record<string, unknown>;
   let tags: string[] = [];
   try {
     tags = JSON.parse((row.tags as string) || "[]");

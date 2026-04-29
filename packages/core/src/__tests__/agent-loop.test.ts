@@ -349,8 +349,8 @@ describe("SimpleAgentLoop", () => {
       const completeEvent = events.find((e) => e.type === "response_complete");
       expect(completeEvent).toBeDefined();
 
-      // 工具应被调用 3 次（每次迭代一次）
-      expect(testTool.execute).toHaveBeenCalledTimes(3);
+      // 重复调用保护会在第 3 次相同调用前拦截，避免 agent 陷入工具循环
+      expect(testTool.execute).toHaveBeenCalledTimes(2);
 
       // 循环结束后状态应回到 idle
       expect(loop.state).toBe("idle");
@@ -690,10 +690,8 @@ describe("SimpleAgentLoop", () => {
 
       const events = await collectEvents(loop.runStream("go", "conv-9"));
 
-      // 由于 MAX_CONSECUTIVE_ERRORS=3，工具应只被调用 3 次
-      // 但是 MAX_TOOL_FAILURES=2 也起作用——第 3 次调用时 buggy_tool 已经失败 2 次，
-      // 会返回 "This tool has failed..." 而不是真正执行
-      expect(buggyTool.execute).toHaveBeenCalledTimes(2);
+      // 重复调用保护会优先拦截后续相同失败调用，避免反复执行同一个坏工具
+      expect(buggyTool.execute).toHaveBeenCalledTimes(1);
 
       // 应有 response_complete
       const completeEvent = events.find((e) => e.type === "response_complete");

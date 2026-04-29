@@ -26,6 +26,7 @@ import {
   type HealthCheckResult,
 } from "./health-check.js";
 import { loadConfig, type AppConfig, type ProviderInstance } from "./config.js";
+import { broadcastSessionActivity } from "./utils.js";
 
 export interface AppContext {
   provider: LLMProvider;
@@ -448,6 +449,9 @@ export async function bootstrap(): Promise<AppContext> {
     tmpDir: tempDir,
     agents,
     disabledTools: cfg.disabledTools,
+    onSessionUpdated: (session) => {
+      broadcastSessionActivity(session.id, "web");
+    },
     ...(maxIterations ? { agentConfig: { maxIterations } } : {}),
   });
 

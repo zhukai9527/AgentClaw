@@ -45,7 +45,8 @@ export function registerMemoryRoutes(
           content: r.entry.content,
           importance: r.entry.importance,
           namespace:
-            (r.entry as Record<string, unknown>).namespace || "default",
+            (r.entry as unknown as Record<string, unknown>).namespace ||
+            "default",
           createdAt: r.entry.createdAt.toISOString(),
           accessedAt: r.entry.accessedAt.toISOString(),
           accessCount: r.entry.accessCount,

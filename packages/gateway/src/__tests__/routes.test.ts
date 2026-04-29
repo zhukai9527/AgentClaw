@@ -100,6 +100,7 @@ describe("Session 路由", () => {
       expect(res.statusCode).toBe(200);
       expect(ctx.orchestrator.createSession).toHaveBeenCalledWith({
         agentId: "custom-agent",
+        channel: "web",
       });
       expect(res.json().agentId).toBe("custom-agent");
     });

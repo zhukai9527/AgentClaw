@@ -37,7 +37,9 @@ function formatResults(results: SearchResult[]): string[] {
     lines.push(`  ${r.url}`);
   }
   lines.push("");
-  lines.push("hint: use web_fetch(url) to read full page content");
+  lines.push(
+    "hint: if the direct answer/snippets contain enough facts, answer from them with source links; use web_fetch(url) only when snippets are insufficient.",
+  );
   return lines;
 }
 

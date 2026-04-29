@@ -54,6 +54,7 @@ export class SimpleOrchestrator implements Orchestrator {
     modelId: string,
     error: unknown,
   ) => { retryable: boolean };
+  private onSessionUpdated?: (session: Session) => void;
 
   constructor(options: {
     provider: LLMProvider;
@@ -74,6 +75,7 @@ export class SimpleOrchestrator implements Orchestrator {
       modelId: string,
       error: unknown,
     ) => { retryable: boolean };
+    onSessionUpdated?: (session: Session) => void;
   }) {
     this.provider = options.provider;
     this.visionProvider = options.visionProvider;
@@ -95,6 +97,7 @@ export class SimpleOrchestrator implements Orchestrator {
       ? new Set(options.disabledTools)
       : undefined;
     this.onLLMError = options.onLLMError;
+    this.onSessionUpdated = options.onSessionUpdated;
     this.hookManager = new ToolHookManager();
     this.hookManager.registerPresetHooks();
     // Register incomplete-todo guard as BeforeReturn hook
@@ -145,12 +148,37 @@ export class SimpleOrchestrator implements Orchestrator {
         createdAt: stored.createdAt,
         lastActiveAt: stored.lastActiveAt,
         title: stored.title,
+        status: stored.status,
+        projectId: stored.projectId,
         metadata: stored.metadata,
       };
       this.sessions.set(sessionId, session);
       return session;
     }
     return undefined;
+  }
+
+  async updateSession(
+    sessionId: string,
+    updates: Partial<
+      Pick<Session, "title" | "status" | "projectId" | "metadata">
+    >,
+  ): Promise<Session | undefined> {
+    const stored = await this.memoryStore.getSessionById(sessionId);
+    const cached = this.sessions.get(sessionId);
+    const base = stored ?? cached;
+    if (!base) return undefined;
+
+    const session: Session = {
+      ...base,
+      ...updates,
+      metadata:
+        updates.metadata !== undefined ? updates.metadata : base.metadata,
+    };
+    this.sessions.set(sessionId, session);
+    await this.memoryStore.saveSession(session);
+    this.onSessionUpdated?.(session);
+    return session;
   }
 
   async processInput(
@@ -472,18 +500,15 @@ export class SimpleOrchestrator implements Orchestrator {
 
     if (count === 1 && session.title === undefined) {
       const rawText =
-        typeof input === "string"
-          ? input
-          : input
-              .filter(
-                (b): b is { type: "text"; text: string } => b.type === "text",
-              )
-              .map((b) => b.text)
-              .join("");
+        normalizeTitleInput(context?.originalUserText) ||
+        getTitleInputText(input);
       // Set a temporary title (first 50 chars), then generate a better one via LLM
-      session.title = rawText.slice(0, 50).trim() || "New Chat";
-      this.memoryStore.saveSession(session).catch(() => {});
-      this.generateSessionTitle(session, rawText);
+      const fallbackTitle = makeFallbackTitle(rawText);
+      const titledSession = await this.updateSession(session.id, {
+        title: fallbackTitle,
+        metadata: { ...session.metadata, titleSource: "auto_fallback" },
+      }).catch(() => undefined);
+      this.generateSessionTitle(titledSession ?? session, rawText, fallbackTitle);
     }
   }
 
@@ -491,9 +516,20 @@ export class SimpleOrchestrator implements Orchestrator {
    * Generate a concise session title via LLM (async, non-blocking).
    * Uses fastProvider if available, falls back to main provider.
    */
-  private generateSessionTitle(session: Session, userText: string): void {
+  private generateSessionTitle(
+    session: Session,
+    userText: string,
+    expectedTitle: string,
+  ): void {
     const provider = this.fastProvider ?? this.provider;
-    const prompt = `Generate a concise title (max 20 chars, no quotes, no punctuation at the end) for a conversation that starts with this message. Reply with ONLY the title, nothing else.\n\nMessage: ${userText.slice(0, 200)}`;
+    const prompt = `Generate a concise title for a conversation that starts with this message.
+Rules:
+- Use the same primary language as the message.
+- Max 20 characters.
+- No quotes, no Markdown, no trailing punctuation.
+- Reply with ONLY the title.
+
+Message: ${userText.slice(0, 300)}`;
     (async () => {
       try {
         let title = "";
@@ -510,10 +546,19 @@ export class SimpleOrchestrator implements Orchestrator {
         })) {
           if (chunk.type === "text") title += chunk.text;
         }
-        title = title.trim().replace(/^["']|["']$/g, "");
-        if (title && title.length <= 30) {
-          session.title = title;
-          await this.memoryStore.saveSession(session);
+        title = sanitizeGeneratedTitle(title);
+        if (title) {
+          const latest = await this.memoryStore.getSessionById(session.id);
+          if (
+            latest &&
+            latest.title === expectedTitle &&
+            latest.metadata?.titleSource !== "manual"
+          ) {
+            await this.updateSession(session.id, {
+              title,
+              metadata: { ...latest.metadata, titleSource: "auto" },
+            });
+          }
         }
       } catch {
         // Keep the fallback title
@@ -760,4 +805,43 @@ function isSimpleChat(input: string | ContentBlock[]): boolean {
   )
     return false;
   return true;
+}
+
+function getTitleInputText(input: string | ContentBlock[]): string {
+  if (typeof input === "string") return normalizeTitleInput(input);
+  const text = input
+    .filter((b): b is { type: "text"; text: string } => b.type === "text")
+    .map((b) => b.text)
+    .join(" ");
+  if (normalizeTitleInput(text)) return normalizeTitleInput(text);
+  const filenames = input
+    .map((b) => (b.type === "image" ? b.filename : undefined))
+    .filter((name): name is string => Boolean(name?.trim()))
+    .join(" ");
+  return normalizeTitleInput(filenames);
+}
+
+function normalizeTitleInput(value: unknown): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+}
+
+function makeFallbackTitle(userText: string): string {
+  return normalizeTitleInput(userText).slice(0, 50).trim() || "New Chat";
+}
+
+function sanitizeGeneratedTitle(value: string): string {
+  let title = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!title) return "";
+
+  title = title
+    .replace(/^(?:title|标题)\s*[:：]\s*/i, "")
+    .replace(/^[#*\s"'“”‘’]+|[#*\s"'“”‘’]+$/g, "")
+    .replace(/[。.!！?？,，、:：;；]+$/g, "")
+    .trim();
+
+  if (!title) return "";
+  return title.length > 20 ? title.slice(0, 20).trim() : title;
 }

@@ -344,6 +344,125 @@ function buildFailKey(
   return `${toolName}:${sig}`;
 }
 
+type ToolFactInput = {
+  effectiveToolName: string;
+  result: {
+    content: string;
+    isError?: boolean;
+    metadata?: Record<string, unknown>;
+  };
+};
+
+/**
+ * Extract high-signal facts from tool outputs and feed them back as a runtime
+ * hint. This helps weaker models avoid saying "not found" when the answer is
+ * already visible in a search snippet or fetched page preview.
+ */
+function buildToolFactHint(results: ToolFactInput[]): string | null {
+  const facts: string[] = [];
+
+  for (const item of results) {
+    if (item.result.isError) continue;
+    if (
+      item.effectiveToolName !== "web_search" &&
+      item.effectiveToolName !== "web_fetch" &&
+      item.effectiveToolName !== "bash"
+    ) {
+      continue;
+    }
+
+    facts.push(...extractWeatherFacts(item.result.content, item.result.metadata));
+  }
+
+  const unique = [...new Set(facts)].slice(0, 8);
+  if (unique.length === 0) return null;
+
+  return (
+    "<facts_from_tools>已从工具结果中抽取到以下可用事实。最终回答必须优先使用这些事实；" +
+    "如果某个字段已在这里出现，禁止回答“未能获取/没有找到”。如事实之间冲突，请标注来源差异并给出最可信来源。\n" +
+    unique.map((fact) => `- ${fact}`).join("\n") +
+    "\n</facts_from_tools>"
+  );
+}
+
+function extractWeatherFacts(
+  content: string,
+  metadata?: Record<string, unknown>,
+): string[] {
+  const facts: string[] = [];
+  const source =
+    typeof metadata?.url === "string" ? ` 来源：${metadata.url}` : "";
+  const isWeatherLike =
+    /天气|气温|温度|降水|风力|风速|湿度|weather|wttr/i.test(content);
+  if (!isWeatherLike) return facts;
+
+  const directAnswer = content.match(/Direct answer:\s*([^\n]+)/i)?.[1]?.trim();
+  if (directAnswer) {
+    facts.push(`搜索直接答案：${directAnswer}${source}`);
+  }
+
+  for (const match of content.matchAll(/(?:^|\n)\s*([^。\n]{0,30}天气[^—\n]*)\s*—\s*([^\n]+)/g)) {
+    const title = match[1].trim();
+    const snippet = match[2].trim();
+    if (snippet) facts.push(`${title}：${snippet}`);
+  }
+
+  const cma = content.match(
+    /气温,\s*([^;\n]+?)\s*;\s*降水,\s*([^;\n]+?)\s*;\s*风速,\s*([^;\n]+?)\s*;\s*风向,\s*([^;\n]+)/,
+  );
+  if (cma) {
+    facts.push(
+      `中国气象局片段：气温 ${cma[1].trim()}；降水 ${cma[2].trim()}；风速 ${cma[3].trim()}；风向 ${cma[4].trim()}${source}`,
+    );
+  }
+
+  const lines = content
+    .split("\n")
+    .map((line) => line.replace(/^[-*]\s*/, "").trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    if (
+      /上海|北京|广州|深圳|杭州|成都|天气|气温|温度|降水|风力|风速|湿度/.test(
+        line,
+      ) &&
+      /天气|气温|温度|降水|风力|风速|湿度|℃|°F|中雨|小雨|多云|晴|阴/.test(
+        line,
+      ) &&
+      !/^hint:/i.test(line) &&
+      line.length >= 12
+    ) {
+      facts.push(`天气相关原文：${line.slice(0, 220)}${source}`);
+    }
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    if (/^#{1,6}\s*29日（今天）|29日（今天）/.test(lines[i])) {
+      const condition = cleanWeatherLine(lines[i + 1]);
+      const temp = cleanWeatherLine(lines[i + 2]);
+      const wind = cleanWeatherLine(lines[i + 3]);
+      const parts = [
+        condition ? `天气 ${condition}` : "",
+        temp ? `温度 ${temp}` : "",
+        wind ? `风力 ${wind}` : "",
+      ].filter(Boolean);
+      if (parts.length > 0) {
+        facts.push(`中国天气网页面 29日（今天）：${parts.join("；")}${source}`);
+      }
+    }
+  }
+
+  return facts;
+}
+
+function cleanWeatherLine(value: string | undefined): string {
+  return (value ?? "")
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^_+|_+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export class SimpleAgentLoop implements AgentLoop {
   private _state: AgentState = "idle";
   private _config: AgentConfig;
@@ -553,6 +672,7 @@ export class SimpleAgentLoop implements AgentLoop {
     const runtimeHints: string[] = [
       `[工作目录：${sessionTmpDir}]（所有文件都在此目录下，输出也保存到这里）`,
     ];
+    let sufficientWeatherFactHint: string | null = null;
     // runtimeHints.join("\n") is computed dynamically each iteration (runtimeHints grows via push)
 
     // DB 存储：多模态输入存 ContentBlock[] JSON（image.data 替换为 file:// 路径，避免 DB 膨胀）
@@ -1065,6 +1185,7 @@ export class SimpleAgentLoop implements AgentLoop {
         trace.durationMs = durationMs;
         try {
           await this.memoryStore.addTrace(trace);
+          tracePersistedInLoop = true;
         } catch (e) {
           console.error("[agent-loop] Failed to persist trace:", e);
         }
@@ -1192,6 +1313,19 @@ export class SimpleAgentLoop implements AgentLoop {
           if (result) {
             // Already blocked by global limit above
           } else if (
+            sufficientWeatherFactHint &&
+            (effectiveToolName === "web_search" ||
+              effectiveToolName === "web_fetch" ||
+              effectiveToolName === "grep" ||
+              effectiveToolName === "file_read")
+          ) {
+            result = {
+              content:
+                "已拦截：天气查询已经有足够事实，禁止继续搜索、抓网页或读取 overflow 文件。请立即根据以下事实回答用户，不要说已出现的字段未获取。\n" +
+                sufficientWeatherFactHint,
+              isError: true,
+            };
+          } else if (
             executeCodeNudged &&
             !usedExecuteCode &&
             (effectiveToolName === "web_search" ||
@@ -1244,11 +1378,14 @@ export class SimpleAgentLoop implements AgentLoop {
 
             // Retry retryable tools on failure
             if (result.isError && RETRYABLE_TOOLS.has(effectiveToolName)) {
-              for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+              const retryAttempts = result.metadata?.timedOut
+                ? 0
+                : MAX_RETRIES;
+              for (let attempt = 1; attempt <= retryAttempts; attempt++) {
                 if (this.aborted) break;
                 const delay = RETRY_BASE_DELAY * 2 ** (attempt - 1);
                 console.log(
-                  `[agent-loop] Retrying ${effectiveToolName} (attempt ${attempt}/${MAX_RETRIES}) after ${delay}ms...`,
+                  `[agent-loop] Retrying ${effectiveToolName} (attempt ${attempt}/${retryAttempts}) after ${delay}ms...`,
                 );
                 await new Promise((r) => setTimeout(r, delay));
                 if (this.aborted) break;
@@ -1444,6 +1581,7 @@ export class SimpleAgentLoop implements AgentLoop {
             trace.durationMs = hDuration;
             try {
               await this.memoryStore.addTrace(trace);
+              tracePersistedInLoop = true;
             } catch (e) {
               console.error("[agent-loop] Failed to persist trace:", e);
             }
@@ -1541,6 +1679,14 @@ export class SimpleAgentLoop implements AgentLoop {
       // Reset rollback counter on successful iteration (at least one non-error)
       if (iterationErrorCount < toolCalls.length) {
         consecutiveRollbacks = 0;
+      }
+
+      const factHint = buildToolFactHint(allExecResults);
+      if (factHint) {
+        runtimeHints.push(factHint);
+        if (factHint.includes("天气") || factHint.includes("气温")) {
+          sufficientWeatherFactHint = factHint;
+        }
       }
 
       // ── Three-strike escalation: detect stuck LLM ──
@@ -1703,6 +1849,7 @@ export class SimpleAgentLoop implements AgentLoop {
         trace.durationMs = durationMs;
         try {
           await this.memoryStore.addTrace(trace);
+          tracePersistedInLoop = true;
         } catch (e) {
           console.error("[agent-loop] Failed to persist trace:", e);
         }
