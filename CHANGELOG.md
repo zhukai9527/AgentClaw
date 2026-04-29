@@ -4,6 +4,7 @@
 
 ### 优化
 - **overflow 提示优化**：工具输出超长时不再提示 agent 用 file_read/grep 读取完整文件，改为"预览通常够用"。天气查询测试工具调用从 6 个降到 1 个，token 消耗从 134K 降到 28K（-79%），耗时从 63s 降到 7.7s（-88%）
+- **grep 工具增强**：新增 `exclude_dir` 参数，默认排除 node_modules/dist/.git/target/binaries 等目录。解决搜索大目录时结果混入二进制文件、agent 转向 bash 调用失败的问题
 
 ## [1.5.16] - 2026-04-13
 

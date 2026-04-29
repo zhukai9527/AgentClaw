@@ -45,6 +45,12 @@ export const grepTool: Tool = {
         enum: ["true", "false"],
         default: "false",
       },
+      exclude_dir: {
+        type: "string",
+        description:
+          'Comma-separated directory names to exclude, e.g. "test,fixtures". Merged with defaults (node_modules, dist, .git, target, etc.).',
+        default: "",
+      },
     },
     required: ["pattern"],
   },
@@ -66,6 +72,26 @@ export const grepTool: Tool = {
       200,
     );
     const ignoreCase = input.ignore_case === "true";
+
+    // Parse user-specified exclude dirs and merge with defaults
+    const defaultExcludes = [
+      "node_modules",
+      "dist",
+      ".git",
+      "target",
+      "binaries",
+      "build",
+      "coverage",
+      ".next",
+      ".nuxt",
+      ".cache",
+    ];
+    const userExcludes = ((input.exclude_dir as string) || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const excludeDirs = [...new Set([...defaultExcludes, ...userExcludes])];
+    const ignorePatterns = excludeDirs.map((d) => `**/${d}/**`);
 
     let regex: RegExp;
     try {
@@ -126,9 +152,9 @@ export const grepTool: Tool = {
         onlyFiles: true,
         dot: false,
         ignore: [
-          "**/node_modules/**",
-          "**/dist/**",
-          "**/.git/**",
+          ...ignorePatterns,
+          "**/*.png",
+          "**/*.jpg",
           "**/*.png",
           "**/*.jpg",
           "**/*.gif",
