@@ -76,6 +76,13 @@ export function registerTaskRoutes(
             id: string,
             decision: string,
           ): Promise<Record<string, unknown>>;
+          addDependency(
+            taskId: string,
+            dependsOnId: string,
+          ): { ok: boolean; error?: string };
+          removeDependency(taskId: string, dependsOnId: string): boolean;
+          getDependencies(taskId: string): Record<string, unknown>[];
+          getDependents(taskId: string): Record<string, unknown>[];
         }
       | undefined;
 
@@ -401,6 +408,130 @@ export function registerTaskRoutes(
         });
         const task = store.getTask(req.params.id);
         return reply.send(task ? serializeTask(task) : { id: req.params.id });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // ─── Task Dependencies (DAG) ───
+
+  // GET /api/tasks/:id/dependencies — 获取任务的依赖列表
+  app.get<{ Params: { id: string } }>(
+    "/api/tasks/:id/dependencies",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        const task = store.getTask(req.params.id);
+        if (!task) {
+          return reply
+            .status(404)
+            .send({ error: `Task not found: ${req.params.id}` });
+        }
+        const tm = getTaskManager();
+        if (!tm) {
+          return reply.status(400).send({ error: "TaskManager not available" });
+        }
+        const deps = tm.getDependencies(req.params.id);
+        const dependents = tm.getDependents(req.params.id);
+        return reply.send({
+          dependencies: deps.map(serializeTask),
+          dependents: dependents.map(serializeTask),
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // POST /api/tasks/:id/dependencies — 添加依赖
+  app.post<{
+    Params: { id: string };
+    Body: { dependsOnId: string };
+  }>(
+    "/api/tasks/:id/dependencies",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1 } },
+        },
+        body: {
+          type: "object",
+          required: ["dependsOnId"],
+          properties: { dependsOnId: { type: "string", minLength: 1 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        const tm = getTaskManager();
+        if (!tm) {
+          return reply.status(400).send({ error: "TaskManager not available" });
+        }
+        const result = tm.addDependency(req.params.id, req.body.dependsOnId);
+        if (!result.ok) {
+          return reply.status(400).send({ error: result.error });
+        }
+        const task = store.getTask(req.params.id);
+        return reply.send(task ? serializeTask(task) : { id: req.params.id });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // DELETE /api/tasks/:id/dependencies/:depId — 移除依赖
+  app.delete<{
+    Params: { id: string; depId: string };
+  }>(
+    "/api/tasks/:id/dependencies/:depId",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id", "depId"],
+          properties: {
+            id: { type: "string", minLength: 1 },
+            depId: { type: "string", minLength: 1 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        const tm = getTaskManager();
+        if (!tm) {
+          return reply.status(400).send({ error: "TaskManager not available" });
+        }
+        const removed = tm.removeDependency(req.params.id, req.params.depId);
+        if (!removed) {
+          return reply.status(404).send({ error: "Dependency not found" });
+        }
+        // 如果任务是 blocked 状态且依赖已满足，自动解锁
+        const task = store.getTask(req.params.id);
+        if (
+          task?.status === "blocked" &&
+          store.areDependenciesSatisfied(req.params.id)
+        ) {
+          store.updateTask(req.params.id, { status: "queued" });
+        }
+        const updated = store.getTask(req.params.id);
+        return reply.send(
+          updated ? serializeTask(updated) : { id: req.params.id },
+        );
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return reply.status(500).send({ error: message });

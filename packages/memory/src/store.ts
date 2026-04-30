@@ -1237,6 +1237,95 @@ export class SQLiteMemoryStore implements MemoryStore {
     return { items: rows, total };
   }
 
+  // ─── Task DAG Dependencies ──────────────────────
+
+  addTaskDependency(taskId: string, dependsOnId: string): boolean {
+    if (taskId === dependsOnId) return false;
+    // 检查依赖是否存在
+    const task = this.getTask(taskId);
+    const dep = this.getTask(dependsOnId);
+    if (!task || !dep) return false;
+    // 检查是否已存在
+    const existing = this.db
+      .prepare(
+        "SELECT 1 FROM task_dependencies WHERE task_id = ? AND depends_on_id = ?",
+      )
+      .get(taskId, dependsOnId);
+    if (existing) return false;
+    // 循环检测：如果 dependsOnId 依赖（直接或间接）taskId，则不能添加
+    if (this.wouldCreateCycle(taskId, dependsOnId)) return false;
+    this.db
+      .prepare(
+        "INSERT INTO task_dependencies (task_id, depends_on_id) VALUES (?, ?)",
+      )
+      .run(taskId, dependsOnId);
+    return true;
+  }
+
+  removeTaskDependency(taskId: string, dependsOnId: string): boolean {
+    const result = this.db
+      .prepare(
+        "DELETE FROM task_dependencies WHERE task_id = ? AND depends_on_id = ?",
+      )
+      .run(taskId, dependsOnId);
+    return result.changes > 0;
+  }
+
+  getTaskDependencies(taskId: string): TaskRow[] {
+    return this.db
+      .prepare(
+        `SELECT t.* FROM tasks t
+         JOIN task_dependencies d ON t.id = d.depends_on_id
+         WHERE d.task_id = ?`,
+      )
+      .all(taskId) as TaskRow[];
+  }
+
+  getTaskDependents(taskId: string): TaskRow[] {
+    return this.db
+      .prepare(
+        `SELECT t.* FROM tasks t
+         JOIN task_dependencies d ON t.id = d.task_id
+         WHERE d.depends_on_id = ?`,
+      )
+      .all(taskId) as TaskRow[];
+  }
+
+  areDependenciesSatisfied(taskId: string): boolean {
+    const deps = this.db
+      .prepare(
+        "SELECT depends_on_id FROM task_dependencies WHERE task_id = ?",
+      )
+      .all(taskId) as { depends_on_id: string }[];
+    if (deps.length === 0) return true;
+    // 检查每个依赖是否都是 done 状态
+    for (const dep of deps) {
+      const task = this.getTask(dep.depends_on_id);
+      if (!task || task.status !== "done") return false;
+    }
+    return true;
+  }
+
+  /** 检查添加 taskId→dependsOnId 是否会产生循环 */
+  private wouldCreateCycle(taskId: string, dependsOnId: string): boolean {
+    // BFS: 从 dependsOnId 出发，看能否到达 taskId
+    const visited = new Set<string>();
+    const queue = [dependsOnId];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (current === taskId) return true;
+      if (visited.has(current)) continue;
+      visited.add(current);
+      const deps = this.db
+        .prepare("SELECT depends_on_id FROM task_dependencies WHERE task_id = ?")
+        .all(current) as { depends_on_id: string }[];
+      for (const d of deps) {
+        if (!visited.has(d.depends_on_id)) queue.push(d.depends_on_id);
+      }
+    }
+    return false;
+  }
+
   getCalendarItems(
     year: number,
     month: number,

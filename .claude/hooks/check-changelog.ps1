@@ -1,4 +1,4 @@
-# PreToolUse hook: git commit 前检查 CHANGELOG.md 是否已 staged
+﻿# PreToolUse hook: git commit 前检查 CHANGELOG.md 是否已 staged
 # 如果执行的是 git commit（非 --amend），但 CHANGELOG.md 不在 staged files 中，则阻止提交
 
 $jsonInput = [Console]::In.ReadToEnd()

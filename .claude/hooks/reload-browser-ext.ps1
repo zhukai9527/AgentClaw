@@ -1,4 +1,4 @@
-# Auto-reload Chrome extension when files in skills/browser/extension/ are modified.
+﻿# Auto-reload Chrome extension when files in skills/browser/extension/ are modified.
 # Called by Claude Code PostToolUse hook for Edit|Write.
 
 $jsonInput = [Console]::In.ReadToEnd()

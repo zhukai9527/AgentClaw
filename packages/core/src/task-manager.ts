@@ -13,6 +13,12 @@ interface TaskStore {
     offset?: number,
   ): { items: any[]; total: number };
   getTaskStats(): any;
+  // DAG dependency methods
+  addTaskDependency(taskId: string, dependsOnId: string): boolean;
+  removeTaskDependency(taskId: string, dependsOnId: string): boolean;
+  getTaskDependencies(taskId: string): any[];
+  getTaskDependents(taskId: string): any[];
+  areDependenciesSatisfied(taskId: string): boolean;
 }
 
 interface TaskOrchestrator {
@@ -147,6 +153,9 @@ export class TaskManager {
   async processQueue(): Promise<void> {
     if (this.running >= this.config.maxConcurrent) return;
 
+    // 先检查 blocked 任务：如果依赖已满足，自动转为 queued
+    this.unblockSatisfiedTasks();
+
     // 取 status=queued 的任务，按 priority 排序（urgent > high > normal > low）
     const { items } = this.store.listTasks({ status: "queued" }, 50);
 
@@ -172,6 +181,16 @@ export class TaskManager {
       this.executeTask(task.id).catch((err) => {
         console.error(`[task-manager] 执行任务 ${task.id} 失败:`, err);
       });
+    }
+  }
+
+  /** 检查 blocked 任务，依赖已满足的自动转为 queued */
+  private unblockSatisfiedTasks(): void {
+    const { items } = this.store.listTasks({ status: "blocked" }, 100);
+    for (const task of items) {
+      if (this.store.areDependenciesSatisfied(task.id)) {
+        this.store.updateTask(task.id, { status: "queued" });
+      }
     }
   }
 
@@ -224,6 +243,9 @@ export class TaskManager {
         result: resultText || "已完成",
         completedAt: new Date().toISOString(),
       });
+
+      // 触发下游任务：检查依赖此任务的 blocked 任务是否可以解锁
+      this.unblockSatisfiedTasks();
 
       await this.broadcast(
         `✅ 任务完成：${task.title}\n结果：${(resultText || "已完成").slice(0, 200)}`,
@@ -287,7 +309,40 @@ export class TaskManager {
     }
   }
 
-  // ─── 7. 生成每日简报 ───
+  // ─── 7. DAG 依赖管理 ───
+
+  addDependency(taskId: string, dependsOnId: string): { ok: boolean; error?: string } {
+    const task = this.store.getTask(taskId);
+    if (!task) return { ok: false, error: `任务不存在: ${taskId}` };
+    const dep = this.store.getTask(dependsOnId);
+    if (!dep) return { ok: false, error: `依赖任务不存在: ${dependsOnId}` };
+    if (taskId === dependsOnId) return { ok: false, error: "任务不能依赖自己" };
+
+    const added = this.store.addTaskDependency(taskId, dependsOnId);
+    if (!added) return { ok: false, error: "添加失败：可能产生循环或已存在" };
+
+    // 如果当前任务不是 blocked/failed/done，检查依赖是否满足
+    if (!["blocked", "failed", "done"].includes(task.status)) {
+      if (!this.store.areDependenciesSatisfied(taskId)) {
+        this.store.updateTask(taskId, { status: "blocked" });
+      }
+    }
+    return { ok: true };
+  }
+
+  removeDependency(taskId: string, dependsOnId: string): boolean {
+    return this.store.removeTaskDependency(taskId, dependsOnId);
+  }
+
+  getDependencies(taskId: string): any[] {
+    return this.store.getTaskDependencies(taskId);
+  }
+
+  getDependents(taskId: string): any[] {
+    return this.store.getTaskDependents(taskId);
+  }
+
+  // ─── 8. 生成每日简报 ───
 
   async generateDailyBrief(): Promise<string> {
     const stats = this.store.getTaskStats();

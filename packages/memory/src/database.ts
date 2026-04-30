@@ -104,6 +104,17 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
 
+-- Task DAG dependencies (task A depends on task B)
+CREATE TABLE IF NOT EXISTS task_dependencies (
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  depends_on_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (task_id, depends_on_id),
+  CHECK (task_id != depends_on_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_deps_task ON task_dependencies(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_deps_depends ON task_dependencies(depends_on_id);
+
 -- Sub-agent execution records (real-time + historical)
 CREATE TABLE IF NOT EXISTS subagents (
   id TEXT PRIMARY KEY,

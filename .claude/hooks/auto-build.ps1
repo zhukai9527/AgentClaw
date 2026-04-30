@@ -1,4 +1,4 @@
-# PostToolUse hook: Edit|Write 后自动增量构建
+﻿# PostToolUse hook: Edit|Write 后自动增量构建
 # 当编辑了 packages/ 下的 .ts 源文件时，自动运行 npm run build（turbo 增量构建）
 # 使用文件锁防抖：30 秒内只执行一次 build
 

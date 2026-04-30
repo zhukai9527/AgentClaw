@@ -1,5 +1,11 @@
 # 更新日志
 
+## [1.5.18] - 2026-04-30
+
+### 新功能
+- **Task DAG（任务依赖图）**：任务支持 `blocked_by` 依赖关系，自动拓扑排序执行。新建 `task_dependencies` 联表存储依赖边，含循环检测（BFS）、`blocked→queued` 自动转换、任务完成时触发下游解锁。API 新增 `GET/POST/DELETE /api/tasks/:id/dependencies` 端点
+- **Hook 编码修复**：所有 `.claude/hooks/*.ps1` 文件添加 UTF-8 BOM，修复 PowerShell 5.1 读取 UTF-8 中文字符时的 `TerminatorExpectedAtEndOfString` 解析错误
+
 ## [1.5.17] - 2026-04-29
 
 ### 优化

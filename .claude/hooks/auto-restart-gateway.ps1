@@ -1,4 +1,4 @@
-# PostToolUse hook: 构建命令完成后自动重启 gateway
+﻿# PostToolUse hook: 构建命令完成后自动重启 gateway
 # 当执行了 npm run build / turbo / tsup 命令后，检查端口 3100 是否有 gateway 在运行
 # 如果有则 kill 并重新启动
 
