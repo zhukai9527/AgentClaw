@@ -1,14 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { registerSessionRoutes } from "../routes/sessions.js";
 import { registerConfigRoutes } from "../routes/config.js";
+import { registerToolRoutes } from "../routes/tools.js";
 import type { AppContext } from "../bootstrap.js";
 
 /**
  * 创建 mock AppContext，只包含测试需要的最小依赖
  */
 function createMockContext(_overrides: Partial<AppContext> = {}): AppContext {
-  return {
+  const base = {
     provider: {} as any,
     orchestrator: {
       createSession: vi.fn(),
@@ -17,6 +21,7 @@ function createMockContext(_overrides: Partial<AppContext> = {}): AppContext {
       closeSession: vi.fn(),
       processInput: vi.fn(),
       processInputStream: vi.fn(),
+      setProvider: vi.fn(),
       setSystemPrompt: vi.fn(),
       setModel: vi.fn(),
     } as any,
@@ -38,6 +43,7 @@ function createMockContext(_overrides: Partial<AppContext> = {}): AppContext {
     refreshAgents: vi.fn(),
     refreshHealth: vi.fn(),
   } as any;
+  return { ...base, ..._overrides } as AppContext;
 }
 
 describe("Session 路由", () => {
@@ -242,8 +248,13 @@ describe("Session 路由", () => {
 describe("Config 路由", () => {
   let app: FastifyInstance;
   let ctx: AppContext;
+  let configDir: string;
+  let previousConfigPath: string | undefined;
 
   beforeEach(async () => {
+    previousConfigPath = process.env.CONFIG_PATH;
+    configDir = mkdtempSync(path.join(tmpdir(), "agentclaw-routes-"));
+    process.env.CONFIG_PATH = path.join(configDir, "config.json");
     ctx = createMockContext();
     app = Fastify({ logger: false });
     registerConfigRoutes(app, ctx);
@@ -252,6 +263,12 @@ describe("Config 路由", () => {
 
   afterEach(async () => {
     await app.close();
+    if (previousConfigPath === undefined) {
+      delete process.env.CONFIG_PATH;
+    } else {
+      process.env.CONFIG_PATH = previousConfigPath;
+    }
+    rmSync(configDir, { recursive: true, force: true });
   });
 
   describe("GET /api/config", () => {
@@ -316,6 +333,100 @@ describe("Config 路由", () => {
       const body = res.json();
       expect(body.model).toBe("new-model");
       expect(ctx.config.model).toBe("new-model");
+    });
+  });
+});
+
+describe("Tool 路由", () => {
+  let app: FastifyInstance;
+  let ctx: AppContext;
+
+  beforeEach(async () => {
+    ctx = createMockContext({
+      toolRegistry: {
+        list: vi.fn().mockReturnValue([]),
+      } as any,
+      skillRegistry: {
+        list: vi.fn().mockReturnValue([]),
+      } as any,
+      memoryStore: {
+        listSkillUsageStats: vi.fn().mockResolvedValue([]),
+        listSkillChangeHistory: vi.fn().mockResolvedValue([]),
+        listEvolutionRuns: vi.fn().mockResolvedValue([
+          {
+            id: "run-1",
+            targetType: "skill",
+            targetId: "writer",
+            status: "verified",
+            result: "improved",
+            regressionCount: 0,
+            startedAt: new Date("2026-04-01T00:00:00Z"),
+            createdAt: new Date("2026-04-01T00:00:00Z"),
+            updatedAt: new Date("2026-04-01T00:01:00Z"),
+          },
+        ]),
+        listEvolutionEvents: vi.fn().mockResolvedValue([
+          {
+            id: "event-1",
+            runId: "run-1",
+            eventType: "online_regression",
+            success: true,
+            traceId: "trace-1",
+            data: { passed: 5, total: 5 },
+            createdAt: new Date("2026-04-01T00:01:00Z"),
+          },
+        ]),
+      } as any,
+    });
+    app = Fastify({ logger: false });
+    registerToolRoutes(app, ctx);
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it("返回 evolution run 列表并支持 target 过滤", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/evolution/runs?targetType=skill&targetId=writer&triggerTraceId=trace-1&limit=10",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(ctx.memoryStore.listEvolutionRuns).toHaveBeenCalledWith({
+      targetType: "skill",
+      targetId: "writer",
+      status: undefined,
+      triggerTraceId: "trace-1",
+      triggerConversationId: undefined,
+      limit: 10,
+    });
+    expect(res.json()[0]).toMatchObject({
+      id: "run-1",
+      targetType: "skill",
+      targetId: "writer",
+      status: "verified",
+    });
+  });
+
+  it("返回指定 run 的 evolution event 列表", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/evolution/events?runId=run-1&traceId=trace-1&limit=20",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(ctx.memoryStore.listEvolutionEvents).toHaveBeenCalledWith({
+      runId: "run-1",
+      traceId: "trace-1",
+      limit: 20,
+    });
+    expect(res.json()[0]).toMatchObject({
+      id: "event-1",
+      runId: "run-1",
+      eventType: "online_regression",
+      success: true,
     });
   });
 });

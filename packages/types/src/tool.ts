@@ -4,6 +4,13 @@ import type {
   SkillChangeRecord,
   SkillUsageEvent,
   SkillUsageStats,
+  EvolutionEventInput,
+  EvolutionEventQuery,
+  EvolutionEventRecord,
+  EvolutionRunInput,
+  EvolutionRunQuery,
+  EvolutionRunRecord,
+  EvolutionRunUpdate,
 } from "./memory.js";
 
 /** JSON Schema for tool parameters */
@@ -114,6 +121,27 @@ export interface ToolExecutionContext {
   listSkillChangeHistory?: (
     query?: SkillChangeQuery,
   ) => Promise<SkillChangeRecord[]>;
+  /** 进化账本运行写入器 */
+  recordEvolutionRun?: (
+    input: EvolutionRunInput,
+  ) => Promise<EvolutionRunRecord>;
+  /** 进化账本运行更新器 */
+  updateEvolutionRun?: (
+    id: string,
+    updates: EvolutionRunUpdate,
+  ) => Promise<EvolutionRunRecord | undefined>;
+  /** 进化账本事件写入器 */
+  recordEvolutionEvent?: (
+    event: EvolutionEventInput,
+  ) => Promise<EvolutionEventRecord>;
+  /** 进化账本运行读取器 */
+  listEvolutionRuns?: (
+    query?: EvolutionRunQuery,
+  ) => Promise<EvolutionRunRecord[]>;
+  /** 进化账本事件读取器 */
+  listEvolutionEvents?: (
+    query?: EvolutionEventQuery,
+  ) => Promise<EvolutionEventRecord[]>;
   /** Update the todo progress list (displayed in frontend) */
   todoNotify?: (items: Array<{ text: string; done: boolean }>) => void;
   /** Pre-selected skill name from UI chips — inject instructions directly, skip use_skill round */
@@ -139,6 +167,10 @@ export interface ToolExecutionContext {
   ) => Promise<Array<{ role: string; content: string; createdAt: string }>>;
   /** Source channel (web, telegram, dingtalk, etc.) — propagated to traces */
   channel?: string;
+  /** 当前 trace ID，用于审计关联 */
+  traceId?: string;
+  /** 当前 conversation ID，用于审计关联 */
+  conversationId?: string;
   /** Queue for background task results — shell tool pushes, agent-loop drains */
   backgroundQueue?: Array<{
     id: string;

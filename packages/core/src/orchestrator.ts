@@ -51,6 +51,7 @@ export class SimpleOrchestrator implements Orchestrator {
   private agents: Map<string, AgentProfile>;
   private disabledTools?: Set<string>;
   private hookManager: ToolHookManager;
+  private enableBackgroundLearning: boolean;
   /** Optional callback for LLM errors — wired to SmartRouter.reportError in gateway */
   private onLLMError?: (
     providerName: string,
@@ -75,6 +76,7 @@ export class SimpleOrchestrator implements Orchestrator {
     tmpDir?: string;
     agents?: AgentProfile[];
     disabledTools?: string[];
+    enableBackgroundLearning?: boolean;
     /** Report LLM errors to router for classification & cooldown */
     onLLMError?: (
       providerName: string,
@@ -105,6 +107,7 @@ export class SimpleOrchestrator implements Orchestrator {
     this.disabledTools = options.disabledTools?.length
       ? new Set(options.disabledTools)
       : undefined;
+    this.enableBackgroundLearning = options.enableBackgroundLearning ?? true;
     this.onLLMError = options.onLLMError;
     this.onSessionUpdated = options.onSessionUpdated;
     this.hookManager = new ToolHookManager();
@@ -295,6 +298,13 @@ export class SimpleOrchestrator implements Orchestrator {
       recordSkillChange: (change) => memoryStore.recordSkillChange(change),
       listSkillChangeHistory: (query) =>
         memoryStore.listSkillChangeHistory(query),
+      recordEvolutionRun: (input) => memoryStore.recordEvolutionRun(input),
+      updateEvolutionRun: (id, updates) =>
+        memoryStore.updateEvolutionRun(id, updates),
+      recordEvolutionEvent: (event) =>
+        memoryStore.recordEvolutionEvent(event),
+      listEvolutionRuns: (query) => memoryStore.listEvolutionRuns(query),
+      listEvolutionEvents: (query) => memoryStore.listEvolutionEvents(query),
       toolHooks: {
         before: (call: { name: string; input: Record<string, unknown> }) =>
           this.hookManager.runBeforeHooks(call),
@@ -477,10 +487,13 @@ export class SimpleOrchestrator implements Orchestrator {
       currentInput = `[Handoff from ${prevName}: ${handoffData.reason}]\nReview the conversation history and continue. Respond directly to the user's request.`;
     }
 
-    // Background memory extraction: on the 1st turn and every N turns after
+    // 后台记忆抽取：第 1 轮和之后每 N 轮触发
     const count = (this.turnCounters.get(session.conversationId) ?? 0) + 1;
     this.turnCounters.set(session.conversationId, count);
-    if (count === 1 || count % EXTRACT_EVERY_N_TURNS === 0) {
+    if (
+      this.enableBackgroundLearning &&
+      (count === 1 || count % EXTRACT_EVERY_N_TURNS === 0)
+    ) {
       this.memoryExtractor
         .processConversation(session.conversationId)
         .then((n) => {
@@ -491,31 +504,35 @@ export class SimpleOrchestrator implements Orchestrator {
         });
     }
 
-    // Background operational learning: analyze latest trace for failures
-    this.memoryStore
-      .getTraces(1, 0, undefined, session.conversationId)
-      .then(({ items }) => {
-        const latest = items[0];
-        if (!latest) return;
-        // Only process traces with errors (tool errors or loop exhaustion)
-        const steps =
-          typeof latest.steps === "string"
-            ? JSON.parse(latest.steps)
-            : latest.steps;
-        const hasToolErrors = steps.some(
-          (s: { type: string; isError?: boolean }) =>
-            s.type === "tool_result" && s.isError,
-        );
-        if (!hasToolErrors && !latest.error) return;
-        return this.memoryExtractor.processTrace(latest, memoryNamespace);
-      })
-      .then((n) => {
-        if (n && n > 0)
-          console.log(`[memory] Extracted ${n} operational lessons from trace`);
-      })
-      .catch((err) => {
-        console.error("[memory] Trace learning failed:", err);
-      });
+    // 后台操作学习：分析最新 trace 中的失败
+    if (this.enableBackgroundLearning) {
+      this.memoryStore
+        .getTraces(1, 0, undefined, session.conversationId)
+        .then(({ items }) => {
+          const latest = items[0];
+          if (!latest) return;
+          // 只处理带错误的 trace（工具错误或循环耗尽）
+          const steps =
+            typeof latest.steps === "string"
+              ? JSON.parse(latest.steps)
+              : latest.steps;
+          const hasToolErrors = steps.some(
+            (s: { type: string; isError?: boolean }) =>
+              s.type === "tool_result" && s.isError,
+          );
+          if (!hasToolErrors && !latest.error) return;
+          return this.memoryExtractor.processTrace(latest, memoryNamespace);
+        })
+        .then((n) => {
+          if (n && n > 0)
+            console.log(
+              `[memory] Extracted ${n} operational lessons from trace`,
+            );
+        })
+        .catch((err) => {
+          console.error("[memory] Trace learning failed:", err);
+        });
+    }
 
     if (count === 1 && session.title === undefined) {
       const rawText =

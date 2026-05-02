@@ -63,6 +63,7 @@ type ToolResultRecord = {
 
 type AgentRun = {
   response: string;
+  traceId?: string;
   toolCalls: ToolCallRecord[];
   toolResults: ToolResultRecord[];
   tokensIn?: number;
@@ -315,13 +316,14 @@ async function main(): Promise<void> {
     skillsDir,
     skillArchiveDir: archiveDir,
     skillBackupDir: backupDir,
+    enableBackgroundLearning: false,
     agentConfig: {
       maxIterations: 8,
       streaming: true,
       systemPrompt: "",
       model: providerConfig.model,
       temperature: 0.1,
-      maxTokens: 1800,
+      maxTokens: 4096,
     },
     systemPrompt: [
       "你是 AgentClaw 线上能力回归测试执行器。",
@@ -356,8 +358,15 @@ async function main(): Promise<void> {
     const complete = events.find((event) => event.type === "response_complete");
     const message = (complete?.data as { message?: Message } | undefined)
       ?.message;
+    const traces = await memoryStore.getTraces(
+      1,
+      0,
+      undefined,
+      session.conversationId,
+    );
     return {
       response: extractText(message?.content),
+      traceId: traces.items[0]?.id,
       toolCalls: events
         .filter((event) => event.type === "tool_call")
         .map((event) => {
@@ -419,20 +428,29 @@ async function main(): Promise<void> {
     skillId: "online-gap-review",
     limit: 10,
   });
+  const createEvolutionRuns = await memoryStore.listEvolutionRuns({
+    targetType: "skill",
+    targetId: "online-gap-review",
+  });
   record(
     "线上创建 gap-review skill",
     hasToolCall(createRun, "skill_manage", "create", "online-gap-review") &&
       existsSync(createdPath) &&
       createScore >= 8 &&
       !hasToolError(createRun) &&
-      createHistory.some((item) => item.action === "create" && item.success),
+      createHistory.some((item) => item.action === "create" && item.success) &&
+      createEvolutionRuns.some(
+        (item) => item.status === "applied" && item.result === "unknown",
+      ),
     [
       `skill_manage/create: ${hasToolCall(createRun, "skill_manage", "create", "online-gap-review")}`,
       `文件存在: ${existsSync(createdPath)}`,
       `变更记录: ${createHistory.length}`,
+      `evolution run: ${createEvolutionRuns.length}`,
       `工具错误: ${hasToolError(createRun)}`,
     ],
     {
+      traceId: createRun.traceId,
       toolCalls: createRun.toolCalls,
       tokensIn: createRun.tokensIn,
       tokensOut: createRun.tokensOut,
@@ -442,6 +460,7 @@ async function main(): Promise<void> {
 
   const useRun = await runAgent(`
 请先调用 use_skill 加载 online-gap-review，然后按这个 skill 分析下面的迷你项目对比。不要列 QQ、Telegram 等渠道差异。
+请输出精简但完整的报告：保留“一致能力 / 欠缺能力 / P0 / P1 / 验证办法”五个部分，每部分最多 3 条，避免长篇解释。
 
 迷你对比：
 - Hermes: 有 skill lifecycle、usage telemetry、curator/dry-run、可归档备份。
@@ -466,6 +485,7 @@ async function main(): Promise<void> {
       `工具错误: ${hasToolError(useRun)}`,
     ],
     {
+      traceId: useRun.traceId,
       toolCalls: useRun.toolCalls,
       tokensIn: useRun.tokensIn,
       tokensOut: useRun.tokensOut,
@@ -489,21 +509,86 @@ async function main(): Promise<void> {
   const afterPatchHash = fileHash(createdPath);
   const afterEvolutionScore = scoreEvolution(afterPatch);
   const controlHashAfterPatch = fileHash(controlPath);
+  const patchHistory = await memoryStore.listSkillChangeHistory({
+    skillId: "online-gap-review",
+    limit: 20,
+  });
+  const patchChange = patchHistory.find(
+    (item) =>
+      item.action === "patch" &&
+      item.success &&
+      item.beforeHash === beforePatchHash &&
+      item.afterHash === afterPatchHash,
+  );
+  if (patchChange?.evolutionRunId) {
+    await memoryStore.recordEvolutionEvent({
+      runId: patchChange.evolutionRunId,
+      eventType: "baseline_eval",
+      message: "线上反馈 patch 前评分",
+      traceId: patchRun.traceId ?? patchChange.traceId,
+      scoreBefore: beforeEvolutionScore,
+      success: true,
+      data: { hash: beforePatchHash },
+    });
+    await memoryStore.recordEvolutionEvent({
+      runId: patchChange.evolutionRunId,
+      eventType: "online_regression",
+      message: "线上反馈 patch 提升质量且未修改 control skill",
+      traceId: patchRun.traceId ?? patchChange.traceId,
+      scoreBefore: beforeEvolutionScore,
+      scoreAfter: afterEvolutionScore,
+      success:
+        afterEvolutionScore > beforeEvolutionScore &&
+        controlHashAfterPatch === controlHashBefore,
+      data: {
+        targetHashChanged: beforePatchHash !== afterPatchHash,
+        controlHashUnchanged: controlHashAfterPatch === controlHashBefore,
+      },
+    });
+    await memoryStore.updateEvolutionRun(patchChange.evolutionRunId, {
+      status: "verified",
+      result:
+        afterEvolutionScore > beforeEvolutionScore ? "improved" : "neutral",
+      baselineScore: beforeEvolutionScore,
+      afterScore: afterEvolutionScore,
+      regressionCount: controlHashAfterPatch === controlHashBefore ? 0 : 1,
+      evalReportPath: path.join(root, "report.json"),
+      completedAt: new Date(),
+    });
+  }
+  const verifiedPatchRun = patchChange?.evolutionRunId
+    ? (await memoryStore.listEvolutionRuns({
+        targetType: "skill",
+        targetId: "online-gap-review",
+      })).find((item) => item.id === patchChange.evolutionRunId)
+    : undefined;
+  const verifiedPatchEvents = patchChange?.evolutionRunId
+    ? await memoryStore.listEvolutionEvents({
+        runId: patchChange.evolutionRunId,
+      })
+    : [];
   record(
     "线上根据反馈进化 skill 且不改坏旁路 skill",
     hasToolCall(patchRun, "skill_manage", "patch", "online-gap-review") &&
       beforePatchHash !== afterPatchHash &&
       afterEvolutionScore > beforeEvolutionScore &&
       controlHashAfterPatch === controlHashBefore &&
-      !hasToolError(patchRun),
+      !hasToolError(patchRun) &&
+      verifiedPatchRun?.status === "verified" &&
+      verifiedPatchRun.result === "improved" &&
+      verifiedPatchEvents.some(
+        (event) => event.eventType === "online_regression" && event.success,
+      ),
     [
       `skill_manage/patch: ${hasToolCall(patchRun, "skill_manage", "patch", "online-gap-review")}`,
       `目标 hash 改变: ${beforePatchHash !== afterPatchHash}`,
       `能力分提升: ${beforeEvolutionScore} -> ${afterEvolutionScore}`,
       `control 未变化: ${controlHashAfterPatch === controlHashBefore}`,
+      `evolution verified: ${verifiedPatchRun?.status === "verified"}`,
       `工具错误: ${hasToolError(patchRun)}`,
     ],
     {
+      traceId: patchRun.traceId,
       toolCalls: patchRun.toolCalls,
       tokensIn: patchRun.tokensIn,
       tokensOut: patchRun.tokensOut,
@@ -552,6 +637,7 @@ async function main(): Promise<void> {
       `工具错误: ${hasToolError(dryRun)}`,
     ],
     {
+      traceId: dryRun.traceId,
       toolCalls: dryRun.toolCalls,
       tokensIn: dryRun.tokensIn,
       tokensOut: dryRun.tokensOut,
@@ -593,6 +679,7 @@ async function main(): Promise<void> {
       `工具错误: ${hasToolError(archiveRun)}`,
     ],
     {
+      traceId: archiveRun.traceId,
       toolCalls: archiveRun.toolCalls,
       tokensIn: archiveRun.tokensIn,
       tokensOut: archiveRun.tokensOut,

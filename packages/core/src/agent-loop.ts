@@ -587,6 +587,10 @@ export class SimpleAgentLoop implements AgentLoop {
       durationMs: 0,
       createdAt: new Date(),
     };
+    if (context) {
+      context.traceId = trace.id;
+      context.conversationId = convId;
+    }
 
     // Per-session temp directory: data/tmp/{conversationId}/
     // Lazy-created: directory only exists when a tool actually needs to write a file.

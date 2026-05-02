@@ -163,11 +163,57 @@ CREATE TABLE IF NOT EXISTS skill_changes (
   path TEXT,
   error TEXT,
   agent_id TEXT,
+  evolution_run_id TEXT,
+  trace_id TEXT,
+  conversation_id TEXT,
   metadata TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_skill_changes_skill ON skill_changes(skill_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_skill_changes_created ON skill_changes(created_at DESC);
+
+-- 进化账本：能力变更的不可变审计主线
+CREATE TABLE IF NOT EXISTS evolution_runs (
+  id TEXT PRIMARY KEY,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'proposed',
+  result TEXT NOT NULL DEFAULT 'unknown',
+  reason TEXT,
+  trigger_trace_id TEXT,
+  trigger_conversation_id TEXT,
+  baseline_score REAL,
+  after_score REAL,
+  regression_count INTEGER NOT NULL DEFAULT 0,
+  eval_report_path TEXT,
+  rollback_path TEXT,
+  agent_id TEXT,
+  metadata TEXT,
+  started_at TEXT NOT NULL,
+  completed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_evolution_runs_target ON evolution_runs(target_type, target_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_evolution_runs_status ON evolution_runs(status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS evolution_events (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES evolution_runs(id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL,
+  message TEXT,
+  success INTEGER NOT NULL DEFAULT 1,
+  trace_id TEXT,
+  change_id TEXT,
+  before_hash TEXT,
+  after_hash TEXT,
+  score_before REAL,
+  score_after REAL,
+  data TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_evolution_events_run ON evolution_events(run_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_evolution_events_trace ON evolution_events(trace_id);
 
 -- Agent profiles (persona with custom soul, model, tools)
 CREATE TABLE IF NOT EXISTS agents (
@@ -288,6 +334,11 @@ export function initDatabase(dbPath: string): DbAdapter {
     "INTEGER DEFAULT 0",
   );
   addColumnIfMissing(db, "traces", "cache_read_tokens", "INTEGER DEFAULT 0");
+
+  // 进化账本：为已有 skill_changes 表补齐审计关联字段
+  addColumnIfMissing(db, "skill_changes", "evolution_run_id", "TEXT");
+  addColumnIfMissing(db, "skill_changes", "trace_id", "TEXT");
+  addColumnIfMissing(db, "skill_changes", "conversation_id", "TEXT");
 
   // Create indexes for migration-added columns (must run after addColumnIfMissing)
   try {

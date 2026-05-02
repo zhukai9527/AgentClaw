@@ -11,11 +11,13 @@ describe("SQLiteMemoryStore skill telemetry", () => {
     const db = initDatabase(":memory:");
     const rows = db
       .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('skill_usage', 'skill_changes') ORDER BY name",
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('skill_usage', 'skill_changes', 'evolution_runs', 'evolution_events') ORDER BY name",
       )
       .all() as Array<{ name: string }>;
 
     expect(rows.map((row) => row.name)).toEqual([
+      "evolution_events",
+      "evolution_runs",
       "skill_changes",
       "skill_usage",
     ]);
@@ -159,6 +161,129 @@ describe("SQLiteMemoryStore skill telemetry", () => {
       action: "patch",
       success: false,
       error: "old_string not found",
+    });
+  });
+
+  it("记录显式 evolution run，并按顺序保存账本事件", async () => {
+    const store = createStore();
+
+    const run = await store.recordEvolutionRun({
+      targetType: "skill",
+      targetId: "writer",
+      status: "proposed",
+      reason: "add stronger verification",
+      triggerTraceId: "trace-trigger",
+      triggerConversationId: "conv-trigger",
+      baselineScore: 3,
+      agentId: "default",
+      startedAt: new Date("2026-04-01T00:00:00Z"),
+      metadata: { source: "online-regression" },
+    });
+
+    await store.recordEvolutionEvent({
+      runId: run.id,
+      eventType: "baseline_eval",
+      message: "baseline scored before patch",
+      traceId: "trace-baseline",
+      scoreBefore: 3,
+      success: true,
+      createdAt: new Date("2026-04-01T00:01:00Z"),
+    });
+    await store.recordEvolutionEvent({
+      runId: run.id,
+      eventType: "online_regression",
+      message: "online regression passed",
+      traceId: "trace-regression",
+      scoreAfter: 5,
+      success: true,
+      data: { passed: 5, total: 5 },
+      createdAt: new Date("2026-04-01T00:02:00Z"),
+    });
+
+    const completed = await store.updateEvolutionRun(run.id, {
+      status: "verified",
+      result: "improved",
+      afterScore: 5,
+      evalReportPath: "reports/evolution.json",
+      completedAt: new Date("2026-04-01T00:03:00Z"),
+    });
+    const runs = await store.listEvolutionRuns({
+      targetType: "skill",
+      targetId: "writer",
+    });
+    const traceRuns = await store.listEvolutionRuns({
+      triggerTraceId: "trace-trigger",
+    });
+    const events = await store.listEvolutionEvents({ runId: run.id });
+    const traceEvents = await store.listEvolutionEvents({
+      traceId: "trace-regression",
+    });
+
+    expect(completed).toMatchObject({
+      id: run.id,
+      status: "verified",
+      result: "improved",
+      baselineScore: 3,
+      afterScore: 5,
+      evalReportPath: "reports/evolution.json",
+    });
+    expect(runs.map((item: { id: string }) => item.id)).toEqual([run.id]);
+    expect(traceRuns.map((item) => item.id)).toEqual([run.id]);
+    expect(events.map((event: { eventType: string }) => event.eventType)).toEqual(
+      ["baseline_eval", "online_regression"],
+    );
+    expect(events[1]).toMatchObject({
+      traceId: "trace-regression",
+      scoreAfter: 5,
+      success: true,
+      data: { passed: 5, total: 5 },
+    });
+    expect(traceEvents.map((event) => event.id)).toEqual([events[1].id]);
+  });
+
+  it("把 skill change 自动关联到 evolution run 和 change event", async () => {
+    const store = createStore();
+
+    const change = await store.recordSkillChange({
+      skillId: "writer",
+      skillName: "Writer",
+      action: "patch",
+      success: true,
+      beforeHash: "before",
+      afterHash: "after",
+      reason: "improve output rubric",
+      traceId: "trace-change",
+      conversationId: "conv-change",
+      createdAt: new Date("2026-04-02T00:00:00Z"),
+    });
+
+    const runs = await store.listEvolutionRuns({
+      targetType: "skill",
+      targetId: "writer",
+    });
+    const events = await store.listEvolutionEvents({
+      runId: change.evolutionRunId,
+    });
+
+    expect(change.evolutionRunId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(runs[0]).toMatchObject({
+      id: change.evolutionRunId,
+      targetType: "skill",
+      targetId: "writer",
+      status: "applied",
+      reason: "improve output rubric",
+      triggerTraceId: "trace-change",
+      triggerConversationId: "conv-change",
+    });
+    expect(events[0]).toMatchObject({
+      runId: change.evolutionRunId,
+      eventType: "change",
+      changeId: change.id,
+      beforeHash: "before",
+      afterHash: "after",
+      traceId: "trace-change",
+      success: true,
+      data: { action: "patch" },
     });
   });
 });

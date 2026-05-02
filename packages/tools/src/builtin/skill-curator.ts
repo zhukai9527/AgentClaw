@@ -261,6 +261,8 @@ async function recordChange(
   await context.recordSkillChange({
     ...change,
     agentId: change.agentId ?? context.agentId,
+    traceId: change.traceId ?? context.traceId,
+    conversationId: change.conversationId ?? context.conversationId,
   });
 }
 

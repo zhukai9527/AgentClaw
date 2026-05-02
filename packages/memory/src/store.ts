@@ -14,6 +14,13 @@ import type {
   SkillChangeRecord,
   SkillUsageEvent,
   SkillUsageStats,
+  EvolutionEventInput,
+  EvolutionEventQuery,
+  EvolutionEventRecord,
+  EvolutionRunInput,
+  EvolutionRunQuery,
+  EvolutionRunRecord,
+  EvolutionRunUpdate,
 } from "@agentclaw/types";
 import { cosineSimilarity, SimpleBagOfWords } from "./embeddings.js";
 
@@ -405,14 +412,18 @@ export class SQLiteMemoryStore implements MemoryStore {
     const id = randomUUID();
     const createdAt = (change.createdAt ?? new Date()).toISOString();
     const skillName = change.skillName ?? change.skillId;
+    const evolutionRunId =
+      change.evolutionRunId ??
+      (await this.createAutomaticEvolutionRun(change, skillName, createdAt));
 
     this.db
       .prepare(
         `INSERT INTO skill_changes (
            id, skill_id, skill_name, action, success, reason,
-           before_hash, after_hash, path, error, agent_id, metadata, created_at
+           before_hash, after_hash, path, error, agent_id,
+           evolution_run_id, trace_id, conversation_id, metadata, created_at
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -426,9 +437,29 @@ export class SQLiteMemoryStore implements MemoryStore {
         change.path ?? null,
         change.error ?? null,
         change.agentId ?? null,
+        evolutionRunId,
+        change.traceId ?? null,
+        change.conversationId ?? null,
         change.metadata ? JSON.stringify(change.metadata) : null,
         createdAt,
       );
+
+    await this.recordEvolutionEvent({
+      runId: evolutionRunId,
+      eventType: "change",
+      message: `${change.action} ${change.skillId}`,
+      success: change.success,
+      traceId: change.traceId,
+      changeId: id,
+      beforeHash: change.beforeHash ?? null,
+      afterHash: change.afterHash ?? null,
+      data: {
+        action: change.action,
+        path: change.path,
+        error: change.error,
+      },
+      createdAt: new Date(createdAt),
+    });
 
     return {
       id,
@@ -442,9 +473,266 @@ export class SQLiteMemoryStore implements MemoryStore {
       path: change.path,
       error: change.error,
       agentId: change.agentId,
+      evolutionRunId,
+      traceId: change.traceId,
+      conversationId: change.conversationId,
       metadata: change.metadata,
       createdAt: new Date(createdAt),
     };
+  }
+
+  async recordEvolutionRun(
+    input: EvolutionRunInput,
+  ): Promise<EvolutionRunRecord> {
+    const id = input.id ?? randomUUID();
+    const now = new Date().toISOString();
+    const startedAt = (input.startedAt ?? new Date()).toISOString();
+    const completedAt = input.completedAt?.toISOString() ?? null;
+    const status = input.status ?? "proposed";
+    const result = input.result ?? "unknown";
+    const regressionCount = input.regressionCount ?? 0;
+
+    this.db
+      .prepare(
+        `INSERT INTO evolution_runs (
+           id, target_type, target_id, status, result, reason,
+           trigger_trace_id, trigger_conversation_id,
+           baseline_score, after_score, regression_count,
+           eval_report_path, rollback_path, agent_id, metadata,
+           started_at, completed_at, created_at, updated_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.targetType,
+        input.targetId,
+        status,
+        result,
+        input.reason ?? null,
+        input.triggerTraceId ?? null,
+        input.triggerConversationId ?? null,
+        input.baselineScore ?? null,
+        input.afterScore ?? null,
+        regressionCount,
+        input.evalReportPath ?? null,
+        input.rollbackPath ?? null,
+        input.agentId ?? null,
+        input.metadata ? JSON.stringify(input.metadata) : null,
+        startedAt,
+        completedAt,
+        now,
+        now,
+      );
+
+    const row = this.db
+      .prepare("SELECT * FROM evolution_runs WHERE id = ?")
+      .get(id) as EvolutionRunRow;
+    return rowToEvolutionRunRecord(row);
+  }
+
+  async updateEvolutionRun(
+    id: string,
+    updates: EvolutionRunUpdate,
+  ): Promise<EvolutionRunRecord | undefined> {
+    const existing = this.db
+      .prepare("SELECT * FROM evolution_runs WHERE id = ?")
+      .get(id) as EvolutionRunRow | undefined;
+    if (!existing) return undefined;
+
+    const next = {
+      status: updates.status ?? existing.status,
+      result: updates.result ?? existing.result,
+      reason:
+        updates.reason !== undefined ? updates.reason : existing.reason,
+      baselineScore:
+        updates.baselineScore !== undefined
+          ? updates.baselineScore
+          : existing.baseline_score,
+      afterScore:
+        updates.afterScore !== undefined
+          ? updates.afterScore
+          : existing.after_score,
+      regressionCount:
+        updates.regressionCount !== undefined
+          ? updates.regressionCount
+          : existing.regression_count,
+      evalReportPath:
+        updates.evalReportPath !== undefined
+          ? updates.evalReportPath
+          : existing.eval_report_path,
+      rollbackPath:
+        updates.rollbackPath !== undefined
+          ? updates.rollbackPath
+          : existing.rollback_path,
+      completedAt:
+        updates.completedAt === null
+          ? null
+          : updates.completedAt !== undefined
+            ? updates.completedAt.toISOString()
+            : existing.completed_at,
+      metadata:
+        updates.metadata !== undefined
+          ? JSON.stringify(updates.metadata)
+          : existing.metadata,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.db
+      .prepare(
+        `UPDATE evolution_runs SET
+           status = ?, result = ?, reason = ?, baseline_score = ?,
+           after_score = ?, regression_count = ?, eval_report_path = ?,
+           rollback_path = ?, completed_at = ?, metadata = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        next.status,
+        next.result,
+        next.reason,
+        next.baselineScore,
+        next.afterScore,
+        next.regressionCount,
+        next.evalReportPath,
+        next.rollbackPath,
+        next.completedAt,
+        next.metadata,
+        next.updatedAt,
+        id,
+      );
+
+    const row = this.db
+      .prepare("SELECT * FROM evolution_runs WHERE id = ?")
+      .get(id) as EvolutionRunRow;
+    return rowToEvolutionRunRecord(row);
+  }
+
+  async recordEvolutionEvent(
+    event: EvolutionEventInput,
+  ): Promise<EvolutionEventRecord> {
+    const id = randomUUID();
+    const createdAt = (event.createdAt ?? new Date()).toISOString();
+    const success = event.success !== false;
+
+    this.db
+      .prepare(
+        `INSERT INTO evolution_events (
+           id, run_id, event_type, message, success, trace_id, change_id,
+           before_hash, after_hash, score_before, score_after, data, created_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        event.runId,
+        event.eventType,
+        event.message ?? null,
+        success ? 1 : 0,
+        event.traceId ?? null,
+        event.changeId ?? null,
+        event.beforeHash ?? null,
+        event.afterHash ?? null,
+        event.scoreBefore ?? null,
+        event.scoreAfter ?? null,
+        event.data ? JSON.stringify(event.data) : null,
+        createdAt,
+      );
+
+    const row = this.db
+      .prepare("SELECT * FROM evolution_events WHERE id = ?")
+      .get(id) as EvolutionEventRow;
+    return rowToEvolutionEventRecord(row);
+  }
+
+  async listEvolutionRuns(
+    query: EvolutionRunQuery = {},
+  ): Promise<EvolutionRunRecord[]> {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (query.targetType) {
+      clauses.push("target_type = ?");
+      params.push(query.targetType);
+    }
+    if (query.targetId) {
+      clauses.push("target_id = ?");
+      params.push(query.targetId);
+    }
+    if (query.status) {
+      clauses.push("status = ?");
+      params.push(query.status);
+    }
+    if (query.triggerTraceId) {
+      clauses.push("trigger_trace_id = ?");
+      params.push(query.triggerTraceId);
+    }
+    if (query.triggerConversationId) {
+      clauses.push("trigger_conversation_id = ?");
+      params.push(query.triggerConversationId);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    params.push(query.limit ?? 100);
+
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM evolution_runs
+         ${where}
+         ORDER BY updated_at DESC, started_at DESC
+         LIMIT ?`,
+      )
+      .all(...params) as EvolutionRunRow[];
+    return rows.map(rowToEvolutionRunRecord);
+  }
+
+  async listEvolutionEvents(
+    query: EvolutionEventQuery = {},
+  ): Promise<EvolutionEventRecord[]> {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (query.runId) {
+      clauses.push("run_id = ?");
+      params.push(query.runId);
+    }
+    if (query.traceId) {
+      clauses.push("trace_id = ?");
+      params.push(query.traceId);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    params.push(query.limit ?? 100);
+
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM evolution_events
+         ${where}
+         ORDER BY created_at ASC
+         LIMIT ?`,
+      )
+      .all(...params) as EvolutionEventRow[];
+    return rows.map(rowToEvolutionEventRecord);
+  }
+
+  private async createAutomaticEvolutionRun(
+    change: SkillChangeInput,
+    skillName: string,
+    createdAt: string,
+  ): Promise<string> {
+    const run = await this.recordEvolutionRun({
+      targetType: "skill",
+      targetId: change.skillId,
+      status: change.success ? "applied" : "failed",
+      result: "unknown",
+      reason: change.reason,
+      triggerTraceId: change.traceId,
+      triggerConversationId: change.conversationId,
+      agentId: change.agentId,
+      startedAt: new Date(createdAt),
+      completedAt: new Date(createdAt),
+      metadata: {
+        source: "skill_change",
+        skillName,
+        action: change.action,
+      },
+    });
+    return run.id;
   }
 
   async listSkillChangeHistory(
@@ -1962,7 +2250,48 @@ interface SkillChangeRow {
   path: string | null;
   error: string | null;
   agent_id: string | null;
+  evolution_run_id: string | null;
+  trace_id: string | null;
+  conversation_id: string | null;
   metadata: string | null;
+  created_at: string;
+}
+
+interface EvolutionRunRow {
+  id: string;
+  target_type: EvolutionRunRecord["targetType"];
+  target_id: string;
+  status: EvolutionRunRecord["status"];
+  result: EvolutionRunRecord["result"];
+  reason: string | null;
+  trigger_trace_id: string | null;
+  trigger_conversation_id: string | null;
+  baseline_score: number | null;
+  after_score: number | null;
+  regression_count: number;
+  eval_report_path: string | null;
+  rollback_path: string | null;
+  agent_id: string | null;
+  metadata: string | null;
+  started_at: string;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface EvolutionEventRow {
+  id: string;
+  run_id: string;
+  event_type: EvolutionEventRecord["eventType"];
+  message: string | null;
+  success: number;
+  trace_id: string | null;
+  change_id: string | null;
+  before_hash: string | null;
+  after_hash: string | null;
+  score_before: number | null;
+  score_after: number | null;
+  data: string | null;
   created_at: string;
 }
 
@@ -2038,8 +2367,59 @@ function rowToSkillChangeRecord(row: SkillChangeRow): SkillChangeRecord {
     path: row.path ?? undefined,
     error: row.error ?? undefined,
     agentId: row.agent_id ?? undefined,
+    evolutionRunId: row.evolution_run_id ?? undefined,
+    traceId: row.trace_id ?? undefined,
+    conversationId: row.conversation_id ?? undefined,
     metadata: row.metadata
       ? (JSON.parse(row.metadata) as Record<string, unknown>)
+      : undefined,
+    createdAt: new Date(row.created_at),
+  };
+}
+
+function rowToEvolutionRunRecord(row: EvolutionRunRow): EvolutionRunRecord {
+  return {
+    id: row.id,
+    targetType: row.target_type,
+    targetId: row.target_id,
+    status: row.status,
+    result: row.result,
+    reason: row.reason ?? undefined,
+    triggerTraceId: row.trigger_trace_id ?? undefined,
+    triggerConversationId: row.trigger_conversation_id ?? undefined,
+    baselineScore: row.baseline_score ?? undefined,
+    afterScore: row.after_score ?? undefined,
+    regressionCount: row.regression_count,
+    evalReportPath: row.eval_report_path ?? undefined,
+    rollbackPath: row.rollback_path ?? undefined,
+    agentId: row.agent_id ?? undefined,
+    metadata: row.metadata
+      ? (JSON.parse(row.metadata) as Record<string, unknown>)
+      : undefined,
+    startedAt: new Date(row.started_at),
+    completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+function rowToEvolutionEventRecord(
+  row: EvolutionEventRow,
+): EvolutionEventRecord {
+  return {
+    id: row.id,
+    runId: row.run_id,
+    eventType: row.event_type,
+    message: row.message ?? undefined,
+    success: row.success === 1,
+    traceId: row.trace_id ?? undefined,
+    changeId: row.change_id ?? undefined,
+    beforeHash: row.before_hash,
+    afterHash: row.after_hash,
+    scoreBefore: row.score_before ?? undefined,
+    scoreAfter: row.score_after ?? undefined,
+    data: row.data
+      ? (JSON.parse(row.data) as Record<string, unknown>)
       : undefined,
     createdAt: new Date(row.created_at),
   };

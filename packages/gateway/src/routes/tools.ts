@@ -13,7 +13,11 @@ import {
 import path from "node:path";
 import type { AppContext } from "../bootstrap.js";
 import { loadConfig, saveConfig } from "../config.js";
-import type { ToolExecutionContext } from "@agentclaw/types";
+import type {
+  EvolutionRunStatus,
+  EvolutionTargetType,
+  ToolExecutionContext,
+} from "@agentclaw/types";
 
 export function registerToolRoutes(
   app: FastifyInstance,
@@ -128,6 +132,57 @@ export function registerToolRoutes(
         return reply.send(
           await ctx.memoryStore.listSkillChangeHistory({
             skillId: req.query.skillId,
+            limit,
+          }),
+        );
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // GET /api/evolution/runs - 查询进化账本运行历史
+  app.get<{
+    Querystring: {
+      targetType?: string;
+      targetId?: string;
+      status?: string;
+      triggerTraceId?: string;
+      triggerConversationId?: string;
+      limit?: string;
+    };
+  }>("/api/evolution/runs", async (req, reply) => {
+    try {
+      const limit = parseLimit(req.query.limit, 100);
+      return reply.send(
+        await ctx.memoryStore.listEvolutionRuns({
+          targetType: req.query.targetType as EvolutionTargetType | undefined,
+          targetId: req.query.targetId,
+          status: req.query.status as EvolutionRunStatus | undefined,
+          triggerTraceId: req.query.triggerTraceId,
+          triggerConversationId: req.query.triggerConversationId,
+          limit,
+        }),
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
+  // GET /api/evolution/events - 查询进化账本事件历史
+  app.get<{
+    Querystring: { runId?: string; traceId?: string; limit?: string };
+  }>(
+    "/api/evolution/events",
+    async (req, reply) => {
+      try {
+        const limit = parseLimit(req.query.limit, 100);
+        return reply.send(
+          await ctx.memoryStore.listEvolutionEvents({
+            runId: req.query.runId,
+            traceId: req.query.traceId,
             limit,
           }),
         );
@@ -368,6 +423,13 @@ function createSkillToolContext(ctx: AppContext): ToolExecutionContext {
     recordSkillChange: (change) => ctx.memoryStore.recordSkillChange(change),
     listSkillChangeHistory: (query) =>
       ctx.memoryStore.listSkillChangeHistory(query),
+    recordEvolutionRun: (input) => ctx.memoryStore.recordEvolutionRun(input),
+    updateEvolutionRun: (id, updates) =>
+      ctx.memoryStore.updateEvolutionRun(id, updates),
+    recordEvolutionEvent: (event) =>
+      ctx.memoryStore.recordEvolutionEvent(event),
+    listEvolutionRuns: (query) => ctx.memoryStore.listEvolutionRuns(query),
+    listEvolutionEvents: (query) => ctx.memoryStore.listEvolutionEvents(query),
   };
 }
 

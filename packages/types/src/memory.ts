@@ -153,6 +153,9 @@ export interface SkillChangeInput {
   path?: string;
   error?: string;
   agentId?: string;
+  evolutionRunId?: string;
+  traceId?: string;
+  conversationId?: string;
   createdAt?: Date;
   metadata?: Record<string, unknown>;
 }
@@ -165,6 +168,123 @@ export interface SkillChangeRecord extends Omit<SkillChangeInput, "createdAt"> {
 
 export interface SkillChangeQuery {
   skillId?: string;
+  limit?: number;
+}
+
+export type EvolutionTargetType =
+  | "skill"
+  | "tool"
+  | "prompt"
+  | "memory_policy"
+  | "eval"
+  | "agent"
+  | "other";
+
+export type EvolutionRunStatus =
+  | "proposed"
+  | "baseline"
+  | "applied"
+  | "verified"
+  | "failed"
+  | "rolled_back";
+
+export type EvolutionResult =
+  | "improved"
+  | "neutral"
+  | "regressed"
+  | "unknown";
+
+export type EvolutionEventType =
+  | "proposal"
+  | "baseline_eval"
+  | "backup"
+  | "change"
+  | "static_check"
+  | "capability_eval"
+  | "online_regression"
+  | "promote"
+  | "rollback"
+  | "failure";
+
+export interface EvolutionRunInput {
+  id?: string;
+  targetType: EvolutionTargetType;
+  targetId: string;
+  status?: EvolutionRunStatus;
+  result?: EvolutionResult;
+  reason?: string;
+  triggerTraceId?: string;
+  triggerConversationId?: string;
+  baselineScore?: number;
+  afterScore?: number;
+  regressionCount?: number;
+  evalReportPath?: string;
+  rollbackPath?: string;
+  agentId?: string;
+  startedAt?: Date;
+  completedAt?: Date;
+  metadata?: Record<string, unknown>;
+}
+
+export interface EvolutionRunRecord
+  extends Omit<EvolutionRunInput, "id" | "startedAt" | "completedAt"> {
+  id: string;
+  status: EvolutionRunStatus;
+  result: EvolutionResult;
+  regressionCount: number;
+  startedAt: Date;
+  completedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface EvolutionRunUpdate {
+  status?: EvolutionRunStatus;
+  result?: EvolutionResult;
+  reason?: string;
+  baselineScore?: number;
+  afterScore?: number;
+  regressionCount?: number;
+  evalReportPath?: string;
+  rollbackPath?: string;
+  completedAt?: Date | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface EvolutionRunQuery {
+  targetType?: EvolutionTargetType;
+  targetId?: string;
+  status?: EvolutionRunStatus;
+  triggerTraceId?: string;
+  triggerConversationId?: string;
+  limit?: number;
+}
+
+export interface EvolutionEventInput {
+  runId: string;
+  eventType: EvolutionEventType;
+  message?: string;
+  success?: boolean;
+  traceId?: string;
+  changeId?: string;
+  beforeHash?: string | null;
+  afterHash?: string | null;
+  scoreBefore?: number;
+  scoreAfter?: number;
+  data?: Record<string, unknown>;
+  createdAt?: Date;
+}
+
+export interface EvolutionEventRecord
+  extends Omit<EvolutionEventInput, "createdAt"> {
+  id: string;
+  success: boolean;
+  createdAt: Date;
+}
+
+export interface EvolutionEventQuery {
+  runId?: string;
+  traceId?: string;
   limit?: number;
 }
 
@@ -309,6 +429,28 @@ export interface MemoryStore {
   listSkillChangeHistory(
     query?: SkillChangeQuery,
   ): Promise<SkillChangeRecord[]>;
+
+  /** 记录一次能力进化运行 */
+  recordEvolutionRun(input: EvolutionRunInput): Promise<EvolutionRunRecord>;
+
+  /** 更新能力进化运行状态或评测字段 */
+  updateEvolutionRun(
+    id: string,
+    updates: EvolutionRunUpdate,
+  ): Promise<EvolutionRunRecord | undefined>;
+
+  /** 记录一条不可变的能力进化事件 */
+  recordEvolutionEvent(
+    event: EvolutionEventInput,
+  ): Promise<EvolutionEventRecord>;
+
+  /** 按最近更新时间列出能力进化运行 */
+  listEvolutionRuns(query?: EvolutionRunQuery): Promise<EvolutionRunRecord[]>;
+
+  /** 按创建时间列出能力进化事件 */
+  listEvolutionEvents(
+    query?: EvolutionEventQuery,
+  ): Promise<EvolutionEventRecord[]>;
 }
 
 /** A single conversation turn stored in memory */

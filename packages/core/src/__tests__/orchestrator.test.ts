@@ -324,6 +324,24 @@ describe("SimpleOrchestrator", () => {
       expect(types).toContain("thinking");
       expect(types).toContain("response_complete");
     });
+
+    it("禁用后台学习时不应触发后台 trace 学习", async () => {
+      const isolatedMemoryStore = createMockMemoryStore();
+      const isolatedOrchestrator = new SimpleOrchestrator({
+        provider,
+        toolRegistry,
+        memoryStore: isolatedMemoryStore,
+        systemPrompt: "测试",
+        enableBackgroundLearning: false,
+      });
+      const session = await isolatedOrchestrator.createSession();
+
+      await collectEvents(
+        isolatedOrchestrator.processInputStream(session.id, "hello"),
+      );
+
+      expect(isolatedMemoryStore.getTraces).not.toHaveBeenCalled();
+    });
   });
 
   // ── 系统提示词更新测试 ──
