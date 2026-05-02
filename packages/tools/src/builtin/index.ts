@@ -11,6 +11,8 @@ import { scheduleTool } from "./schedule.js";
 import { rememberTool } from "./remember.js";
 import { recallTool } from "./recall.js";
 import { useSkillTool } from "./use-skill.js";
+import { skillManageTool } from "./skill-manage.js";
+import { skillCuratorTool } from "./skill-curator.js";
 import { claudeCodeTool } from "./claude-code.js";
 import { updateTodoTool } from "./update-todo.js";
 import { sandboxTool } from "./sandbox.js";
@@ -33,6 +35,8 @@ export { sendFileTool } from "./send-file.js";
 export { scheduleTool } from "./schedule.js";
 export { rememberTool } from "./remember.js";
 export { recallTool } from "./recall.js";
+export { skillManageTool } from "./skill-manage.js";
+export { skillCuratorTool } from "./skill-curator.js";
 export { sandboxTool } from "./sandbox.js";
 export { subagentTool } from "./subagent.js";
 export { browserCdpTool } from "./browser-cdp.js";
@@ -83,7 +87,7 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
     tools.push(rememberTool, recallTool);
   }
   if (options?.skills) {
-    tools.push(useSkillTool);
+    tools.push(useSkillTool, skillManageTool, skillCuratorTool);
   }
   if (options?.claudeCode) {
     tools.push(claudeCodeTool);

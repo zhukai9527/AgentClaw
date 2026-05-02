@@ -514,6 +514,107 @@ describe("SimpleAgentLoop", () => {
       expect(toolTurnCalls.length).toBe(1);
     });
 
+    it("工具失败后应允许同工具的修正参数重试", async () => {
+      const sharedPrefix = "x".repeat(180);
+      const firstInput = {
+        action: "create",
+        skillId: "online-gap-review",
+        content: `${sharedPrefix}-missing-frontmatter`,
+      };
+      const correctedInput = {
+        action: "create",
+        skillId: "online-gap-review",
+        content: `${sharedPrefix}-with-frontmatter`,
+      };
+
+      const firstCall: LLMStreamChunk[] = [
+        {
+          type: "tool_use_start",
+          toolUse: { id: "tc-1", name: "skill_manage", input: "" },
+        },
+        {
+          type: "tool_use_delta",
+          toolUse: { id: "tc-1", name: "", input: JSON.stringify(firstInput) },
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 10, tokensOut: 5 },
+          model: "mock-model",
+        },
+      ];
+      const correctedCall: LLMStreamChunk[] = [
+        {
+          type: "tool_use_start",
+          toolUse: { id: "tc-2", name: "skill_manage", input: "" },
+        },
+        {
+          type: "tool_use_delta",
+          toolUse: {
+            id: "tc-2",
+            name: "",
+            input: JSON.stringify(correctedInput),
+          },
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 10, tokensOut: 5 },
+          model: "mock-model",
+        },
+      ];
+      const finalChunks: LLMStreamChunk[] = [
+        { type: "text", text: "已完成修正重试" },
+        {
+          type: "done",
+          usage: { tokensIn: 20, tokensOut: 10 },
+          model: "mock-model",
+        },
+      ];
+
+      const testProvider = createMockProvider([
+        firstCall,
+        correctedCall,
+        finalChunks,
+      ]);
+      const execute = vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: "Error: SKILL.md must start with YAML frontmatter",
+          isError: true,
+        })
+        .mockResolvedValueOnce({ content: "created" });
+      const skillManageTool: Tool = {
+        name: "skill_manage",
+        description: "manage skills",
+        category: "builtin",
+        parameters: { type: "object", properties: {} },
+        execute,
+      };
+      const testToolRegistry = createMockToolRegistry([skillManageTool]);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 4 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("create skill", "conv-retry"),
+      );
+
+      expect(execute).toHaveBeenCalledTimes(2);
+      expect(execute).toHaveBeenNthCalledWith(1, firstInput, undefined);
+      expect(execute).toHaveBeenNthCalledWith(2, correctedInput, undefined);
+
+      const toolResults = events.filter(
+        (event) => event.type === "tool_result",
+      );
+      expect(toolResults).toHaveLength(2);
+      expect(
+        (toolResults[1].data as { result: ToolResult }).result.content,
+      ).toBe("created");
+    });
+
     it("多个并发工具调用应全部执行", async () => {
       // LLM 一次返回两个工具调用
       const toolCallChunks: LLMStreamChunk[] = [

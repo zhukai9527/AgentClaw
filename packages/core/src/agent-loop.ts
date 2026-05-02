@@ -21,6 +21,7 @@ import type {
 } from "@agentclaw/types";
 import type { ToolRegistryImpl } from "@agentclaw/tools";
 import { generateId } from "@agentclaw/providers";
+import { createHash } from "node:crypto";
 import {
   writeFileSync,
   mkdirSync,
@@ -340,8 +341,12 @@ function buildFailKey(
   }
 
   // For file tools, different paths or content types are different calls
-  const sig = toolInput ? JSON.stringify(toolInput).slice(0, 120) : "";
-  return `${toolName}:${sig}`;
+  const serialized = toolInput ? JSON.stringify(toolInput) : "";
+  const sig = serialized.slice(0, 120);
+  const hash = serialized
+    ? createHash("sha256").update(serialized).digest("hex").slice(0, 16)
+    : "empty";
+  return `${toolName}:${sig}:${hash}`;
 }
 
 type ToolFactInput = {

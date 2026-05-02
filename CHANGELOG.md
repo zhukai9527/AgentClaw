@@ -1,5 +1,16 @@
 # 更新日志
 
+## [1.5.19] - 2026-05-02
+
+### Added
+- **Skill P0 自进化闭环**：新增 `skill_manage` 和 `skill_curator` 内置工具，支持技能创建、唯一匹配 patch、支持文件写入、删除确认、归档、备份、dry-run 分析和状态查询。新增 `skill_usage` / `skill_changes` SQLite 表，记录技能使用成功率、失败原因、变更动作、hash 和原因，`use_skill` 会自动写入使用 telemetry。Gateway 新增 `/api/skills/usage`、`/api/skills/changes`、`/api/skills/curate`，让前端和外部流程可直接读取与触发 curator。
+
+### Changed
+- **Skills 工具组扩展**：`skills=true` 现在同时加载 `use_skill`、`skill_manage`、`skill_curator`，并把 `skillsDir`、归档目录、备份目录和 telemetry 回调注入工具执行上下文，形成可持续优化的程序性记忆闭环。
+
+### Fixed
+- **线上 Skill 能力回归修复**：新增 `scripts/skill-online-capability.mts` 真实线上回归脚本，覆盖 create、use、patch 进化、curator dry-run、archive+backup 五条能力链路。修复两处线上暴露的问题：工具失败去重 key 改为“参数前缀 + 完整参数 hash”，避免纠正后的长参数被误杀；`skill_manage create` 以 `skillId` 作为唯一身份源，自动归一 SKILL.md frontmatter `name`，确保创建后可通过 `use_skill(skillId)` 加载。
+
 ## [1.5.18] - 2026-04-30
 
 ### 新功能

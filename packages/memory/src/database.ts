@@ -134,6 +134,41 @@ CREATE TABLE IF NOT EXISTS subagents (
 CREATE INDEX IF NOT EXISTS idx_subagents_session ON subagents(session_id);
 CREATE INDEX IF NOT EXISTS idx_subagents_created ON subagents(created_at DESC);
 
+-- Skill usage telemetry (procedural memory feedback loop)
+CREATE TABLE IF NOT EXISTS skill_usage (
+  skill_id TEXT PRIMARY KEY,
+  skill_name TEXT NOT NULL,
+  use_count INTEGER NOT NULL DEFAULT 0,
+  success_count INTEGER NOT NULL DEFAULT 0,
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  last_used_at TEXT NOT NULL,
+  last_error TEXT,
+  agent_id TEXT,
+  metadata TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_skill_usage_last_used ON skill_usage(last_used_at DESC);
+
+-- Skill lifecycle history (create/patch/archive/delete/backup/curate)
+CREATE TABLE IF NOT EXISTS skill_changes (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL,
+  skill_name TEXT NOT NULL,
+  action TEXT NOT NULL,
+  success INTEGER NOT NULL DEFAULT 1,
+  reason TEXT,
+  before_hash TEXT,
+  after_hash TEXT,
+  path TEXT,
+  error TEXT,
+  agent_id TEXT,
+  metadata TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_skill_changes_skill ON skill_changes(skill_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_skill_changes_created ON skill_changes(created_at DESC);
+
 -- Agent profiles (persona with custom soul, model, tools)
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY,

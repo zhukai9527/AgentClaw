@@ -1,3 +1,11 @@
+import type {
+  SkillChangeInput,
+  SkillChangeQuery,
+  SkillChangeRecord,
+  SkillUsageEvent,
+  SkillUsageStats,
+} from "./memory.js";
+
 /** JSON Schema for tool parameters */
 export interface ToolParameterSchema {
   type: "object";
@@ -74,9 +82,15 @@ export interface ToolExecutionContext {
   };
   /** Skill registry for use_skill tool */
   skillRegistry?: {
-    get(
-      id: string,
-    ): { name: string; instructions: string; path?: string } | undefined;
+    get(id: string):
+      | {
+          id?: string;
+          name: string;
+          description?: string;
+          instructions: string;
+          path?: string;
+        }
+      | undefined;
     list(): Array<{
       id: string;
       name: string;
@@ -84,6 +98,22 @@ export interface ToolExecutionContext {
       enabled: boolean;
     }>;
   };
+  /** Active skills directory for skill_manage and skill_curator */
+  skillsDir?: string;
+  /** Archive directory for retired skills */
+  skillArchiveDir?: string;
+  /** Backup directory for curator / lifecycle snapshots */
+  skillBackupDir?: string;
+  /** Skill usage telemetry sink */
+  recordSkillUsage?: (event: SkillUsageEvent) => Promise<void>;
+  /** Skill lifecycle telemetry sink */
+  recordSkillChange?: (change: SkillChangeInput) => Promise<SkillChangeRecord>;
+  /** Skill usage telemetry reader */
+  listSkillUsageStats?: (limit?: number) => Promise<SkillUsageStats[]>;
+  /** Skill lifecycle telemetry reader */
+  listSkillChangeHistory?: (
+    query?: SkillChangeQuery,
+  ) => Promise<SkillChangeRecord[]>;
   /** Update the todo progress list (displayed in frontend) */
   todoNotify?: (items: Array<{ text: string; done: boolean }>) => void;
   /** Pre-selected skill name from UI chips — inject instructions directly, skip use_skill round */

@@ -13,6 +13,7 @@ import {
 import path from "node:path";
 import type { AppContext } from "../bootstrap.js";
 import { loadConfig, saveConfig } from "../config.js";
+import type { ToolExecutionContext } from "@agentclaw/types";
 
 export function registerToolRoutes(
   app: FastifyInstance,
@@ -103,6 +104,56 @@ export function registerToolRoutes(
       return reply.status(500).send({ error: message });
     }
   });
+
+  // GET /api/skills/usage - Skill usage telemetry
+  app.get<{ Querystring: { limit?: string } }>(
+    "/api/skills/usage",
+    async (req, reply) => {
+      try {
+        const limit = parseLimit(req.query.limit, 100);
+        return reply.send(await ctx.memoryStore.listSkillUsageStats(limit));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // GET /api/skills/changes - Skill lifecycle history
+  app.get<{ Querystring: { skillId?: string; limit?: string } }>(
+    "/api/skills/changes",
+    async (req, reply) => {
+      try {
+        const limit = parseLimit(req.query.limit, 100);
+        return reply.send(
+          await ctx.memoryStore.listSkillChangeHistory({
+            skillId: req.query.skillId,
+            limit,
+          }),
+        );
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // POST /api/skills/curate - Run curator analyze/status/backup/archive
+  app.post<{ Body: Record<string, unknown> }>(
+    "/api/skills/curate",
+    async (req, reply) => {
+      const body = req.body ?? {};
+      const result = await ctx.toolRegistry.execute(
+        "skill_curator",
+        { action: "analyze", dryRun: true, ...body },
+        createSkillToolContext(ctx),
+      );
+      if (result.isError) {
+        return reply.status(400).send({ error: result.content });
+      }
+      return reply.send(result.metadata ?? JSON.parse(result.content));
+    },
+  );
 
   // PUT /api/skills/:id/enabled - Toggle skill enabled state
   app.put<{ Params: { id: string }; Body: { enabled: boolean } }>(
@@ -304,4 +355,25 @@ export function registerToolRoutes(
       return reply.send({ success: true });
     },
   );
+}
+
+function createSkillToolContext(ctx: AppContext): ToolExecutionContext {
+  return {
+    skillRegistry: ctx.skillRegistry,
+    skillsDir: ctx.config.skillsDir,
+    skillArchiveDir: path.join(process.cwd(), "data", "skills-archive"),
+    skillBackupDir: path.join(process.cwd(), "data", "skills-backup"),
+    recordSkillUsage: (event) => ctx.memoryStore.recordSkillUsage(event),
+    listSkillUsageStats: (limit) => ctx.memoryStore.listSkillUsageStats(limit),
+    recordSkillChange: (change) => ctx.memoryStore.recordSkillChange(change),
+    listSkillChangeHistory: (query) =>
+      ctx.memoryStore.listSkillChangeHistory(query),
+  };
+}
+
+function parseLimit(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.floor(parsed));
 }

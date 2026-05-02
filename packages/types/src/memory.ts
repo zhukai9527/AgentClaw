@@ -109,6 +109,65 @@ export interface SessionData {
   metadata?: Record<string, unknown>;
 }
 
+export type SkillChangeAction =
+  | "create"
+  | "patch"
+  | "write_file"
+  | "archive"
+  | "delete"
+  | "backup"
+  | "curate";
+
+export interface SkillUsageEvent {
+  skillId: string;
+  skillName?: string;
+  success: boolean;
+  error?: string;
+  agentId?: string;
+  usedAt?: Date;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SkillUsageStats {
+  skillId: string;
+  skillName: string;
+  useCount: number;
+  successCount: number;
+  failureCount: number;
+  lastUsedAt: Date;
+  lastError?: string;
+  agentId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SkillChangeInput {
+  skillId: string;
+  skillName?: string;
+  action: SkillChangeAction;
+  success: boolean;
+  reason?: string;
+  beforeHash?: string | null;
+  afterHash?: string | null;
+  path?: string;
+  error?: string;
+  agentId?: string;
+  createdAt?: Date;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SkillChangeRecord extends Omit<SkillChangeInput, "createdAt"> {
+  id: string;
+  skillName: string;
+  createdAt: Date;
+}
+
+export interface SkillChangeQuery {
+  skillId?: string;
+  limit?: number;
+}
+
 /** Memory store interface */
 export interface MemoryStore {
   /** Store a new memory (namespace for per-agent isolation, defaults to "default") */
@@ -236,6 +295,20 @@ export interface MemoryStore {
       completedAt?: string;
     },
   ): boolean;
+
+  /** Record one skill load/use attempt */
+  recordSkillUsage(event: SkillUsageEvent): Promise<void>;
+
+  /** List aggregate skill usage stats ordered by recent activity */
+  listSkillUsageStats(limit?: number): Promise<SkillUsageStats[]>;
+
+  /** Record a skill lifecycle change */
+  recordSkillChange(change: SkillChangeInput): Promise<SkillChangeRecord>;
+
+  /** List skill lifecycle history */
+  listSkillChangeHistory(
+    query?: SkillChangeQuery,
+  ): Promise<SkillChangeRecord[]>;
 }
 
 /** A single conversation turn stored in memory */

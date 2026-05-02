@@ -44,6 +44,9 @@ export class SimpleOrchestrator implements Orchestrator {
   private systemPrompt?: string;
   private scheduler?: ToolExecutionContext["scheduler"];
   private skillRegistry?: SkillRegistryImpl;
+  private skillsDir?: string;
+  private skillArchiveDir?: string;
+  private skillBackupDir?: string;
   private tmpDir?: string;
   private agents: Map<string, AgentProfile>;
   private disabledTools?: Set<string>;
@@ -66,6 +69,9 @@ export class SimpleOrchestrator implements Orchestrator {
     systemPrompt?: string;
     scheduler?: ToolExecutionContext["scheduler"];
     skillRegistry?: SkillRegistryImpl;
+    skillsDir?: string;
+    skillArchiveDir?: string;
+    skillBackupDir?: string;
     tmpDir?: string;
     agents?: AgentProfile[];
     disabledTools?: string[];
@@ -91,6 +97,9 @@ export class SimpleOrchestrator implements Orchestrator {
     this.systemPrompt = options.systemPrompt;
     this.scheduler = options.scheduler;
     this.skillRegistry = options.skillRegistry;
+    this.skillsDir = options.skillsDir;
+    this.skillArchiveDir = options.skillArchiveDir;
+    this.skillBackupDir = options.skillBackupDir;
     this.tmpDir = options.tmpDir;
     this.agents = new Map((options.agents ?? []).map((a) => [a.id, a]));
     this.disabledTools = options.disabledTools?.length
@@ -276,6 +285,16 @@ export class SimpleOrchestrator implements Orchestrator {
         : undefined,
       scheduler: this.scheduler,
       skillRegistry: this.skillRegistry,
+      skillsDir: this.skillsDir,
+      skillArchiveDir:
+        this.skillArchiveDir ?? join(process.cwd(), "data", "skills-archive"),
+      skillBackupDir:
+        this.skillBackupDir ?? join(process.cwd(), "data", "skills-backup"),
+      recordSkillUsage: (event) => memoryStore.recordSkillUsage(event),
+      listSkillUsageStats: (limit) => memoryStore.listSkillUsageStats(limit),
+      recordSkillChange: (change) => memoryStore.recordSkillChange(change),
+      listSkillChangeHistory: (query) =>
+        memoryStore.listSkillChangeHistory(query),
       toolHooks: {
         before: (call: { name: string; input: Record<string, unknown> }) =>
           this.hookManager.runBeforeHooks(call),
@@ -508,7 +527,11 @@ export class SimpleOrchestrator implements Orchestrator {
         title: fallbackTitle,
         metadata: { ...session.metadata, titleSource: "auto_fallback" },
       }).catch(() => undefined);
-      this.generateSessionTitle(titledSession ?? session, rawText, fallbackTitle);
+      this.generateSessionTitle(
+        titledSession ?? session,
+        rawText,
+        fallbackTitle,
+      );
     }
   }
 

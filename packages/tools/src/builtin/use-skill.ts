@@ -70,7 +70,6 @@ export const useSkillTool: Tool = {
   description:
     "Load a skill's detailed instructions by name. Call this BEFORE executing a skill-related task so you know the exact commands and rules.",
   category: "builtin",
-  pure: true,
   parameters: {
     type: "object",
     properties: {
@@ -93,11 +92,18 @@ export const useSkillTool: Tool = {
 
     const registry = context?.skillRegistry;
     if (!registry) {
+      await recordSkillUsage(
+        context,
+        name,
+        false,
+        "skill registry not available",
+      );
       return { content: "Error: skill registry not available", isError: true };
     }
 
     // Check per-agent skill blacklist
     if (context?.disabledSkills?.includes(name)) {
+      await recordSkillUsage(context, name, false, "skill disabled");
       return {
         content: `Skill "${name}" is disabled for this agent.`,
         isError: true,
@@ -106,6 +112,7 @@ export const useSkillTool: Tool = {
 
     const skill = registry.get(name);
     if (!skill) {
+      await recordSkillUsage(context, name, false, "skill not found");
       const available = registry
         .list()
         .filter((s) => s.enabled)
@@ -140,6 +147,32 @@ export const useSkillTool: Tool = {
       instructions = instructions.replaceAll("{WORKDIR}", context.workDir);
     }
 
+    await recordSkillUsage(
+      context,
+      skill.id ?? name,
+      true,
+      undefined,
+      skill.name,
+    );
+
     return { content: prefix + installStatus + instructions };
   },
 };
+
+async function recordSkillUsage(
+  context: ToolExecutionContext | undefined,
+  skillId: string,
+  success: boolean,
+  error?: string,
+  skillName?: string,
+): Promise<void> {
+  if (!context?.recordSkillUsage) return;
+  await context.recordSkillUsage({
+    skillId,
+    skillName,
+    success,
+    error,
+    agentId: context.agentId,
+    metadata: { source: "use_skill" },
+  });
+}

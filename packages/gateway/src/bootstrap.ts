@@ -446,6 +446,7 @@ export async function bootstrap(): Promise<AppContext> {
     systemPrompt: defaultSystemPrompt,
     scheduler,
     skillRegistry,
+    skillsDir,
     tmpDir: tempDir,
     agents,
     disabledTools: cfg.disabledTools,

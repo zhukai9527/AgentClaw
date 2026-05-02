@@ -59,8 +59,10 @@ describe("createBuiltinTools — 内置工具创建", () => {
       const tools = createBuiltinTools({ skills: true });
       const names = tools.map((t) => t.name);
 
-      expect(tools.length).toBe(CORE_TOOL_NAMES.length + 1);
+      expect(tools.length).toBe(CORE_TOOL_NAMES.length + 3);
       expect(names).toContain("use_skill");
+      expect(names).toContain("skill_manage");
+      expect(names).toContain("skill_curator");
     });
 
     it("claudeCode=true 应额外加载 claude_code", () => {
@@ -80,7 +82,7 @@ describe("createBuiltinTools — 内置工具创建", () => {
       });
 
       // 9 核心 + 8 gateway + 2 memory + 1 skills + 1 claudeCode = 21
-      expect(tools).toHaveLength(21);
+      expect(tools).toHaveLength(23);
     });
 
     it("空 options 应只加载核心工具", () => {
@@ -121,10 +123,7 @@ describe("createBuiltinTools — 内置工具创建", () => {
       });
 
       for (const tool of tools) {
-        expect(
-          tool.parameters,
-          `${tool.name} 缺少 parameters`,
-        ).toBeDefined();
+        expect(tool.parameters, `${tool.name} 缺少 parameters`).toBeDefined();
         expect(tool.parameters.type).toBe("object");
         expect(tool.parameters.properties).toBeDefined();
       }

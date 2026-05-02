@@ -9,6 +9,11 @@ import type {
   SessionData,
   ConversationTurn,
   Trace,
+  SkillChangeInput,
+  SkillChangeQuery,
+  SkillChangeRecord,
+  SkillUsageEvent,
+  SkillUsageStats,
 } from "@agentclaw/types";
 import { cosineSimilarity, SimpleBagOfWords } from "./embeddings.js";
 
@@ -342,6 +347,129 @@ export class SQLiteMemoryStore implements MemoryStore {
   }
 
   // ─── Usage stats ─────────────────────────────────────────────
+
+  async recordSkillUsage(event: SkillUsageEvent): Promise<void> {
+    const usedAt = (event.usedAt ?? new Date()).toISOString();
+    const skillName = event.skillName ?? event.skillId;
+    const metadata = event.metadata ? JSON.stringify(event.metadata) : null;
+    const successInc = event.success ? 1 : 0;
+    const failureInc = event.success ? 0 : 1;
+
+    this.db
+      .prepare(
+        `INSERT INTO skill_usage (
+           skill_id, skill_name, use_count, success_count, failure_count,
+           last_used_at, last_error, agent_id, metadata, created_at, updated_at
+         )
+         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(skill_id) DO UPDATE SET
+           skill_name = excluded.skill_name,
+           use_count = skill_usage.use_count + 1,
+           success_count = skill_usage.success_count + excluded.success_count,
+           failure_count = skill_usage.failure_count + excluded.failure_count,
+           last_used_at = excluded.last_used_at,
+           last_error = COALESCE(excluded.last_error, skill_usage.last_error),
+           agent_id = COALESCE(excluded.agent_id, skill_usage.agent_id),
+           metadata = COALESCE(excluded.metadata, skill_usage.metadata),
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        event.skillId,
+        skillName,
+        successInc,
+        failureInc,
+        usedAt,
+        event.error ?? null,
+        event.agentId ?? null,
+        metadata,
+        usedAt,
+        usedAt,
+      );
+  }
+
+  async listSkillUsageStats(limit = 100): Promise<SkillUsageStats[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM skill_usage
+         ORDER BY last_used_at DESC
+         LIMIT ?`,
+      )
+      .all(limit) as SkillUsageRow[];
+
+    return rows.map(rowToSkillUsageStats);
+  }
+
+  async recordSkillChange(
+    change: SkillChangeInput,
+  ): Promise<SkillChangeRecord> {
+    const id = randomUUID();
+    const createdAt = (change.createdAt ?? new Date()).toISOString();
+    const skillName = change.skillName ?? change.skillId;
+
+    this.db
+      .prepare(
+        `INSERT INTO skill_changes (
+           id, skill_id, skill_name, action, success, reason,
+           before_hash, after_hash, path, error, agent_id, metadata, created_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        change.skillId,
+        skillName,
+        change.action,
+        change.success ? 1 : 0,
+        change.reason ?? null,
+        change.beforeHash ?? null,
+        change.afterHash ?? null,
+        change.path ?? null,
+        change.error ?? null,
+        change.agentId ?? null,
+        change.metadata ? JSON.stringify(change.metadata) : null,
+        createdAt,
+      );
+
+    return {
+      id,
+      skillId: change.skillId,
+      skillName,
+      action: change.action,
+      success: change.success,
+      reason: change.reason,
+      beforeHash: change.beforeHash,
+      afterHash: change.afterHash,
+      path: change.path,
+      error: change.error,
+      agentId: change.agentId,
+      metadata: change.metadata,
+      createdAt: new Date(createdAt),
+    };
+  }
+
+  async listSkillChangeHistory(
+    query: SkillChangeQuery = {},
+  ): Promise<SkillChangeRecord[]> {
+    const limit = query.limit ?? 100;
+    const params: unknown[] = [];
+    let where = "";
+    if (query.skillId) {
+      where = "WHERE skill_id = ?";
+      params.push(query.skillId);
+    }
+    params.push(limit);
+
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM skill_changes
+         ${where}
+         ORDER BY created_at DESC
+         LIMIT ?`,
+      )
+      .all(...params) as SkillChangeRow[];
+
+    return rows.map(rowToSkillChangeRecord);
+  }
 
   getUsageStats(): {
     totalIn: number;
@@ -1293,9 +1421,7 @@ export class SQLiteMemoryStore implements MemoryStore {
 
   areDependenciesSatisfied(taskId: string): boolean {
     const deps = this.db
-      .prepare(
-        "SELECT depends_on_id FROM task_dependencies WHERE task_id = ?",
-      )
+      .prepare("SELECT depends_on_id FROM task_dependencies WHERE task_id = ?")
       .all(taskId) as { depends_on_id: string }[];
     if (deps.length === 0) return true;
     // 检查每个依赖是否都是 done 状态
@@ -1317,7 +1443,9 @@ export class SQLiteMemoryStore implements MemoryStore {
       if (visited.has(current)) continue;
       visited.add(current);
       const deps = this.db
-        .prepare("SELECT depends_on_id FROM task_dependencies WHERE task_id = ?")
+        .prepare(
+          "SELECT depends_on_id FROM task_dependencies WHERE task_id = ?",
+        )
         .all(current) as { depends_on_id: string }[];
       for (const d of deps) {
         if (!visited.has(d.depends_on_id)) queue.push(d.depends_on_id);
@@ -1808,6 +1936,36 @@ interface MemoryRow {
   metadata: string | null;
 }
 
+interface SkillUsageRow {
+  skill_id: string;
+  skill_name: string;
+  use_count: number;
+  success_count: number;
+  failure_count: number;
+  last_used_at: string;
+  last_error: string | null;
+  agent_id: string | null;
+  metadata: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface SkillChangeRow {
+  id: string;
+  skill_id: string;
+  skill_name: string;
+  action: SkillChangeRecord["action"];
+  success: number;
+  reason: string | null;
+  before_hash: string | null;
+  after_hash: string | null;
+  path: string | null;
+  error: string | null;
+  agent_id: string | null;
+  metadata: string | null;
+  created_at: string;
+}
+
 interface TurnRow {
   id: string;
   conversation_id: string;
@@ -1846,6 +2004,44 @@ function rowToMemoryEntry(row: MemoryRow): MemoryEntry {
     metadata: row.metadata
       ? (JSON.parse(row.metadata) as Record<string, unknown>)
       : undefined,
+  };
+}
+
+function rowToSkillUsageStats(row: SkillUsageRow): SkillUsageStats {
+  return {
+    skillId: row.skill_id,
+    skillName: row.skill_name,
+    useCount: row.use_count,
+    successCount: row.success_count,
+    failureCount: row.failure_count,
+    lastUsedAt: new Date(row.last_used_at),
+    lastError: row.last_error ?? undefined,
+    agentId: row.agent_id ?? undefined,
+    metadata: row.metadata
+      ? (JSON.parse(row.metadata) as Record<string, unknown>)
+      : undefined,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+function rowToSkillChangeRecord(row: SkillChangeRow): SkillChangeRecord {
+  return {
+    id: row.id,
+    skillId: row.skill_id,
+    skillName: row.skill_name,
+    action: row.action,
+    success: row.success === 1,
+    reason: row.reason ?? undefined,
+    beforeHash: row.before_hash,
+    afterHash: row.after_hash,
+    path: row.path ?? undefined,
+    error: row.error ?? undefined,
+    agentId: row.agent_id ?? undefined,
+    metadata: row.metadata
+      ? (JSON.parse(row.metadata) as Record<string, unknown>)
+      : undefined,
+    createdAt: new Date(row.created_at),
   };
 }
 
