@@ -5,6 +5,7 @@
 ### Added
 - **Skill P0 自进化闭环**：新增 `skill_manage` 和 `skill_curator` 内置工具，支持技能创建、唯一匹配 patch、支持文件写入、删除确认、归档、备份、dry-run 分析和状态查询。新增 `skill_usage` / `skill_changes` SQLite 表，记录技能使用成功率、失败原因、变更动作、hash 和原因，`use_skill` 会自动写入使用 telemetry。Gateway 新增 `/api/skills/usage`、`/api/skills/changes`、`/api/skills/curate`，让前端和外部流程可直接读取与触发 curator。
 - **Evolution Ledger 进化账本**：新增 `evolution_runs` / `evolution_events` SQLite 表和 `/api/evolution/runs`、`/api/evolution/events` 查询端点，把能力变更从普通会话 trace 中独立出来审计。`skill_changes` 会自动关联 evolution run，并记录触发 trace、conversation、before/after hash、change event 和验证结果，支持按目标、状态、trace 反查，从“为什么改”追到“怎么改、是否变强、如何回滚”。
+- **Settings 进化日志入口**：Settings 新增“进化日志”页签，展示 evolution run 摘要、目标/状态过滤、单次进化详情和 event 时间线，补齐从账本 API 到 UI 回看的闭环。
 
 ### Changed
 - **Skills 工具组扩展**：`skills=true` 现在同时加载 `use_skill`、`skill_manage`、`skill_curator`，并把 `skillsDir`、归档目录、备份目录和 telemetry 回调注入工具执行上下文，形成可持续优化的程序性记忆闭环。

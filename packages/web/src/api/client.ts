@@ -480,6 +480,115 @@ export function updateSkillEnabled(
   });
 }
 
+// ── Evolution Ledger ───────────────────────────────
+
+export type EvolutionTargetType =
+  | "skill"
+  | "tool"
+  | "prompt"
+  | "memory_policy"
+  | "eval"
+  | "agent"
+  | "other";
+
+export type EvolutionRunStatus =
+  | "proposed"
+  | "baseline"
+  | "applied"
+  | "verified"
+  | "failed"
+  | "rolled_back";
+
+export type EvolutionResult =
+  | "improved"
+  | "neutral"
+  | "regressed"
+  | "unknown";
+
+export type EvolutionEventType =
+  | "proposal"
+  | "baseline_eval"
+  | "backup"
+  | "change"
+  | "static_check"
+  | "capability_eval"
+  | "online_regression"
+  | "promote"
+  | "rollback"
+  | "failure";
+
+export interface EvolutionRunInfo {
+  id: string;
+  targetType: EvolutionTargetType;
+  targetId: string;
+  status: EvolutionRunStatus;
+  result: EvolutionResult;
+  reason?: string;
+  triggerTraceId?: string;
+  triggerConversationId?: string;
+  baselineScore?: number;
+  afterScore?: number;
+  regressionCount: number;
+  evalReportPath?: string;
+  rollbackPath?: string;
+  agentId?: string;
+  startedAt: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface EvolutionEventInfo {
+  id: string;
+  runId: string;
+  eventType: EvolutionEventType;
+  message?: string;
+  success: boolean;
+  traceId?: string;
+  changeId?: string;
+  beforeHash?: string | null;
+  afterHash?: string | null;
+  scoreBefore?: number;
+  scoreAfter?: number;
+  data?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export function listEvolutionRuns(params?: {
+  targetType?: EvolutionTargetType;
+  targetId?: string;
+  status?: EvolutionRunStatus;
+  triggerTraceId?: string;
+  triggerConversationId?: string;
+  limit?: number;
+}): Promise<EvolutionRunInfo[]> {
+  const qs = new URLSearchParams();
+  if (params?.targetType) qs.set("targetType", params.targetType);
+  if (params?.targetId) qs.set("targetId", params.targetId);
+  if (params?.status) qs.set("status", params.status);
+  if (params?.triggerTraceId) qs.set("triggerTraceId", params.triggerTraceId);
+  if (params?.triggerConversationId) {
+    qs.set("triggerConversationId", params.triggerConversationId);
+  }
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const suffix = qs.size > 0 ? `?${qs.toString()}` : "";
+  return request(`/evolution/runs${suffix}`);
+}
+
+export function listEvolutionEvents(params?: {
+  runId?: string;
+  traceId?: string;
+  limit?: number;
+}): Promise<EvolutionEventInfo[]> {
+  const qs = new URLSearchParams();
+  if (params?.runId) qs.set("runId", params.runId);
+  if (params?.traceId) qs.set("traceId", params.traceId);
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const suffix = qs.size > 0 ? `?${qs.toString()}` : "";
+  return request(`/evolution/events${suffix}`);
+}
+
 // ── Skill Import / Delete ──────────────────────────
 
 export function importSkillFromGithub(

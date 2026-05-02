@@ -36,6 +36,7 @@ import { MemoryPage } from "./MemoryPage";
 import { TracesPage } from "./TracesPage";
 import { SkillsPage } from "./SkillsPage";
 import { ApiPage } from "./ApiPage";
+import { EvolutionPage } from "./EvolutionPage";
 import "./SettingsPage.css";
 
 /* ── Icon for Model (chip/processor) ── */
@@ -95,7 +96,31 @@ function IconSearch({ size = 16 }: { size?: number }) {
   );
 }
 
-const TABS = [
+function IconEvolution({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 17V7" />
+      <path d="M8 17V5" />
+      <path d="M12 17v-7" />
+      <path d="M16 17V8" />
+      <path d="M20 17V4" />
+      <path d="M3 20h18" />
+      <path d="m15 8 1-1 1 1" />
+      <path d="m19 4 1-1 1 1" />
+    </svg>
+  );
+}
+
+export const SETTINGS_TABS = [
   { id: "model", icon: IconModel },
   { id: "search", icon: IconSearch },
   { id: "channels", icon: IconChannels },
@@ -106,6 +131,7 @@ const TABS = [
   { id: "subagents", icon: IconSubAgents },
   { id: "memory", icon: IconMemory },
   { id: "traces", icon: IconTraces },
+  { id: "evolution", icon: IconEvolution },
   { id: "api", icon: IconApi },
   { id: "about", icon: IconInfo },
 ] as const;
@@ -1165,6 +1191,12 @@ export function SettingsPage() {
             <TracesPage />
           </div>
         );
+      case "evolution":
+        return (
+          <div className="settings-embed">
+            <EvolutionPage />
+          </div>
+        );
       case "skills":
         return (
           <div className="settings-embed">
@@ -1189,7 +1221,7 @@ export function SettingsPage() {
       <PageHeader>{t("settings.title")}</PageHeader>
       <div className="settings-layout">
         <nav className="settings-menu">
-          {TABS.map((item) =>
+          {SETTINGS_TABS.map((item) =>
             item.id === "divider" ? (
               <hr key="divider" className="settings-menu-divider" />
             ) : (

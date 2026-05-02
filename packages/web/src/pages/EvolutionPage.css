@@ -1,0 +1,332 @@
+/* EvolutionPage styles */
+
+.evolution-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.evolution-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--error-subtle-border);
+  border-radius: var(--radius);
+  background: var(--error-subtle-bg);
+  color: var(--error);
+  font-size: 14px;
+}
+
+.evolution-error button {
+  flex-shrink: 0;
+}
+
+.evolution-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.evolution-summary > div {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+}
+
+.evolution-summary-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.evolution-summary strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.evolution-summary .has-regression strong {
+  color: var(--error);
+}
+
+.evolution-toolbar {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) minmax(120px, 160px) minmax(160px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.evolution-toolbar select,
+.evolution-toolbar input {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.evolution-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.42fr) minmax(0, 0.58fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.evolution-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.evolution-run-card {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.evolution-run-card:hover,
+.evolution-run-card.active {
+  border-color: var(--accent);
+  background: var(--bg-secondary);
+}
+
+.evolution-run-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.evolution-target {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evolution-run-time {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.evolution-run-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.evolution-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.result-improved,
+.status-verified {
+  border-color: var(--success-subtle-border);
+  background: var(--success-subtle-bg);
+  color: var(--success);
+}
+
+.result-regressed,
+.status-failed,
+.status-rolled_back {
+  border-color: var(--error-subtle-border);
+  background: var(--error-subtle-bg);
+  color: var(--error);
+}
+
+.evolution-run-score {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.evolution-run-score span {
+  margin-left: 10px;
+  color: var(--text-muted);
+}
+
+.evolution-detail {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+}
+
+.evolution-detail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 14px;
+}
+
+.evolution-detail-head h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.evolution-detail-head p {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.evolution-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.evolution-detail-grid div {
+  min-width: 0;
+  padding: 10px;
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+}
+
+.evolution-detail-grid dt {
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.evolution-detail-grid dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evolution-events h3 {
+  margin: 0 0 10px;
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.evolution-event {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.evolution-event + .evolution-event {
+  border-top: 1px solid var(--border);
+}
+
+.evolution-event-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-subtle-bg);
+  flex-shrink: 0;
+}
+
+.evolution-event-dot.is-error {
+  background: var(--error);
+  box-shadow: 0 0 0 3px var(--error-subtle-bg);
+}
+
+.evolution-event-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.evolution-event-main,
+.evolution-event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.evolution-event-type {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.evolution-event-time,
+.evolution-event-meta {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.evolution-event-message {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.evolution-json {
+  margin: 8px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.evolution-empty {
+  padding: 18px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+@media (max-width: 900px) {
+  .evolution-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .evolution-toolbar,
+  .evolution-layout,
+  .evolution-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
