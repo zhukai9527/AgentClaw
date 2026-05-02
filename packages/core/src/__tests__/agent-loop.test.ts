@@ -798,5 +798,130 @@ describe("SimpleAgentLoop", () => {
       const completeEvent = events.find((e) => e.type === "response_complete");
       expect(completeEvent).toBeDefined();
     });
+    it("终端工具失败应立即停止，不再让 LLM 反复自救", async () => {
+      const toolCallChunks: LLMStreamChunk[] = [
+        {
+          type: "tool_use_start",
+          toolUse: { id: "tc-1", name: "delegate_tool", input: "" },
+        },
+        {
+          type: "tool_use_delta",
+          toolUse: { id: "tc-1", name: "", input: "{}" },
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 10, tokensOut: 5 },
+          model: "mock-model",
+        },
+      ];
+      const testProvider = createMockProvider([
+        toolCallChunks,
+        toolCallChunks,
+        toolCallChunks,
+      ]);
+      const delegateTool = createMockTool("delegate_tool", {
+        content: "外部委托工具不可用：claude 和 codex 都无法启动。",
+        isError: true,
+        metadata: { terminal: true, reason: "delegate_unavailable" },
+      });
+      const testToolRegistry = createMockToolRegistry([delegateTool]);
+
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5 },
+      });
+
+      const events = await collectEvents(loop.runStream("写代码", "conv-terminal"));
+
+      expect(testProvider.stream).toHaveBeenCalledTimes(1);
+      expect(delegateTool.execute).toHaveBeenCalledTimes(1);
+      const completeEvent = events.find((e) => e.type === "response_complete");
+      expect(completeEvent).toBeDefined();
+      const message = (completeEvent!.data as { message: Message }).message;
+      expect(String(message.content)).toContain("外部委托工具不可用");
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "terminal_tool_failure" }),
+      );
+    });
+
+    it("连续 max_tokens 且没有工具调用时应熔断，避免 687 秒空转", async () => {
+      const truncatedChunks: LLMStreamChunk[] = [
+        { type: "text", text: "我将创建页面，下面开始生成完整 HTML。" },
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 8192 },
+          model: "mock-model",
+          stopReason: "max_tokens",
+        },
+      ];
+      const testProvider = createMockProvider([
+        truncatedChunks,
+        truncatedChunks,
+        truncatedChunks,
+      ]);
+      const continueHook = vi.fn().mockResolvedValue({
+        action: "continue",
+        hint: "还有未完成 todo，请继续。",
+      });
+
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5, maxTokens: 8192 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("生成并发布页面", "conv-max-token", {
+          toolHooks: { beforeReturn: continueHook },
+        }),
+      );
+
+      expect(testProvider.stream).toHaveBeenCalledTimes(2);
+      expect(continueHook).toHaveBeenCalledTimes(1);
+      const completeEvent = events.find((e) => e.type === "response_complete");
+      expect(completeEvent).toBeDefined();
+      const message = (completeEvent!.data as { message: Message }).message;
+      expect(JSON.stringify(message.content)).toContain("连续 2 次输出被截断");
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "llm_max_tokens_stalled" }),
+      );
+    });
+
+    it("max_tokens with empty output should be saved as a trace error", async () => {
+      const truncatedChunks: LLMStreamChunk[] = [
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 8192 },
+          model: "mock-model",
+          stopReason: "max_tokens",
+        },
+      ];
+      const testProvider = createMockProvider([truncatedChunks]);
+
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5, maxTokens: 8192 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("生成并发布页面", "conv-max-token-empty"),
+      );
+
+      const completeEvent = events.find((e) => e.type === "response_complete");
+      expect(completeEvent).toBeDefined();
+      const message = (completeEvent!.data as { message: Message }).message;
+      expect(JSON.stringify(message.content)).toContain("max_tokens");
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "llm_max_tokens_truncated" }),
+      );
+    });
   });
 });

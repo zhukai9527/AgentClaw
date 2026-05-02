@@ -240,6 +240,7 @@ function microCompact(messages: Message[]): void {
 
 /** Stop the loop if this many consecutive iterations produce only errors */
 const MAX_CONSECUTIVE_ERRORS = 3;
+const MAX_CONSECUTIVE_MAX_TOKEN_NO_TOOL = 2;
 
 /**
  * Overflow threshold (chars). Tool outputs exceeding this are saved to a temp
@@ -264,7 +265,7 @@ function applyOverflow(
     metadata?: Record<string, unknown>;
   },
   toolName: string,
-  sessionTmpDir: string,
+  getSessionTmpDir: () => string,
   toolInput?: Record<string, unknown>,
 ): string | null {
   // Don't overflow errors (usually short and important) or short outputs
@@ -286,7 +287,7 @@ function applyOverflow(
   const ts = Date.now();
   const safeName = toolName.replace(/[^a-zA-Z0-9_-]/g, "_");
   const fileName = `overflow_${safeName}_${ts}.txt`;
-  const filePath = join(sessionTmpDir, fileName).replace(/\\/g, "/");
+  const filePath = join(getSessionTmpDir(), fileName).replace(/\\/g, "/");
   writeFileSync(filePath, result.content, "utf-8");
 
   const totalChars = result.content.length;
@@ -766,6 +767,8 @@ export class SimpleAgentLoop implements AgentLoop {
     let executeCodeNudged = false;
     let usedExecuteCode = false;
     const FETCH_SEARCH_NUDGE_THRESHOLD = 3;
+    let consecutiveMaxTokensWithoutTools = 0;
+    let forcedStopReason: string | undefined;
 
     // Pre-compute tool pruning data (fixed for the entire loop)
     const loopToolDefs = this.toolRegistry.definitions();
@@ -942,6 +945,7 @@ export class SimpleAgentLoop implements AgentLoop {
 
       // 流异常捕获：网络断开/API 错误时仍需保留 token 统计和 trace
       let streamError: Error | undefined;
+      let llmStopReason: string | undefined;
       try {
         for await (const chunk of stream) {
           if (this.aborted) break;
@@ -990,6 +994,7 @@ export class SimpleAgentLoop implements AgentLoop {
                   `[agent-loop] LLM output truncated (max_tokens reached at ${this._config.maxTokens} tokens)`,
                 );
               }
+              llmStopReason = chunk.stopReason;
               break;
           }
         }
@@ -1034,6 +1039,7 @@ export class SimpleAgentLoop implements AgentLoop {
       };
       if (fullText) llmStep.text = fullText;
       if (streamError) llmStep.error = streamError.message;
+      if (llmStopReason) llmStep.stopReason = llmStopReason;
       trace.steps.push(llmStep as TraceStep);
 
       // 流异常时跳过工具调用，直接结束本轮循环
@@ -1087,6 +1093,32 @@ export class SimpleAgentLoop implements AgentLoop {
 
       totalToolCalls += toolCalls.length;
 
+      if (toolCalls.length === 0 && llmStopReason === "max_tokens") {
+        consecutiveMaxTokensWithoutTools++;
+        if (
+          consecutiveMaxTokensWithoutTools >=
+          MAX_CONSECUTIVE_MAX_TOKEN_NO_TOOL
+        ) {
+          forcedStopReason = "llm_max_tokens_stalled";
+          fullText =
+            `连续 ${consecutiveMaxTokensWithoutTools} 次输出被截断且没有产生工具调用，` +
+            "系统已停止本轮任务，避免继续空转。请缩小任务范围，或先修复导致模型无法落地执行的工具/上下文问题。";
+        }
+      } else {
+        consecutiveMaxTokensWithoutTools = 0;
+      }
+
+      if (
+        toolCalls.length === 0 &&
+        llmStopReason === "max_tokens" &&
+        !forcedStopReason &&
+        !fullText.trim()
+      ) {
+        forcedStopReason = "llm_max_tokens_truncated";
+        fullText =
+          "模型输出达到 max_tokens 上限且没有产生可执行工具调用，任务已停止。请缩小任务范围，或改用外部委托/文件写入工具完成。";
+      }
+
       // Build content blocks for the assistant message
       const contentBlocks: ContentBlock[] = [];
       if (fullText) {
@@ -1118,7 +1150,11 @@ export class SimpleAgentLoop implements AgentLoop {
       }
 
       // BeforeReturn hooks (replaces hardcoded incomplete-todo guard)
-      if (toolCalls.length === 0 && iterations < this._config.maxIterations) {
+      if (
+        toolCalls.length === 0 &&
+        !forcedStopReason &&
+        iterations < this._config.maxIterations
+      ) {
         const hookResult = await context?.toolHooks?.beforeReturn?.({
           response: fullText,
           runtimeHints,
@@ -1192,6 +1228,7 @@ export class SimpleAgentLoop implements AgentLoop {
         trace.cacheCreationTokens = totalCacheCreationTokens || undefined;
         trace.cacheReadTokens = totalCacheReadTokens || undefined;
         trace.durationMs = durationMs;
+        if (forcedStopReason) trace.error = forcedStopReason;
         try {
           await this.memoryStore.addTrace(trace);
           tracePersistedInLoop = true;
@@ -1420,7 +1457,7 @@ export class SimpleAgentLoop implements AgentLoop {
           applyOverflow(
             result!,
             effectiveToolName,
-            ensureSessionTmpDir(),
+            ensureSessionTmpDir,
             effectiveToolInput,
           );
         }
@@ -1649,6 +1686,63 @@ export class SimpleAgentLoop implements AgentLoop {
 
           if (r.result.isError) iterationErrorCount++;
         }
+      }
+
+      const terminalFailure = allExecResults.find(
+        (r) => r.result.isError && r.result.metadata?.terminal === true,
+      );
+      if (terminalFailure) {
+        const durationMs = Date.now() - startTime;
+        const responseText = terminalFailure.result.content;
+
+        const terminalTurn: ConversationTurn = {
+          id: generateId(),
+          conversationId: convId,
+          role: "assistant",
+          content: responseText,
+          model: usedModel,
+          tokensIn: totalTokensIn,
+          tokensOut: totalTokensOut,
+          cacheCreationTokens: totalCacheCreationTokens || undefined,
+          cacheReadTokens: totalCacheReadTokens || undefined,
+          durationMs,
+          toolCallCount: totalToolCalls,
+          traceId: trace.id,
+          createdAt: new Date(),
+        };
+        await this.memoryStore.addTurn(convId, terminalTurn);
+
+        trace.response = responseText;
+        trace.model = usedModel;
+        trace.tokensIn = totalTokensIn;
+        trace.tokensOut = totalTokensOut;
+        trace.cacheCreationTokens = totalCacheCreationTokens || undefined;
+        trace.cacheReadTokens = totalCacheReadTokens || undefined;
+        trace.durationMs = durationMs;
+        trace.error = "terminal_tool_failure";
+        try {
+          await this.memoryStore.addTrace(trace);
+          tracePersistedInLoop = true;
+        } catch (e) {
+          console.error("[agent-loop] Failed to persist trace:", e);
+        }
+
+        this.setState("idle");
+        const message: Message = {
+          id: generateId(),
+          role: "assistant",
+          content: responseText,
+          createdAt: new Date(),
+          model: usedModel,
+          tokensIn: totalTokensIn,
+          tokensOut: totalTokensOut,
+          cacheCreationTokens: totalCacheCreationTokens || undefined,
+          cacheReadTokens: totalCacheReadTokens || undefined,
+          durationMs,
+          toolCallCount: totalToolCalls,
+        };
+        yield this.createEvent("response_complete", { message });
+        return;
       }
 
       // Rollback: if ALL errors this iteration are format errors (JSON parse / tool not found),

@@ -185,6 +185,9 @@ interface LLMNode {
   iteration: number;
   tokensIn: number;
   tokensOut: number;
+  stopReason?: string;
+  error?: string;
+  text?: string;
 }
 
 interface ToolNode {
@@ -208,6 +211,9 @@ function buildTimeline(steps: TraceStep[]): TimelineNode[] {
         iteration: step.iteration ?? 0,
         tokensIn: step.tokensIn ?? 0,
         tokensOut: step.tokensOut ?? 0,
+        stopReason: step.stopReason,
+        error: step.error,
+        text: step.text,
       });
       i++;
     } else if (step.type === "tool_call") {
@@ -240,15 +246,54 @@ function buildTimeline(steps: TraceStep[]): TimelineNode[] {
 }
 
 function LLMStep({ node }: { node: LLMNode }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasDetail = !!(node.stopReason || node.error || node.text);
+  const isProblem =
+    !!node.error ||
+    node.stopReason === "max_tokens" ||
+    node.stopReason === "error";
+
   return (
-    <div className="tl-node tl-llm">
-      <div className="tl-dot tl-dot-llm" />
+    <div className={`tl-node tl-llm ${isProblem ? "tl-llm-warning" : ""}`}>
+      <div className={`tl-dot ${isProblem ? "tl-dot-error" : "tl-dot-llm"}`} />
       <div className="tl-body">
-        <span className="tl-badge tl-badge-llm">LLM #{node.iteration}</span>
-        <span className="tl-tokens">
-          {formatNumber(node.tokensIn)}&uarr; {formatNumber(node.tokensOut)}
-          &darr;
-        </span>
+        <div
+          className="tl-tool-header"
+          onClick={() => hasDetail && setExpanded(!expanded)}
+          style={{ cursor: hasDetail ? "pointer" : "default" }}
+        >
+          <span className="tl-badge tl-badge-llm">LLM #{node.iteration}</span>
+          <span className="tl-tokens">
+            {formatNumber(node.tokensIn)}&uarr; {formatNumber(node.tokensOut)}
+            &darr;
+          </span>
+          {node.stopReason && (
+            <span className={isProblem ? "badge badge-error" : "badge"}>
+              {node.stopReason}
+            </span>
+          )}
+          {hasDetail && (
+            <span className="tl-chevron">{expanded ? "\u25BC" : "\u25B6"}</span>
+          )}
+        </div>
+        {expanded && (
+          <div className="tl-detail">
+            {node.error && (
+              <div className="tl-detail-section">
+                <div className="tl-detail-label">Error</div>
+                <pre className="tl-detail-pre tl-detail-error">
+                  {node.error}
+                </pre>
+              </div>
+            )}
+            {node.text && (
+              <div className="tl-detail-section">
+                <div className="tl-detail-label">Text</div>
+                <pre className="tl-detail-pre">{node.text}</pre>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

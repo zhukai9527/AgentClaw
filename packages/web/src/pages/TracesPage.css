@@ -212,9 +212,12 @@
 /* ── LLM step ─────────────────────────────── */
 
 .tl-llm .tl-body {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: block;
+}
+
+.tl-llm-warning .tl-badge-llm {
+  background: var(--error-subtle-bg);
+  color: var(--error);
 }
 
 .tl-badge {

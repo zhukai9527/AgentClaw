@@ -816,6 +816,9 @@ export interface TraceStep {
   iteration?: number;
   tokensIn?: number;
   tokensOut?: number;
+  stopReason?: string;
+  error?: string;
+  text?: string;
   name?: string;
   input?: Record<string, unknown>;
   content?: string;

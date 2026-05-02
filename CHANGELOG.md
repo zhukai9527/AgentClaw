@@ -12,6 +12,9 @@
 - **线上能力回归增强**：`scripts/skill-online-capability.mts` 记录每个真实线上 run 的 traceId，并在验证 skill 进化时写入 `baseline_eval` / `online_regression` 事件。`SimpleOrchestrator` 新增默认开启的 `enableBackgroundLearning` 开关，回归脚本可关闭后台学习，避免测试结束时后台记忆抽取干扰验收结果。
 
 ### Fixed
+- **Trace max_tokens 诊断可读性**：Trace 时间线现在显示 LLM `stopReason`、错误和文本详情；agent-loop 遇到 `max_tokens` 且没有产生工具调用/回复时，会把 trace 标记为 `llm_max_tokens_truncated`，避免空白回复被误判为正常完成。
+- **Codex CLI Windows Store 路径解析**：`claude_code` 降级到 Codex CLI 时会把 `where codex` 返回的 AppData 转接路径解析为真实 LocalCache 可执行文件，避免 Node `spawn()` 对转接路径报 `ENOENT`，保证未安装 Claude Code CLI 时仍可使用 Codex 委托。
+- **外部委托工具不可用空转**：`claude_code` 先快速探测 Claude Code CLI，不可用时自动降级到 Codex CLI；两者都不可用时返回终端失败并让 agent-loop 立即收敛。agent-loop 新增连续 `max_tokens` 无工具调用熔断，避免 687 秒级无副作用空转；overflow 临时目录改为真正懒创建，短错误结果不再触碰文件系统。
 - **线上 Skill 能力回归修复**：新增 `scripts/skill-online-capability.mts` 真实线上回归脚本，覆盖 create、use、patch 进化、curator dry-run、archive+backup 五条能力链路。修复两处线上暴露的问题：工具失败去重 key 改为“参数前缀 + 完整参数 hash”，避免纠正后的长参数被误杀；`skill_manage create` 以 `skillId` 作为唯一身份源，自动归一 SKILL.md frontmatter `name`，确保创建后可通过 `use_skill(skillId)` 加载。
 
 ## [1.5.18] - 2026-04-30
