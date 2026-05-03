@@ -224,7 +224,8 @@ export const webFetchTool: Tool = {
       // 标记最终采用的抓取策略
       let strategy: "native" | "jina" | "playwright" | "login_wall" = "native";
 
-      if (contentType.includes("application/json")) {
+      const isJsonResponse = contentType.includes("application/json");
+      if (isJsonResponse) {
         // Pretty-print JSON
         try {
           const parsed = JSON.parse(body);
@@ -315,10 +316,11 @@ export const webFetchTool: Tool = {
         content = `${content.slice(0, INTERNAL_MAX_LENGTH)}\n\n... [truncated at internal safety limit]`;
       }
 
+      const guidance =
+        "hint: if this content contains the requested facts, synthesize the final answer now with this URL as source; use file_write only when saving is requested, and search more only if key facts are missing.";
+
       return {
-        content:
-          content +
-          "\n\nhint: if this content contains the requested facts, synthesize the final answer now with this URL as source; use file_write only when saving is requested, and search more only if key facts are missing.",
+        content: isJsonResponse ? content : `${content}\n\n${guidance}`,
         isError: false,
         metadata: {
           url,

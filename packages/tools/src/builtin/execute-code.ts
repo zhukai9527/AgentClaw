@@ -99,7 +99,12 @@ function callTool(name, input) {
 
 // Tool stubs — glob and grep return arrays, others return strings
 globalThis.web_search = async (query, max_results) => {
-  const raw = await callTool('web_search', { query, ...(max_results != null ? { max_results } : {}) });
+  let raw;
+  try {
+    raw = await callTool('web_search', { query, ...(max_results != null ? { max_results } : {}) });
+  } catch (err) {
+    return [];
+  }
   // Parse TOON format into structured objects: {title, url, snippet}[]
   const lines = raw.trim().split('\\n');
   const results = [];
@@ -127,7 +132,14 @@ globalThis.web_search = async (query, max_results) => {
   }
   return results.filter(r => r.url);
 };
-globalThis.web_fetch = (url) => callTool('web_fetch', { url });
+globalThis.web_fetch = async (url) => {
+  try {
+    return await callTool('web_fetch', { url });
+  } catch (err) {
+    const message = err && err.message ? err.message : String(err);
+    return 'ERROR fetching ' + url + ': ' + message;
+  }
+};
 globalThis.file_read = (path) => callTool('file_read', { path });
 globalThis.file_write = (path, content) => callTool('file_write', { path, content });
 globalThis.shell = (command, opts) =>

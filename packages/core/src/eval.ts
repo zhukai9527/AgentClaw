@@ -74,6 +74,37 @@ export interface EvalReport {
   timestamp: Date;
 }
 
+export interface TraceQualityOptions {
+  maxLlmCalls?: number;
+  maxToolCalls?: number;
+  maxTokensIn?: number;
+  maxDurationMs?: number;
+  maxNetworkExecuteCodeCalls?: number;
+  maxWebResearchToolCalls?: number;
+  maxOverflowFileReadCalls?: number;
+  minCacheReadRate?: number;
+  forbidOverflowFullRead?: boolean;
+  failOnZeroScoreCommentsAfterRss?: boolean;
+}
+
+export interface TraceQualityResult {
+  passed: boolean;
+  score: number;
+  checks: CheckResult[];
+  metrics: {
+    llmCalls: number;
+    toolCalls: number;
+    tokensIn: number;
+    tokensOut: number;
+    durationMs: number;
+    cacheReadRate: number;
+    overflowFullReads: number;
+    networkExecuteCodeCalls: number;
+    webResearchToolCalls: number;
+    overflowFileReadCalls: number;
+  };
+}
+
 /* ── Utility: extract tool results from trace steps ──── */
 
 interface ToolCallPair {
@@ -109,6 +140,21 @@ function extractToolCalls(steps: TraceStep[]): ToolCallPair[] {
   return pairs;
 }
 
+function getSteps(trace: Trace): TraceStep[] {
+  return typeof trace.steps === "string" ? JSON.parse(trace.steps) : trace.steps;
+}
+
+function stepText(step: TraceStep | undefined): string {
+  if (!step) return "";
+  const content = step.content;
+  if (typeof content === "string") return content;
+  try {
+    return JSON.stringify(step);
+  } catch {
+    return String(content ?? "");
+  }
+}
+
 /* ── Core evaluation logic ───────────────────────────── */
 
 /**
@@ -119,9 +165,7 @@ export function evaluateTrace(
   trace: Trace,
 ): TrajectoryEvalResult {
   const checks: CheckResult[] = [];
-  const toolCalls = extractToolCalls(
-    typeof trace.steps === "string" ? JSON.parse(trace.steps) : trace.steps,
-  );
+  const toolCalls = extractToolCalls(getSteps(trace));
   const toolNames = toolCalls.map((tc) => tc.name);
 
   // ── Check 1: Tool selection (ordered subset matching) ──
@@ -298,6 +342,183 @@ export function evaluateTrace(
     passed,
     checks,
     traceId: trace.id,
+  };
+}
+
+/**
+ * Score a trace for runtime efficiency and factual hygiene.
+ *
+ * This is deliberately deterministic so bad production traces can be promoted
+ * into regression fixtures without involving another model.
+ */
+export function evaluateTraceQuality(
+  trace: Trace,
+  options: TraceQualityOptions = {},
+): TraceQualityResult {
+  const steps = getSteps(trace);
+  const checks: CheckResult[] = [];
+  const llmCalls = steps.filter((s) => s.type === "llm_call").length;
+  const toolCalls = steps.filter((s) => s.type === "tool_call").length;
+  const cacheReadRate =
+    trace.tokensIn > 0 ? (trace.cacheReadTokens ?? 0) / trace.tokensIn : 0;
+
+  let overflowFullReads = 0;
+  let fabricatedRedditCounts = false;
+  let networkExecuteCodeCalls = 0;
+  let webResearchToolCalls = 0;
+  let overflowFileReadCalls = 0;
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    if (step.type !== "tool_call") continue;
+
+    const name = step.name;
+    const input = step.input as Record<string, unknown> | undefined;
+    const code = typeof input?.code === "string" ? input.code : "";
+    const next = steps[i + 1];
+    const nextText = stepText(next);
+    const nextIsBudgetBlocked =
+      next?.type === "tool_result" &&
+      next.isError === true &&
+      /Research budget is exhausted|You already (made|ran|read)|limit reached|You have called .*limit/i.test(
+        nextText,
+      );
+    const normalizedPath =
+      typeof input?.path === "string" ? input.path.replace(/\\/g, "/") : "";
+
+    if (
+      (name === "web_search" || name === "web_fetch") &&
+      !nextIsBudgetBlocked
+    ) {
+      webResearchToolCalls++;
+    }
+
+    if (
+      name === "execute_code" &&
+      /\bweb_(?:search|fetch)\s*\(/.test(code) &&
+      !nextIsBudgetBlocked
+    ) {
+      networkExecuteCodeCalls++;
+    }
+
+    if (
+      options.forbidOverflowFullRead &&
+      name === "file_read" &&
+      normalizedPath.includes("/overflow_") &&
+      next?.type === "tool_result" &&
+      nextText.length > 2_500
+    ) {
+      overflowFullReads++;
+    }
+
+    if (
+      name === "file_read" &&
+      normalizedPath.includes("/overflow_") &&
+      !nextIsBudgetBlocked
+    ) {
+      overflowFileReadCalls++;
+    }
+
+    if (
+      options.failOnZeroScoreCommentsAfterRss &&
+      name === "execute_code" &&
+      /"score"\s*:\s*0/.test(nextText) &&
+      /"comments"\s*:\s*0/.test(nextText) &&
+      !/missingFields|unavailable|not provided|RSS/i.test(nextText)
+    ) {
+      fabricatedRedditCounts = true;
+    }
+  }
+
+  const addThresholdCheck = (
+    name: string,
+    actual: number,
+    limit: number | undefined,
+    unit = "",
+  ) => {
+    if (limit === undefined) return;
+    const passed = actual <= limit;
+    checks.push({
+      name,
+      status: passed ? "pass" : "fail",
+      message: passed
+        ? `${actual}${unit} within limit ${limit}${unit}`
+        : `${actual}${unit} exceeds limit ${limit}${unit}`,
+    });
+  };
+
+  addThresholdCheck("llm_calls", llmCalls, options.maxLlmCalls);
+  addThresholdCheck("tool_calls", toolCalls, options.maxToolCalls);
+  addThresholdCheck("tokens_in", trace.tokensIn, options.maxTokensIn);
+  addThresholdCheck("duration", trace.durationMs, options.maxDurationMs, "ms");
+  addThresholdCheck(
+    "network_execute_code_calls",
+    networkExecuteCodeCalls,
+    options.maxNetworkExecuteCodeCalls,
+  );
+  addThresholdCheck(
+    "web_research_tool_calls",
+    webResearchToolCalls,
+    options.maxWebResearchToolCalls,
+  );
+  addThresholdCheck(
+    "overflow_file_read_calls",
+    overflowFileReadCalls,
+    options.maxOverflowFileReadCalls,
+  );
+
+  if (options.minCacheReadRate !== undefined) {
+    const passed = cacheReadRate >= options.minCacheReadRate;
+    checks.push({
+      name: "cache_read_rate",
+      status: passed ? "pass" : "fail",
+      message: `${Math.round(cacheReadRate * 100)}% cache read rate`,
+    });
+  }
+
+  if (options.forbidOverflowFullRead) {
+    checks.push({
+      name: "overflow_full_read",
+      status: overflowFullReads === 0 ? "pass" : "fail",
+      message:
+        overflowFullReads === 0
+          ? "No full overflow file reads"
+          : `${overflowFullReads} full overflow file read(s) pushed back into context`,
+    });
+  }
+
+  if (options.failOnZeroScoreCommentsAfterRss) {
+    checks.push({
+      name: "fabricated_reddit_counts",
+      status: fabricatedRedditCounts ? "fail" : "pass",
+      message: fabricatedRedditCounts
+        ? "Reddit score/comments were emitted as 0 without an explicit missing-field marker"
+        : "No fabricated Reddit score/comment fields detected",
+    });
+  }
+
+  let score = 100;
+  for (const check of checks) {
+    if (check.status === "fail") score -= 15;
+  }
+  score = Math.max(0, score);
+
+  return {
+    passed: checks.every((c) => c.status !== "fail"),
+    score,
+    checks,
+    metrics: {
+      llmCalls,
+      toolCalls,
+      tokensIn: trace.tokensIn,
+      tokensOut: trace.tokensOut,
+      durationMs: trace.durationMs,
+      cacheReadRate,
+      overflowFullReads,
+      networkExecuteCodeCalls,
+      webResearchToolCalls,
+      overflowFileReadCalls,
+    },
   };
 }
 

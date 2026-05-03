@@ -9,11 +9,18 @@ export { ToolHookManager } from "./tool-hooks.js";
 export { SimpleSubAgentManager } from "./subagent-manager.js";
 export { TaskManager } from "./task-manager.js";
 export type { TaskManagerConfig } from "./task-manager.js";
-export { evaluateTrace, evaluateBatch, formatEvalReport } from "./eval.js";
+export {
+  evaluateTrace,
+  evaluateBatch,
+  formatEvalReport,
+  evaluateTraceQuality,
+} from "./eval.js";
 export type {
   ExpectedToolCall,
   TrajectoryTestCase,
   CheckResult,
   TrajectoryEvalResult,
   EvalReport,
+  TraceQualityOptions,
+  TraceQualityResult,
 } from "./eval.js";

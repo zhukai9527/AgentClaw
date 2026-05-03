@@ -1,5 +1,20 @@
 # 更新日志
 
+## [Unreleased] - 2026-05-03
+
+### Added
+- **Trace 质量评分器**：新增 `evaluateTraceQuality`，可对真实 trace 的 LLM 轮次、工具调用、输入 token、耗时、cache 命中、overflow 全文读回和 Reddit 计数字段伪造进行确定性评分；新增 `scripts/trace-quality-regression.mts` 作为线上近似闭环回归入口。
+
+### Changed
+- **overflow 文件读取策略**：`file_read` 对 `overflow_*.txt` 默认只返回短预览，必须通过 `offset` / `length` 做定向范围读取，避免 `execute_code` 大输出被全文读回上下文。
+- **JSON 抓取结果保持机器可解析**：`web_fetch` 对 `application/json` 不再追加人类 hint，避免 `execute_code` 中 `JSON.parse(await web_fetch(...))` 因尾部提示文本失败。
+- **send_file 路径审计**：发送结果现在记录 `originalPath`、`effectivePath` 和 `relocated`，并且只有文件确实从 workDir 外复制进来时才标记 relocated。
+
+### Fixed
+- **定时任务新闻 trace 长循环**：取消 `execute_code nudge` 对 `web_search/web_fetch` 的硬拦截，避免模型在轻量并行搜索和批量脚本之间来回反弹；同时限制包含 `web_search/web_fetch` 的 `execute_code` 网络批处理最多 3 次，超过后强制综合已有材料输出。
+- **Web 研究组合预算**：新增 `web_search`/`web_fetch` 总调用上限和 overflow 文件读取上限，防止定时任务从 `execute_code` 长循环退化成搜索、抓取、读片段的混合长循环。
+- **批量新闻任务 token 浪费回归**：用生产 trace 固化失败样本，防止新闻/RSS 类任务再次出现 5 轮 LLM、60K+ input token、overflow 全文回灌和 RSS 缺失点赞/评论却填 0 的问题。
+
 ## [1.5.19] - 2026-05-02
 
 ### Added

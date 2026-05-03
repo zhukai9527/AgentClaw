@@ -302,8 +302,8 @@ function applyOverflow(
 
   result.content =
     cleanPreview +
-    `\n\n... [输出过长，已截断。完整内容已保存: ${filePath}]\n` +
-    `预览中的信息通常足够回答问题。只有当预览缺少关键信息时，才用 grep 搜索具体关键词。`;
+    `\n\n... [tool output overflowed; full content saved to: ${filePath}]\n` +
+    "Preview is usually enough. Do not read the full overflow file unless a specific missing fact is required; use grep or file_read with offset/length for targeted access.";
 
   // Record overflow info in metadata
   if (!result.metadata) result.metadata = {};
@@ -682,6 +682,30 @@ export class SimpleAgentLoop implements AgentLoop {
     const runtimeHints: string[] = [
       `[工作目录：${sessionTmpDir}]（所有文件都在此目录下，输出也保存到这里）`,
     ];
+    const inputTextForHeuristics =
+      typeof input === "string"
+        ? context?.originalUserText ?? input
+        : input
+            .map((block) =>
+              block.type === "text" && "text" in block
+                ? String(block.text ?? "")
+                : "",
+            )
+            .join("\n");
+    const isNewsBriefTask = /新闻|简报|news|brief/i.test(inputTextForHeuristics);
+    if (isNewsBriefTask) {
+      runtimeHints.push(
+        "[新闻任务约束]优先在3轮以内完成：第1轮用execute_code批量搜索并筛选，第2轮只在必要时抓取少量原文，第3轮必须合成最终答复。只采用高可信来源：官方公告/公司博客/监管机构/学术机构/Reuters/AP/Bloomberg/FT/The Verge/TechCrunch/MIT Technology Review/Stanford HAI等。不要使用Reddit、YouTube、低质量SEO聚合站或个人博客作为事实来源，除非用户明确要求。无法用可信来源交叉确认的新闻点直接跳过或标注未确认。execute_code输出必须是紧凑facts JSON，最多8条，每条包含title/source/url/date/confidence/summary，不要打印原始网页全文。",
+      );
+    }
+    const isAiNewsTask = /\bAI\b|news|brief|artificial intelligence/i.test(
+      inputTextForHeuristics,
+    );
+    if (isAiNewsTask) {
+      runtimeHints.push(
+        "[news-task] Today is 2026-05-03. Finish in about 3 LLM turns. Use at most 3 network execute_code batches, then final answer. Prefer primary/trusted sources only: official company blogs, regulator/government/university sources, Reuters, AP, Bloomberg, FT, The Verge, TechCrunch, MIT Technology Review, Stanford HAI. Explicitly reject Reddit, YouTube, Yahoo Finance, SEO aggregators, random blogs, and unsourced claims. Recent news only: if the item is not from today or the last 7 days, include it only when it is clearly still developing and mark the exact date. Output no more than 5 high-confidence items. In execute_code print compact facts JSON only: title, source, url, date, confidence, summary. Do not print raw pages.",
+      );
+    }
     let sufficientWeatherFactHint: string | null = null;
     // runtimeHints.join("\n") is computed dynamically each iteration (runtimeHints grows via push)
 
@@ -767,6 +791,14 @@ export class SimpleAgentLoop implements AgentLoop {
     let executeCodeNudged = false;
     let usedExecuteCode = false;
     const FETCH_SEARCH_NUDGE_THRESHOLD = 3;
+    let networkExecuteCodeCalls = 0;
+    const NETWORK_EXECUTE_CODE_LIMIT = 3;
+    let webResearchToolCalls = 0;
+    const WEB_RESEARCH_TOOL_LIMIT = 6;
+    let overflowFileReadCalls = 0;
+    const OVERFLOW_FILE_READ_LIMIT = 2;
+    let forceSynthesisOnly = false;
+    let invalidFinalMarkupRetries = 0;
     let consecutiveMaxTokensWithoutTools = 0;
     let forcedStopReason: string | undefined;
 
@@ -900,7 +932,10 @@ export class SimpleAgentLoop implements AgentLoop {
 
       // Inject _intent field into each tool schema for Intent Tracing.
       // LLM must state its intent before calling a tool → improves explainability.
-      const tools = this.toolRegistry.definitions().map((t) => ({
+      const activeToolDefinitions = forceSynthesisOnly
+        ? []
+        : this.toolRegistry.definitions();
+      const tools = activeToolDefinitions.map((t) => ({
         ...t,
         parameters: {
           ...t.parameters,
@@ -925,6 +960,16 @@ export class SimpleAgentLoop implements AgentLoop {
         loopUnavailableTools,
         loopToolBoundary,
       );
+      if (isNewsBriefTask || isAiNewsTask) {
+        const memoryStart = safeSystemPrompt.search(
+          /\n- \[(identity|preference|fact|entity|episodic)\]/,
+        );
+        if (memoryStart !== -1) {
+          safeSystemPrompt =
+            safeSystemPrompt.slice(0, memoryStart) +
+            "\n\n[long-term memory omitted for time-sensitive news task]";
+        }
+      }
 
       // Record trace metadata on first iteration (after pruning so trace reflects actual prompt)
       if (iterations === 1) {
@@ -1130,6 +1175,27 @@ export class SimpleAgentLoop implements AgentLoop {
       // so that sent files persist in the conversation history.
       // Skip files whose filename already appears in the LLM's response text.
       let storedText = fullText;
+
+      if (
+        toolCalls.length === 0 &&
+        /<\/?tool_call\b|<function=|<\/function>|<parameter=/i.test(fullText) &&
+        iterations < this._config.maxIterations
+      ) {
+        invalidFinalMarkupRetries++;
+        if (invalidFinalMarkupRetries >= 2 || forceSynthesisOnly) {
+          forcedStopReason = "invalid_tool_markup_final";
+          fullText =
+            "已停止：模型在工具不可用时仍输出工具调用标记。为避免继续空转，本轮没有继续消耗 token。";
+          storedText = fullText;
+        } else {
+        forceSynthesisOnly = true;
+        runtimeHints.push(
+          "[SYSTEM] Your last output was invalid tool-call markup rendered as text. Tools are not available now. Do not output XML/tool_call/function/parameter tags. Write the final user-facing answer directly in Chinese from the facts already gathered.",
+        );
+        continue;
+        }
+      }
+
       if (toolCalls.length === 0 && allSentFiles.length > 0) {
         const newFiles = allSentFiles.filter(
           (f) => !fullText.includes(f.filename),
@@ -1354,6 +1420,28 @@ export class SimpleAgentLoop implements AgentLoop {
           const nameCount = (toolNameCounts.get(effectiveToolName) ?? 0) + 1;
           toolNameCounts.set(effectiveToolName, nameCount);
           const totalLimit = TOOL_TOTAL_LIMITS[effectiveToolName];
+          const executeCodeText =
+            effectiveToolName === "execute_code" &&
+            typeof effectiveToolInput.code === "string"
+              ? effectiveToolInput.code
+              : "";
+          const isNetworkExecuteCode =
+            /\bweb_(?:search|fetch)\s*\(/.test(executeCodeText);
+          if (effectiveToolName === "execute_code") {
+            usedExecuteCode = true;
+            if (isNetworkExecuteCode) networkExecuteCodeCalls++;
+          }
+          const isWebResearchTool =
+            effectiveToolName === "web_search" ||
+            effectiveToolName === "web_fetch";
+          if (isWebResearchTool) webResearchToolCalls++;
+          const fileReadPath =
+            effectiveToolName === "file_read" &&
+            typeof effectiveToolInput.path === "string"
+              ? effectiveToolInput.path.replace(/\\/g, "/")
+              : "";
+          const isOverflowFileRead = fileReadPath.includes("/overflow_");
+          if (isOverflowFileRead) overflowFileReadCalls++;
 
           // Detect repetitive calls — same tool+params called too many times
           if (result) {
@@ -1371,7 +1459,62 @@ export class SimpleAgentLoop implements AgentLoop {
                 sufficientWeatherFactHint,
               isError: true,
             };
+            result.content =
+              "Blocked: the weather query already has enough facts. Do not search, fetch pages, or read overflow files. Answer the user now from these facts, and do not claim visible fields are missing.\n" +
+              sufficientWeatherFactHint;
           } else if (
+            isWebResearchTool &&
+            webResearchToolCalls > WEB_RESEARCH_TOOL_LIMIT
+          ) {
+            console.log(
+              `[agent-loop] Web research tool limit reached: ${webResearchToolCalls}/${WEB_RESEARCH_TOOL_LIMIT}`,
+            );
+            result = {
+              content:
+                `You already made ${WEB_RESEARCH_TOOL_LIMIT} web_search/web_fetch call(s). ` +
+                "Stop researching now. Do not call web_search, web_fetch, file_read, or grep for overflow files. Generate the final answer from the facts already in context.",
+              isError: true,
+            };
+            forceSynthesisOnly = true;
+            runtimeHints.push(
+              "<research_budget_exhausted>Research budget is exhausted. No more tools are available. Write the final answer from the gathered facts now.</research_budget_exhausted>",
+            );
+          } else if (
+            isOverflowFileRead &&
+            overflowFileReadCalls > OVERFLOW_FILE_READ_LIMIT
+          ) {
+            console.log(
+              `[agent-loop] Overflow file_read limit reached: ${overflowFileReadCalls}/${OVERFLOW_FILE_READ_LIMIT}`,
+            );
+            result = {
+              content:
+                `You already read ${OVERFLOW_FILE_READ_LIMIT} overflow file preview/range(s). ` +
+                "Stop reading overflow files. Generate the final answer from the previews and facts already in context.",
+              isError: true,
+            };
+            forceSynthesisOnly = true;
+            runtimeHints.push(
+              "<research_budget_exhausted>Research budget is exhausted. No more tools are available. Write the final answer from the gathered facts now.</research_budget_exhausted>",
+            );
+          } else if (
+            isNetworkExecuteCode &&
+            networkExecuteCodeCalls > NETWORK_EXECUTE_CODE_LIMIT
+          ) {
+            console.log(
+              `[agent-loop] Network execute_code limit reached: ${networkExecuteCodeCalls}/${NETWORK_EXECUTE_CODE_LIMIT}`,
+            );
+            result = {
+              content:
+                `You already ran ${NETWORK_EXECUTE_CODE_LIMIT} network execute_code batch(es). ` +
+                "Stop searching/fetching now. Do not read overflow files. Generate the final answer from the search and fetch results already in context.",
+              isError: true,
+            };
+            forceSynthesisOnly = true;
+            runtimeHints.push(
+              "<research_budget_exhausted>Research budget is exhausted. No more tools are available. Write the final answer from the gathered facts now.</research_budget_exhausted>",
+            );
+          } else if (
+            false &&
             executeCodeNudged &&
             !usedExecuteCode &&
             (effectiveToolName === "web_search" ||
@@ -1394,6 +1537,10 @@ export class SimpleAgentLoop implements AgentLoop {
                     "用 Promise.all 并行请求，console.log() 输出结果。",
               isError: true,
             };
+            result.content =
+              (toolNameCounts.get("web_fetch") ?? 0) >= 2
+                ? "Blocked: enough fetched content is already available. Do not call web_search/web_fetch again, and do not read overflow files. Generate the final answer from the content already in context, including previews."
+                : "Blocked: stop calling web_search/web_fetch one by one. Use execute_code with JavaScript, call the built-in await web_fetch(url) and await web_search(query), run requests with Promise.all, reduce the data inside the script, and console.log only the compact final result.";
           } else if (totalLimit && nameCount > totalLimit) {
             console.log(
               `[agent-loop] Total call limit reached: ${effectiveToolName} (${nameCount}/${totalLimit})`,
@@ -1454,6 +1601,63 @@ export class SimpleAgentLoop implements AgentLoop {
           }
 
           // Overflow mode: large outputs → save to file, give LLM a preview
+          if (
+            (isNewsBriefTask || isAiNewsTask) &&
+            isNetworkExecuteCode &&
+            result &&
+            !result.isError
+          ) {
+            const lowTrustNewsSource =
+              /(?:reddit\.com|youtube\.com|youtu\.be|finance\.yahoo\.com|blog\.mean\.ceo|medium\.com|substack\.com|quora\.com)/i;
+            let filteredContent = result.content;
+            try {
+              const parsed = JSON.parse(filteredContent) as unknown;
+              if (Array.isArray(parsed)) {
+                filteredContent = JSON.stringify(
+                  parsed.filter((item) => {
+                    if (!item || typeof item !== "object") return true;
+                    const url = String((item as { url?: unknown }).url ?? "");
+                    return !lowTrustNewsSource.test(url);
+                  }),
+                  null,
+                  2,
+                );
+              }
+            } catch {
+              if (filteredContent.includes("\n=== ")) {
+                filteredContent = filteredContent
+                  .split(/\n(?==== )/)
+                  .filter((chunk) => !lowTrustNewsSource.test(chunk.slice(0, 300)))
+                  .join("\n");
+              }
+            }
+            if (filteredContent !== result.content) {
+              result.content = filteredContent;
+              result.metadata = {
+                ...(result.metadata ?? {}),
+                lowTrustNewsSourcesFiltered: true,
+              };
+            }
+          }
+
+          if (
+            (isNewsBriefTask || isAiNewsTask) &&
+            isNetworkExecuteCode &&
+            result &&
+            !result.isError &&
+            result.content.length > 2400
+          ) {
+            const originalLength = result.content.length;
+            result.content =
+              result.content.slice(0, 2400) +
+              `\n\n[news network result compacted from ${originalLength} chars; use this preview only and synthesize now]`;
+            result.metadata = {
+              ...(result.metadata ?? {}),
+              newsCompacted: true,
+              originalLength,
+            };
+          }
+
           applyOverflow(
             result!,
             effectiveToolName,
@@ -1793,6 +1997,18 @@ export class SimpleAgentLoop implements AgentLoop {
       }
 
       // ── Three-strike escalation: detect stuck LLM ──
+      if (
+        false &&
+        (isNewsBriefTask || isAiNewsTask) &&
+        networkExecuteCodeCalls >= NETWORK_EXECUTE_CODE_LIMIT &&
+        iterationErrorCount === 0
+      ) {
+        forceSynthesisOnly = true;
+        runtimeHints.push(
+          "<news_synthesis_only>News research budget is complete. Do not call tools again. Write the final Chinese brief now using only trusted, dated, high-confidence facts already gathered; omit weak or unverified items.</news_synthesis_only>",
+        );
+      }
+
       // Fingerprint: first 300 chars of LLM output + tool names called (normalized)
       if (fullText && !escalated) {
         const toolNames = toolCalls
@@ -1860,6 +2076,9 @@ export class SimpleAgentLoop implements AgentLoop {
                   "（execute_code 内置全局函数，无需 import）并行抓取多个 URL（Promise.all），" +
                   "在脚本内完成数据提取和汇总，用 console.log() 输出最终结果。</execute_code_hint>",
             );
+            runtimeHints[runtimeHints.length - 1] = hasEnoughData
+              ? "<execute_code_hint>You already have enough fetched content. Do not call web_search/web_fetch again, and do not read overflow files. Generate the final answer from existing content and previews.</execute_code_hint>"
+              : `<execute_code_hint>You have called web_search/web_fetch ${fetchSearchTotal} times one by one. Use execute_code with JavaScript now: call the built-in await web_fetch(url) and await web_search(query), run requests with Promise.all, extract and reduce data inside the script, and console.log only the compact final result.</execute_code_hint>`;
             console.warn(
               `[agent-loop] execute_code nudge triggered: ${fetchSearchTotal} fetch/search calls without execute_code`,
             );

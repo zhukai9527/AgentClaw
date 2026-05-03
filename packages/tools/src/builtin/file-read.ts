@@ -2,6 +2,16 @@ import { readFile } from "node:fs/promises";
 import type { Tool, ToolResult } from "@agentclaw/types";
 import { resolveFilePath } from "./resolve-path.js";
 
+const OVERFLOW_PREVIEW_CHARS = 1_500;
+const OVERFLOW_RANGE_MAX_CHARS = 4_000;
+
+function asNonNegativeInteger(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return Math.floor(n);
+}
+
 export const fileReadTool: Tool = {
   name: "file_read",
   description: "Read a file.",
@@ -11,6 +21,16 @@ export const fileReadTool: Tool = {
     type: "object",
     properties: {
       path: { type: "string" },
+      offset: {
+        type: "number",
+        description:
+          "Optional character offset for bounded reads. Use this for large overflow files.",
+      },
+      length: {
+        type: "number",
+        description:
+          "Optional maximum characters to read from offset. Overflow files are capped.",
+      },
     },
     required: ["path"],
   },
@@ -46,6 +66,55 @@ export const fileReadTool: Tool = {
 
     try {
       const content = await readFile(filePath, "utf-8");
+      const offset = asNonNegativeInteger(input.offset) ?? 0;
+      const requestedLength = asNonNegativeInteger(input.length);
+      const isOverflowFile = /^overflow_.*\.txt$/i.test(basename);
+
+      if (isOverflowFile) {
+        if (input.offset !== undefined || input.length !== undefined) {
+          const length = Math.min(
+            requestedLength ?? OVERFLOW_RANGE_MAX_CHARS,
+            OVERFLOW_RANGE_MAX_CHARS,
+          );
+          const slice = content.slice(offset, offset + length);
+          return {
+            content:
+              `[overflow file range: offset=${offset}, length=${length}, originalLength=${content.length}]\n` +
+              slice,
+            isError: false,
+            metadata: {
+              path: filePath,
+              overflowRange: true,
+              originalLength: content.length,
+              offset,
+              length,
+            },
+          };
+        }
+
+        const preview = content.slice(0, OVERFLOW_PREVIEW_CHARS);
+        return {
+          content:
+            `[overflow file preview: originalLength=${content.length}. Use grep or file_read with offset/length for targeted access.]\n` +
+            preview,
+          isError: false,
+          metadata: {
+            path: filePath,
+            overflowPreview: true,
+            originalLength: content.length,
+          },
+        };
+      }
+
+      if (input.offset !== undefined || input.length !== undefined) {
+        const length = requestedLength ?? content.length - offset;
+        return {
+          content: content.slice(offset, offset + length),
+          isError: false,
+          metadata: { path: filePath, offset, length },
+        };
+      }
+
       return {
         content,
         isError: false,

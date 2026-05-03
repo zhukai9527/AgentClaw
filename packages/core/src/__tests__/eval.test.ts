@@ -3,9 +3,10 @@ import {
   evaluateTrace,
   evaluateBatch,
   formatEvalReport,
+  evaluateTraceQuality,
 } from "../eval.js";
 import type { TrajectoryTestCase } from "../eval.js";
-import type { Trace } from "@agentclaw/types";
+import type { Trace, TraceStep } from "@agentclaw/types";
 
 // ── Helper: build a trace ──
 
@@ -326,6 +327,185 @@ describe("evaluateTrace", () => {
       const check = result.checks.find((c) => c.name === "duration");
       expect(check?.status).toBe("fail");
     });
+  });
+});
+
+describe("evaluateTraceQuality", () => {
+  it("fails a news trace that rereads overflow, burns tokens, and fabricates unavailable counts", () => {
+    const trace = makeTrace({
+      id: "bad-news-trace",
+      userInput: "生成 Reddit 科技 AI 日报",
+      tokensIn: 66_118,
+      tokensOut: 4_617,
+      cacheReadTokens: 43_328,
+      durationMs: 78_245,
+      steps: [
+        { type: "llm_call", iteration: 1, tokensIn: 10_171, tokensOut: 505 },
+        { type: "tool_call", name: "execute_code", input: { code: "fetch reddit json" } },
+        {
+          type: "tool_result",
+          name: "execute_code",
+          content: "Unexpected non-whitespace character after JSON",
+          isError: false,
+          durationMs: 1706,
+        },
+        { type: "llm_call", iteration: 2, tokensIn: 10_995, tokensOut: 634 },
+        { type: "tool_call", name: "execute_code", input: { code: "fetch reddit rss" } },
+        {
+          type: "tool_result",
+          name: "execute_code",
+          content:
+            '{"technology":{"posts":[{"title":"A","score":0,"comments":0}]}}',
+          isError: false,
+          durationMs: 1733,
+        },
+        { type: "llm_call", iteration: 3, tokensIn: 12_071, tokensOut: 99 },
+        {
+          type: "tool_call",
+          name: "file_read",
+          input: { path: "D:/tmp/overflow_execute_code_1.txt" },
+        },
+        {
+          type: "tool_result",
+          name: "file_read",
+          content: "x".repeat(12_000),
+          isError: false,
+          durationMs: 5,
+        },
+        { type: "llm_call", iteration: 4, tokensIn: 15_163, tokensOut: 3269 },
+        { type: "llm_call", iteration: 5, tokensIn: 17_718, tokensOut: 110 },
+      ],
+    });
+
+    const result = evaluateTraceQuality(trace, {
+      maxLlmCalls: 3,
+      maxTokensIn: 40_000,
+      forbidOverflowFullRead: true,
+      failOnZeroScoreCommentsAfterRss: true,
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.score).toBeLessThan(70);
+    expect(result.checks.find((c) => c.name === "llm_calls")?.status).toBe("fail");
+    expect(result.checks.find((c) => c.name === "tokens_in")?.status).toBe("fail");
+    expect(result.checks.find((c) => c.name === "overflow_full_read")?.status).toBe("fail");
+    expect(result.checks.find((c) => c.name === "fabricated_reddit_counts")?.status).toBe("fail");
+  });
+
+  it("passes a compact batched news trace with explicit missing count fields", () => {
+    const trace = makeTrace({
+      id: "good-news-trace",
+      userInput: "生成 Reddit 科技 AI 日报",
+      tokensIn: 24_000,
+      tokensOut: 1_500,
+      cacheReadTokens: 17_000,
+      durationMs: 22_000,
+      steps: [
+        { type: "llm_call", iteration: 1, tokensIn: 10_000, tokensOut: 300 },
+        { type: "tool_call", name: "execute_code", input: { code: "fetch and reduce" } },
+        {
+          type: "tool_result",
+          name: "execute_code",
+          content:
+            '{"items":[{"title":"A","score":null,"comments":null}],"missingFields":["reddit_rss_score","reddit_rss_comments"],"readyToWrite":true}',
+          isError: false,
+          durationMs: 2500,
+        },
+        { type: "llm_call", iteration: 2, tokensIn: 14_000, tokensOut: 1200 },
+      ],
+    });
+
+    const result = evaluateTraceQuality(trace, {
+      maxLlmCalls: 3,
+      maxTokensIn: 40_000,
+      forbidOverflowFullRead: true,
+      failOnZeroScoreCommentsAfterRss: true,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.score).toBeGreaterThanOrEqual(90);
+  });
+
+  it("fails traces that repeatedly run network execute_code batches", () => {
+    const steps: TraceStep[] = [
+      { type: "llm_call", iteration: 1, tokensIn: 10_000, tokensOut: 200 },
+      { type: "tool_call", name: "execute_code", input: { code: "await web_search('ai news')" } },
+      { type: "tool_result", name: "execute_code", content: "results A", isError: false, durationMs: 1000 },
+      { type: "llm_call", iteration: 2, tokensIn: 11_000, tokensOut: 200 },
+      { type: "tool_call", name: "execute_code", input: { code: "await web_fetch(url)" } },
+      { type: "tool_result", name: "execute_code", content: "results B", isError: false, durationMs: 1000 },
+      { type: "llm_call", iteration: 3, tokensIn: 12_000, tokensOut: 200 },
+      { type: "tool_call", name: "execute_code", input: { code: "await web_search('more ai news')" } },
+      { type: "tool_result", name: "execute_code", content: "results C", isError: false, durationMs: 1000 },
+      { type: "llm_call", iteration: 4, tokensIn: 13_000, tokensOut: 200 },
+      { type: "tool_call", name: "execute_code", input: { code: "await web_fetch(anotherUrl)" } },
+      { type: "tool_result", name: "execute_code", content: "results D", isError: false, durationMs: 1000 },
+    ];
+
+    const result = evaluateTraceQuality(
+      makeTrace({
+        id: "serial-network-execute-code",
+        userInput: "在外网搜索今日AI界新闻生成简报",
+        tokensIn: 46_000,
+        tokensOut: 800,
+        cacheReadTokens: 20_000,
+        durationMs: 40_000,
+        steps,
+      }),
+      { maxNetworkExecuteCodeCalls: 3 },
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.checks.find((c) => c.name === "network_execute_code_calls")?.status).toBe("fail");
+    expect(result.metrics.networkExecuteCodeCalls).toBe(4);
+  });
+
+  it("fails traces that mix too many web research calls and overflow reads", () => {
+    const steps: TraceStep[] = [
+      { type: "llm_call", iteration: 1, tokensIn: 10_000, tokensOut: 100 },
+      { type: "tool_call", name: "web_search", input: { query: "ai news 1" } },
+      { type: "tool_result", name: "web_search", content: "result", isError: false, durationMs: 100 },
+      { type: "tool_call", name: "web_search", input: { query: "ai news 2" } },
+      { type: "tool_result", name: "web_search", content: "result", isError: false, durationMs: 100 },
+      { type: "tool_call", name: "web_search", input: { query: "ai news 3" } },
+      { type: "tool_result", name: "web_search", content: "result", isError: false, durationMs: 100 },
+      { type: "tool_call", name: "web_fetch", input: { url: "https://example.com/1" } },
+      { type: "tool_result", name: "web_fetch", content: "result", isError: false, durationMs: 100 },
+      { type: "tool_call", name: "web_fetch", input: { url: "https://example.com/2" } },
+      { type: "tool_result", name: "web_fetch", content: "result", isError: false, durationMs: 100 },
+      { type: "tool_call", name: "web_fetch", input: { url: "https://example.com/3" } },
+      { type: "tool_result", name: "web_fetch", content: "result", isError: false, durationMs: 100 },
+      { type: "tool_call", name: "web_search", input: { query: "ai news 4" } },
+      { type: "tool_result", name: "web_search", content: "result", isError: false, durationMs: 100 },
+      { type: "tool_call", name: "file_read", input: { path: "D:/tmp/overflow_web_fetch_1.txt" } },
+      { type: "tool_result", name: "file_read", content: "x".repeat(1500), isError: false, durationMs: 1 },
+      { type: "tool_call", name: "file_read", input: { path: "D:/tmp/overflow_execute_code_1.txt", offset: 0, length: 4000 } },
+      { type: "tool_result", name: "file_read", content: "x".repeat(4000), isError: false, durationMs: 1 },
+      { type: "tool_call", name: "file_read", input: { path: "D:/tmp/overflow_execute_code_2.txt", offset: 0, length: 4000 } },
+      { type: "tool_result", name: "file_read", content: "x".repeat(4000), isError: false, durationMs: 1 },
+    ];
+
+    const result = evaluateTraceQuality(
+      makeTrace({
+        id: "mixed-web-research-overflow",
+        userInput: "在外网搜索今日AI界新闻生成简报",
+        tokensIn: 80_000,
+        tokensOut: 1_200,
+        cacheReadTokens: 50_000,
+        durationMs: 70_000,
+        steps,
+      }),
+      {
+        maxWebResearchToolCalls: 6,
+        maxOverflowFileReadCalls: 2,
+      },
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.checks.find((c) => c.name === "web_research_tool_calls")?.status).toBe("fail");
+    expect(result.checks.find((c) => c.name === "overflow_file_read_calls")?.status).toBe("fail");
+    expect(result.metrics.webResearchToolCalls).toBe(7);
+    expect(result.metrics.overflowFileReadCalls).toBe(3);
   });
 });
 
