@@ -34,7 +34,7 @@ export async function startChat(options: ChatOptions): Promise<void> {
 
   // Initialize tools (built-in)
   const toolRegistry = new ToolRegistryImpl();
-  for (const tool of createBuiltinTools()) {
+  for (const tool of createBuiltinTools({ observationRead: true })) {
     toolRegistry.register(tool);
   }
 

@@ -22,6 +22,7 @@ import { handoffTool } from "./handoff.js";
 import { executeCodeTool } from "./execute-code.js";
 import { webFetchTool } from "./web-fetch.js";
 import { webSearchTool } from "./web-search.js";
+import { observationReadTool } from "./observation-read.js";
 
 // Re-exports consumed by @agentclaw/tools index.ts or other packages
 export { shellTool, shellInfo } from "./shell.js";
@@ -42,6 +43,7 @@ export { subagentTool } from "./subagent.js";
 export { browserCdpTool } from "./browser-cdp.js";
 export { handoffTool } from "./handoff.js";
 export { executeCodeTool } from "./execute-code.js";
+export { observationReadTool } from "./observation-read.js";
 
 /** Options for configuring which conditional tools to include */
 export interface BuiltinToolsOptions {
@@ -53,6 +55,8 @@ export interface BuiltinToolsOptions {
   skills?: boolean;
   /** Enable claude_code tool (Claude Code CLI integration) */
   claudeCode?: boolean;
+  /** Enable observation_read tool (requires observation callbacks) */
+  observationRead?: boolean;
 }
 
 /** Create built-in tools with tiered loading */
@@ -91,6 +95,9 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
   }
   if (options?.claudeCode) {
     tools.push(claudeCodeTool);
+  }
+  if (options?.observationRead) {
+    tools.push(observationReadTool);
   }
 
   return tools;

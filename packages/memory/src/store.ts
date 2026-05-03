@@ -21,6 +21,10 @@ import type {
   EvolutionRunQuery,
   EvolutionRunRecord,
   EvolutionRunUpdate,
+  Observation,
+  ObservationInput,
+  ObservationRead,
+  ObservationReadInput,
 } from "@agentclaw/types";
 import { cosineSimilarity, SimpleBagOfWords } from "./embeddings.js";
 
@@ -708,6 +712,104 @@ export class SQLiteMemoryStore implements MemoryStore {
       )
       .all(...params) as EvolutionEventRow[];
     return rows.map(rowToEvolutionEventRecord);
+  }
+
+  async addObservation(input: ObservationInput): Promise<Observation> {
+    const id = randomUUID();
+    const createdAt = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `INSERT INTO observations (
+           id, trace_id, step_id, tool_name, input_hash, content_hash,
+           raw_path, preview, facts, metadata,
+           raw_chars, prompt_chars, saved_chars, created_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.traceId,
+        input.stepId,
+        input.toolName,
+        input.inputHash,
+        input.contentHash,
+        input.rawPath,
+        input.preview,
+        JSON.stringify(input.facts),
+        JSON.stringify(input.metadata),
+        input.rawChars,
+        input.promptChars,
+        input.savedChars,
+        createdAt,
+      );
+
+    const row = this.db
+      .prepare("SELECT * FROM observations WHERE id = ?")
+      .get(id) as ObservationRow;
+    return rowToObservation(row);
+  }
+
+  async getObservation(id: string): Promise<Observation | null> {
+    const row = this.db
+      .prepare("SELECT * FROM observations WHERE id = ?")
+      .get(id) as ObservationRow | undefined;
+    return row ? rowToObservation(row) : null;
+  }
+
+  async findObservationByHash(contentHash: string): Promise<Observation | null> {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM observations
+         WHERE content_hash = ?
+         ORDER BY created_at ASC, rowid ASC
+         LIMIT 1`,
+      )
+      .get(contentHash) as ObservationRow | undefined;
+    return row ? rowToObservation(row) : null;
+  }
+
+  async recordObservationRead(
+    input: ObservationReadInput,
+  ): Promise<ObservationRead> {
+    const id = randomUUID();
+    const readAt = new Date().toISOString();
+
+    this.db
+      .prepare(
+        `INSERT INTO observation_reads (
+           id, observation_id, trace_id, step_id, query, offset, length,
+           returned_chars, read_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        input.observationId,
+        input.traceId,
+        input.stepId,
+        input.query ?? null,
+        input.offset ?? null,
+        input.length ?? null,
+        input.returnedChars,
+        readAt,
+      );
+
+    const row = this.db
+      .prepare("SELECT * FROM observation_reads WHERE id = ?")
+      .get(id) as ObservationReadRow;
+    return rowToObservationRead(row);
+  }
+
+  async listObservationReads(observationId: string): Promise<ObservationRead[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM observation_reads
+         WHERE observation_id = ?
+         ORDER BY read_at ASC, rowid ASC`,
+      )
+      .all(observationId) as ObservationReadRow[];
+    return rows.map(rowToObservationRead);
   }
 
   private async createAutomaticEvolutionRun(
@@ -2295,6 +2397,35 @@ interface EvolutionEventRow {
   created_at: string;
 }
 
+interface ObservationRow {
+  id: string;
+  trace_id: string;
+  step_id: string;
+  tool_name: string;
+  input_hash: string;
+  content_hash: string;
+  raw_path: string;
+  preview: string;
+  facts: string;
+  metadata: string;
+  raw_chars: number;
+  prompt_chars: number;
+  saved_chars: number;
+  created_at: string;
+}
+
+interface ObservationReadRow {
+  id: string;
+  observation_id: string;
+  trace_id: string;
+  step_id: string;
+  query: string | null;
+  offset: number | null;
+  length: number | null;
+  returned_chars: number;
+  read_at: string;
+}
+
 interface TurnRow {
   id: string;
   conversation_id: string;
@@ -2422,6 +2553,39 @@ function rowToEvolutionEventRecord(
       ? (JSON.parse(row.data) as Record<string, unknown>)
       : undefined,
     createdAt: new Date(row.created_at),
+  };
+}
+
+function rowToObservation(row: ObservationRow): Observation {
+  return {
+    id: row.id,
+    traceId: row.trace_id,
+    stepId: row.step_id,
+    toolName: row.tool_name,
+    inputHash: row.input_hash,
+    contentHash: row.content_hash,
+    rawPath: row.raw_path,
+    preview: row.preview,
+    facts: JSON.parse(row.facts) as Array<Record<string, unknown>>,
+    metadata: JSON.parse(row.metadata) as Record<string, unknown>,
+    rawChars: row.raw_chars,
+    promptChars: row.prompt_chars,
+    savedChars: row.saved_chars,
+    createdAt: new Date(row.created_at),
+  };
+}
+
+function rowToObservationRead(row: ObservationReadRow): ObservationRead {
+  return {
+    id: row.id,
+    observationId: row.observation_id,
+    traceId: row.trace_id,
+    stepId: row.step_id,
+    query: row.query ?? undefined,
+    offset: row.offset ?? undefined,
+    length: row.length ?? undefined,
+    returnedChars: row.returned_chars,
+    readAt: new Date(row.read_at),
   };
 }
 

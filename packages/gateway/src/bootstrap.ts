@@ -231,6 +231,7 @@ export async function bootstrap(): Promise<AppContext> {
     memory: true, // 启用 remember
     skills: true, // 启用 use_skill
     claudeCode: true, // 启用 claude_code（Claude Code CLI）
+    observationRead: true, // 启用 Observation Store 定向读取
   });
   for (const tool of builtinTools) {
     toolRegistry.register(tool);

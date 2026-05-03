@@ -288,6 +288,39 @@ export interface EvolutionEventQuery {
   limit?: number;
 }
 
+export interface Observation {
+  id: string;
+  traceId: string;
+  stepId: string;
+  toolName: string;
+  inputHash: string;
+  contentHash: string;
+  rawPath: string;
+  preview: string;
+  facts: Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+  rawChars: number;
+  promptChars: number;
+  savedChars: number;
+  createdAt: Date;
+}
+
+export type ObservationInput = Omit<Observation, "id" | "createdAt">;
+
+export interface ObservationRead {
+  id: string;
+  observationId: string;
+  traceId: string;
+  stepId: string;
+  query?: string;
+  offset?: number;
+  length?: number;
+  returnedChars: number;
+  readAt: Date;
+}
+
+export type ObservationReadInput = Omit<ObservationRead, "id" | "readAt">;
+
 /** Memory store interface */
 export interface MemoryStore {
   /** Store a new memory (namespace for per-agent isolation, defaults to "default") */
@@ -451,6 +484,21 @@ export interface MemoryStore {
   listEvolutionEvents(
     query?: EvolutionEventQuery,
   ): Promise<EvolutionEventRecord[]>;
+
+  /** 保存一次工具/环境观察结果 */
+  addObservation(input: ObservationInput): Promise<Observation>;
+
+  /** 按 ID 读取观察结果 */
+  getObservation(id: string): Promise<Observation | null>;
+
+  /** 按内容哈希查找可复用观察结果 */
+  findObservationByHash(contentHash: string): Promise<Observation | null>;
+
+  /** 记录一次观察结果读取 */
+  recordObservationRead(input: ObservationReadInput): Promise<ObservationRead>;
+
+  /** 列出观察结果读取记录 */
+  listObservationReads(observationId: string): Promise<ObservationRead[]>;
 }
 
 /** A single conversation turn stored in memory */

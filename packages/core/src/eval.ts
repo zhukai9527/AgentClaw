@@ -82,6 +82,9 @@ export interface TraceQualityOptions {
   maxNetworkExecuteCodeCalls?: number;
   maxWebResearchToolCalls?: number;
   maxOverflowFileReadCalls?: number;
+  minObservationSavingsRate?: number;
+  maxObservationFullReads?: number;
+  minObservationsCreated?: number;
   minCacheReadRate?: number;
   forbidOverflowFullRead?: boolean;
   failOnZeroScoreCommentsAfterRss?: boolean;
@@ -102,6 +105,13 @@ export interface TraceQualityResult {
     networkExecuteCodeCalls: number;
     webResearchToolCalls: number;
     overflowFileReadCalls: number;
+    observationsCreated: number;
+    observationReadCalls: number;
+    observationFullReads: number;
+    rawChars: number;
+    promptChars: number;
+    savedChars: number;
+    observationSavingsRate: number;
   };
 }
 
@@ -153,6 +163,93 @@ function stepText(step: TraceStep | undefined): string {
   } catch {
     return String(content ?? "");
   }
+}
+
+interface ObservationStats {
+  observationId?: string;
+  rawChars: number;
+  promptChars: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function firstFiniteNumber(...values: unknown[]): number {
+  for (const value of values) {
+    const parsed = finiteNumber(value);
+    if (parsed !== undefined) return parsed;
+  }
+  return 0;
+}
+
+function observationStatsFromRecord(
+  record: Record<string, unknown>,
+): ObservationStats | undefined {
+  const nested = isRecord(record.observation) ? record.observation : {};
+  const observationId =
+    typeof record.observationId === "string"
+      ? record.observationId
+      : typeof nested.id === "string"
+        ? nested.id
+        : undefined;
+
+  if (!observationId && !isRecord(record.observation)) return undefined;
+
+  return {
+    observationId,
+    rawChars: firstFiniteNumber(record.rawChars, nested.rawChars),
+    promptChars: firstFiniteNumber(record.promptChars, nested.promptChars),
+  };
+}
+
+function parseJsonRecord(text: string): Record<string, unknown> | undefined {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{")) return undefined;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function observationStatsFromText(text: string): ObservationStats | undefined {
+  const parsed = parseJsonRecord(text);
+  if (parsed) return observationStatsFromRecord(parsed);
+
+  const observationId =
+    text.match(/"observationId"\s*:\s*"([^"]+)"/)?.[1] ??
+    text.match(/\bobservationId\b\s*[:=]\s*([A-Za-z0-9_.:-]+)/)?.[1];
+  if (!observationId) return undefined;
+
+  const rawChars = Number(text.match(/\brawChars\b\s*[:=]\s*(\d+)/)?.[1] ?? 0);
+  const promptChars = Number(
+    text.match(/\bpromptChars\b\s*[:=]\s*(\d+)/)?.[1] ?? 0,
+  );
+
+  return {
+    observationId,
+    rawChars,
+    promptChars,
+  };
+}
+
+function observationStatsFromStep(step: TraceStep): ObservationStats | undefined {
+  const metadata = step.metadata;
+  if (isRecord(metadata)) {
+    const fromMetadata = observationStatsFromRecord(metadata);
+    if (fromMetadata) return fromMetadata;
+  }
+
+  const content = step.content;
+  if (typeof content === "string") return observationStatsFromText(content);
+  if (isRecord(content)) return observationStatsFromRecord(content);
+  return undefined;
 }
 
 /* ── Core evaluation logic ───────────────────────────── */
@@ -367,9 +464,26 @@ export function evaluateTraceQuality(
   let networkExecuteCodeCalls = 0;
   let webResearchToolCalls = 0;
   let overflowFileReadCalls = 0;
+  let observationReadCalls = 0;
+  let observationFullReads = 0;
+  let rawChars = 0;
+  let promptChars = 0;
+  const observationsCreated = new Set<string>();
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
+    if (step.type === "tool_result") {
+      const observation = observationStatsFromStep(step);
+      if (observation) {
+        observationsCreated.add(
+          observation.observationId ?? `anonymous:${i}`,
+        );
+        rawChars += observation.rawChars;
+        promptChars += observation.promptChars;
+      }
+      continue;
+    }
+
     if (step.type !== "tool_call") continue;
 
     const name = step.name;
@@ -385,6 +499,17 @@ export function evaluateTraceQuality(
       );
     const normalizedPath =
       typeof input?.path === "string" ? input.path.replace(/\\/g, "/") : "";
+
+    if (name === "observation_read") {
+      observationReadCalls++;
+      const hasBoundedRead =
+        finiteNumber(input?.offset) !== undefined &&
+        finiteNumber(input?.length) !== undefined &&
+        finiteNumber(input?.length)! > 0;
+      if (!hasBoundedRead || nextText.length > 2_500) {
+        observationFullReads++;
+      }
+    }
 
     if (
       (name === "web_search" || name === "web_fetch") &&
@@ -466,6 +591,11 @@ export function evaluateTraceQuality(
     overflowFileReadCalls,
     options.maxOverflowFileReadCalls,
   );
+  addThresholdCheck(
+    "observation_full_reads",
+    observationFullReads,
+    options.maxObservationFullReads,
+  );
 
   if (options.minCacheReadRate !== undefined) {
     const passed = cacheReadRate >= options.minCacheReadRate;
@@ -473,6 +603,30 @@ export function evaluateTraceQuality(
       name: "cache_read_rate",
       status: passed ? "pass" : "fail",
       message: `${Math.round(cacheReadRate * 100)}% cache read rate`,
+    });
+  }
+
+  const savedChars = Math.max(0, rawChars - promptChars);
+  const observationSavingsRate = rawChars > 0 ? savedChars / rawChars : 0;
+
+  if (options.minObservationSavingsRate !== undefined) {
+    const passed = observationSavingsRate >= options.minObservationSavingsRate;
+    checks.push({
+      name: "observation_savings_rate",
+      status: passed ? "pass" : "fail",
+      message: `${Math.round(observationSavingsRate * 100)}% observation savings rate`,
+    });
+  }
+
+  if (options.minObservationsCreated !== undefined) {
+    const actual = observationsCreated.size;
+    const passed = actual >= options.minObservationsCreated;
+    checks.push({
+      name: "observations_created",
+      status: passed ? "pass" : "fail",
+      message: passed
+        ? `${actual} observation(s) meets minimum ${options.minObservationsCreated}`
+        : `${actual} observation(s) below minimum ${options.minObservationsCreated}`,
     });
   }
 
@@ -518,6 +672,13 @@ export function evaluateTraceQuality(
       networkExecuteCodeCalls,
       webResearchToolCalls,
       overflowFileReadCalls,
+      observationsCreated: observationsCreated.size,
+      observationReadCalls,
+      observationFullReads,
+      rawChars,
+      promptChars,
+      savedChars,
+      observationSavingsRate,
     },
   };
 }

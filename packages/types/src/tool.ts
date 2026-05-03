@@ -199,6 +199,18 @@ export interface ToolExecutionContext {
       createdAt: string;
     }>
   >;
+  /** Read a captured observation by canonical id. */
+  getObservation?: (
+    id: string,
+  ) => Promise<{ id: string; raw: string } | undefined>;
+  /** Audit an observation_read result. */
+  recordObservationRead?: (record: {
+    id: string;
+    returnedChars: number;
+    query?: string;
+    offset?: number;
+    length?: number;
+  }) => Promise<void>;
 }
 
 /** A tool that can be executed */

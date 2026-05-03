@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createHash } from "node:crypto";
+import { existsSync, rmSync } from "node:fs";
+import { resolve } from "node:path";
 import { SimpleAgentLoop } from "../agent-loop.js";
 import type {
   LLMProvider,
@@ -136,6 +139,12 @@ function createMockMemoryStore(): MemoryStore {
     addTrace: vi.fn().mockResolvedValue(undefined),
     getTrace: vi.fn().mockResolvedValue(null),
     getTraces: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    addObservation: vi.fn().mockImplementation(async (observation) => ({
+      id: "obs-1",
+      ...observation,
+      createdAt: new Date(),
+    })),
+    findObservationByHash: vi.fn().mockResolvedValue(null),
   } as unknown as MemoryStore;
 }
 
@@ -192,6 +201,15 @@ describe("SimpleAgentLoop", () => {
     toolRegistry = createMockToolRegistry();
     contextManager = createMockContextManager();
     memoryStore = createMockMemoryStore();
+  });
+
+  afterEach(() => {
+    for (const conversationId of ["conv-obs", "conv-dedupe"]) {
+      const generated = resolve(process.cwd(), "data", "tmp", conversationId);
+      if (existsSync(generated)) {
+        rmSync(generated, { recursive: true, force: true });
+      }
+    }
   });
 
   // ── 构造和配置测试 ──
@@ -365,6 +383,35 @@ describe("SimpleAgentLoop", () => {
   // ── 工具调用循环测试 ──
 
   describe("工具调用循环", () => {
+    const createToolCallChunks = (
+      id: string,
+      name: string,
+      input: Record<string, unknown> = {},
+    ): LLMStreamChunk[] => [
+      {
+        type: "tool_use_start",
+        toolUse: { id, name, input: "" },
+      },
+      {
+        type: "tool_use_delta",
+        toolUse: { id, name: "", input: JSON.stringify(input) },
+      },
+      {
+        type: "done",
+        usage: { tokensIn: 10, tokensOut: 5 },
+        model: "mock-model",
+      },
+    ];
+
+    const finalChunks: LLMStreamChunk[] = [
+      { type: "text", text: "done" },
+      {
+        type: "done",
+        usage: { tokensIn: 20, tokensOut: 10 },
+        model: "mock-model",
+      },
+    ];
+
     it("应正确执行工具并将结果传回 LLM", async () => {
       // 第 1 轮：LLM 调用工具
       const toolCallChunks: LLMStreamChunk[] = [
@@ -512,6 +559,157 @@ describe("SimpleAgentLoop", () => {
         (call: unknown[]) => (call[1] as { role: string }).role === "tool",
       );
       expect(toolTurnCalls.length).toBe(1);
+    });
+
+    it("大工具输出应创建 observation，返回给模型和 trace 的 content 是小摘要", async () => {
+      const largeContent = Array.from(
+        { length: 260 },
+        (_, i) => `line-${i.toString().padStart(3, "0")} ${"x".repeat(40)}`,
+      ).join("\n");
+      expect(largeContent.length).toBeGreaterThan(8_000);
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-big", "web_fetch", { url: "https://example.com" }),
+        finalChunks,
+      ]);
+      const fetchTool = createMockTool("web_fetch", { content: largeContent });
+      const testToolRegistry = createMockToolRegistry([fetchTool]);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+      });
+
+      const events = await collectEvents(loop.runStream("fetch", "conv-obs"));
+
+      expect(memoryStore.addObservation).toHaveBeenCalledTimes(1);
+      const observationArg = (memoryStore.addObservation as ReturnType<typeof vi.fn>)
+        .mock.calls[0][0] as Record<string, unknown>;
+      expect(observationArg.contentHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(observationArg.rawPath).toEqual(
+        expect.stringContaining("overflow_web_fetch_"),
+      );
+      expect(observationArg.rawChars).toBe(largeContent.length);
+      expect(observationArg.preview).toContain("line-000");
+
+      const toolResult = events.find((event) => event.type === "tool_result")!;
+      const result = (toolResult.data as { result: ToolResult }).result;
+      expect(result.content.length).toBeLessThan(2_500);
+      expect(result.content).toContain("observation://obs-1");
+      expect(result.content).toContain("rawChars:");
+      expect(result.content).not.toContain(largeContent.slice(3000, 3600));
+      expect(result.metadata).toMatchObject({
+        overflow: true,
+        originalLength: largeContent.length,
+        originalLines: 260,
+        observationId: "obs-1",
+      });
+      expect(result.metadata?.overflowPath).toEqual(
+        expect.stringContaining("overflow_web_fetch_"),
+      );
+
+      const trace = (memoryStore.addTrace as ReturnType<typeof vi.fn>).mock.calls.at(
+        -1,
+      )?.[0] as { steps: Array<Record<string, unknown>> };
+      const traceToolResult = trace.steps.find(
+        (step) => step.type === "tool_result",
+      );
+      expect(String(traceToolResult?.content).length).toBeLessThan(2_500);
+      expect(String(traceToolResult?.content)).toContain("observation://obs-1");
+      expect(String(traceToolResult?.content)).not.toContain(
+        largeContent.slice(3000, 3600),
+      );
+    });
+
+    it("相同 contentHash 的大输出应复用已有 observation 且不重复写 raw", async () => {
+      const largeContent = `${"same-output\n".repeat(900)}tail`;
+      const testProvider = createMockProvider([
+        [
+          ...createToolCallChunks("tc-one", "tool_a", { source: "a" }).slice(0, 2),
+          ...createToolCallChunks("tc-two", "tool_b", { source: "b" }).slice(0, 2),
+          {
+            type: "done",
+            usage: { tokensIn: 10, tokensOut: 5 },
+            model: "mock-model",
+          },
+        ],
+        finalChunks,
+      ]);
+      const toolA = createMockTool("tool_a");
+      const toolB = createMockTool("tool_b");
+      (toolA.execute as ReturnType<typeof vi.fn>).mockResolvedValue({
+        content: largeContent,
+      });
+      (toolB.execute as ReturnType<typeof vi.fn>).mockResolvedValue({
+        content: largeContent,
+      });
+      const testToolRegistry = createMockToolRegistry([toolA, toolB]);
+      const existingObservation = {
+        id: "obs-existing",
+        contentHash: createHash("sha256").update(largeContent).digest("hex"),
+        rawPath: "D:/tmp/existing.txt",
+      };
+      (memoryStore.findObservationByHash as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(existingObservation);
+      (memoryStore.addObservation as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        id: "obs-existing",
+        content: largeContent,
+        contentHash: existingObservation.contentHash,
+        rawPath: existingObservation.rawPath,
+      });
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("fetch twice", "conv-dedupe"),
+      );
+
+      expect(memoryStore.findObservationByHash).toHaveBeenCalledTimes(2);
+      expect(memoryStore.addObservation).toHaveBeenCalledTimes(1);
+      const toolResults = events
+        .filter((event) => event.type === "tool_result")
+        .map((event) => (event.data as { result: ToolResult }).result);
+      expect(toolResults).toHaveLength(2);
+      expect(toolResults[0].metadata?.observationId).toBe("obs-existing");
+      expect(toolResults[1].metadata?.observationId).toBe("obs-existing");
+      expect(toolResults[1].metadata?.overflowPath).toBe(
+        existingObservation.rawPath,
+      );
+      expect(toolResults[1].content).toContain("observation://obs-existing");
+    });
+
+    it("use_skill 大输出不应创建 observation", async () => {
+      const largeSkill = "skill instructions\n".repeat(600);
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-skill", "use_skill", { name: "demo" }),
+        finalChunks,
+      ]);
+      const skillTool = createMockTool("use_skill", { content: largeSkill });
+      const testToolRegistry = createMockToolRegistry([skillTool]);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("use skill", "conv-skill"),
+      );
+
+      expect(memoryStore.addObservation).not.toHaveBeenCalled();
+      expect(memoryStore.findObservationByHash).not.toHaveBeenCalled();
+      const toolResult = events.find((event) => event.type === "tool_result")!;
+      const result = (toolResult.data as { result: ToolResult }).result;
+      expect(result.content).toBe(largeSkill);
+      expect(result.metadata?.observationId).toBeUndefined();
     });
 
     it("工具失败后应允许同工具的修正参数重试", async () => {

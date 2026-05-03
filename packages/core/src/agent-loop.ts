@@ -18,12 +18,14 @@ import type {
   ConversationTurn,
   Trace,
   TraceStep,
+  ObservationInput,
 } from "@agentclaw/types";
 import type { ToolRegistryImpl } from "@agentclaw/tools";
 import { generateId } from "@agentclaw/providers";
 import { createHash } from "node:crypto";
 import {
   writeFileSync,
+  readFileSync,
   mkdirSync,
   existsSync,
   copyFileSync,
@@ -258,7 +260,7 @@ const OVERFLOW_PREVIEW_CHARS = 1_500;
  *
  * Returns the overflow file path if overflow was applied, null otherwise.
  */
-function applyOverflow(
+async function applyOverflow(
   result: {
     content: string;
     isError?: boolean;
@@ -266,8 +268,11 @@ function applyOverflow(
   },
   toolName: string,
   getSessionTmpDir: () => string,
+  memoryStore: MemoryStore,
+  traceId: string,
+  stepId: string,
   toolInput?: Record<string, unknown>,
-): string | null {
+): Promise<string | null> {
   // Don't overflow errors (usually short and important) or short outputs
   if (result.isError || result.content.length <= OVERFLOW_THRESHOLD)
     return null;
@@ -281,38 +286,103 @@ function applyOverflow(
   if (toolName === "file_read" && typeof toolInput?.path === "string") {
     const p = (toolInput.path as string).replace(/\\/g, "/");
     if (p.includes("/overflow_") && p.endsWith(".txt")) return null;
+    if (p.startsWith("observation://")) return null;
   }
-
-  // Save full content to file
-  const ts = Date.now();
-  const safeName = toolName.replace(/[^a-zA-Z0-9_-]/g, "_");
-  const fileName = `overflow_${safeName}_${ts}.txt`;
-  const filePath = join(getSessionTmpDir(), fileName).replace(/\\/g, "/");
-  writeFileSync(filePath, result.content, "utf-8");
 
   const totalChars = result.content.length;
   const totalLines = result.content.split("\n").length;
+  const originalContent = result.content;
+  const contentHash = createHash("sha256").update(originalContent).digest("hex");
+  const inputHash = createHash("sha256")
+    .update(JSON.stringify(toolInput ?? {}))
+    .digest("hex");
+
+  let observationId: string | undefined;
+  let filePath: string | undefined;
+  const existingObservation = await memoryStore.findObservationByHash(contentHash);
+
+  if (existingObservation) {
+    observationId = existingObservation.id;
+    filePath = existingObservation.rawPath;
+  } else {
+    // Save full content to file
+    const ts = Date.now();
+    const safeName = toolName.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const fileName = `overflow_${safeName}_${ts}.txt`;
+    filePath = join(getSessionTmpDir(), fileName).replace(/\\/g, "/");
+    writeFileSync(filePath, originalContent, "utf-8");
+  }
 
   // Replace content with preview + reference
-  const preview = result.content.slice(0, OVERFLOW_PREVIEW_CHARS);
+  const preview = originalContent.slice(0, OVERFLOW_PREVIEW_CHARS);
   // Cut at last newline to avoid mid-line break
   const lastNL = preview.lastIndexOf("\n");
   const cleanPreview =
     lastNL > OVERFLOW_PREVIEW_CHARS * 0.5 ? preview.slice(0, lastNL) : preview;
 
-  result.content =
-    cleanPreview +
-    `\n\n... [tool output overflowed; full content saved to: ${filePath}]\n` +
-    "Preview is usually enough. Do not read the full overflow file unless a specific missing fact is required; use grep or file_read with offset/length for targeted access.";
+  const observationRef = observationId
+    ? `observation://${observationId}`
+    : "observation://unavailable";
+  const rawRef = filePath ?? "raw file unavailable";
+  const buildSummary = (promptChars: number): string => {
+    const savedChars = Math.max(0, totalChars - promptChars);
+    return (
+      cleanPreview +
+      "\n\n... [tool output stored as observation]\n" +
+      `observation: ${observationRef}\n` +
+      `rawPath: ${rawRef}\n` +
+      `rawChars: ${totalChars}\n` +
+      `promptChars: ${promptChars}\n` +
+      `savedChars: ${savedChars}\n` +
+      "Preview is usually enough. Use observation_read for the full observation only when a specific missing fact is required."
+    );
+  };
+  let finalContent = buildSummary(0);
+  finalContent = buildSummary(finalContent.length);
+  const promptChars = finalContent.length;
+  const savedChars = Math.max(0, totalChars - promptChars);
+
+  if (!existingObservation) {
+    const observationInput: ObservationInput = {
+      traceId,
+      stepId,
+      toolName,
+      inputHash,
+      contentHash,
+      rawPath: rawRef,
+      preview: cleanPreview,
+      facts: [],
+      metadata: {
+        overflow: true,
+        rawPath: rawRef,
+        originalLength: totalChars,
+        originalLines: totalLines,
+      },
+      rawChars: totalChars,
+      promptChars,
+      savedChars,
+    };
+    const observation = await memoryStore.addObservation(observationInput);
+    observationId = observation.id;
+    finalContent = finalContent.replace(
+      "observation://unavailable",
+      `observation://${observationId}`,
+    );
+  }
+
+  result.content = finalContent;
 
   // Record overflow info in metadata
   if (!result.metadata) result.metadata = {};
   result.metadata.overflow = true;
-  result.metadata.overflowPath = filePath;
+  result.metadata.overflowPath = rawRef;
+  result.metadata.rawPath = rawRef;
   result.metadata.originalLength = totalChars;
   result.metadata.originalLines = totalLines;
+  result.metadata.observationId = observationId;
+  result.metadata.contentHash = contentHash;
 
-  return filePath;
+  return filePath ?? null;
 }
 
 /**
@@ -1397,6 +1467,33 @@ export class SimpleAgentLoop implements AgentLoop {
         }
 
         const toolStart = Date.now();
+        const toolContext: ToolExecutionContext = {
+          ...context,
+          getObservation: async (id: string) => {
+            const observation = await this.memoryStore.getObservation(id);
+            if (!observation) return undefined;
+            if (!existsSync(observation.rawPath)) return undefined;
+            return {
+              id: observation.id,
+              raw: readFileSync(observation.rawPath, "utf-8"),
+            };
+          },
+          recordObservationRead: async (record) => {
+            await this.memoryStore.recordObservationRead({
+              observationId: record.id,
+              traceId: trace.id,
+              stepId: tc.id,
+              query: record.query,
+              offset: record.offset,
+              length: record.length,
+              returnedChars: record.returnedChars,
+            });
+          },
+        };
+        const executionContext =
+          context || effectiveToolName === "observation_read"
+            ? toolContext
+            : undefined;
 
         if (!blockedByPolicy) {
           globalCallCount++;
@@ -1566,7 +1663,7 @@ export class SimpleAgentLoop implements AgentLoop {
             result = await this.toolRegistry.execute(
               effectiveToolName,
               effectiveToolInput,
-              context,
+              executionContext,
             );
 
             // Retry retryable tools on failure
@@ -1585,7 +1682,7 @@ export class SimpleAgentLoop implements AgentLoop {
                 result = await this.toolRegistry.execute(
                   effectiveToolName,
                   effectiveToolInput,
-                  context,
+                  executionContext,
                 );
                 if (!result.isError) break;
               }
@@ -1658,10 +1755,13 @@ export class SimpleAgentLoop implements AgentLoop {
             };
           }
 
-          applyOverflow(
+          await applyOverflow(
             result!,
             effectiveToolName,
             ensureSessionTmpDir,
+            this.memoryStore,
+            trace.id,
+            tc.id,
             effectiveToolInput,
           );
         }
@@ -1802,6 +1902,7 @@ export class SimpleAgentLoop implements AgentLoop {
               type: "tool_result",
               name: r.toolCall.name,
               content: envMap ? obfuscateString(r.result.content, envMap) : r.result.content,
+              metadata: r.result.metadata,
               durationMs: r.toolDurationMs,
             } as TraceStep);
             const handoffToolResult: ToolResultContent = {
@@ -1859,6 +1960,7 @@ export class SimpleAgentLoop implements AgentLoop {
             name: r.toolCall.name,
             content: envMap ? obfuscateString(r.result.content, envMap) : r.result.content,
             isError: r.result.isError,
+            metadata: r.result.metadata,
             durationMs: r.toolDurationMs,
           } as TraceStep);
 

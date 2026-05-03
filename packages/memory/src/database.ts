@@ -215,6 +215,41 @@ CREATE TABLE IF NOT EXISTS evolution_events (
 CREATE INDEX IF NOT EXISTS idx_evolution_events_run ON evolution_events(run_id, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_evolution_events_trace ON evolution_events(trace_id);
 
+-- Observation Store：工具/环境输出的可去重原始观察记录
+CREATE TABLE IF NOT EXISTS observations (
+  id TEXT PRIMARY KEY,
+  trace_id TEXT NOT NULL,
+  step_id TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  input_hash TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  raw_path TEXT NOT NULL,
+  preview TEXT NOT NULL,
+  facts TEXT NOT NULL DEFAULT '[]',
+  metadata TEXT NOT NULL DEFAULT '{}',
+  raw_chars INTEGER NOT NULL,
+  prompt_chars INTEGER NOT NULL,
+  saved_chars INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_observations_content_hash ON observations(content_hash);
+CREATE INDEX IF NOT EXISTS idx_observations_trace_step ON observations(trace_id, step_id);
+CREATE INDEX IF NOT EXISTS idx_observations_created ON observations(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS observation_reads (
+  id TEXT PRIMARY KEY,
+  observation_id TEXT NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+  trace_id TEXT NOT NULL,
+  step_id TEXT NOT NULL,
+  query TEXT,
+  offset INTEGER,
+  length INTEGER,
+  returned_chars INTEGER NOT NULL,
+  read_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_observation_reads_observation ON observation_reads(observation_id, read_at ASC);
+CREATE INDEX IF NOT EXISTS idx_observation_reads_trace ON observation_reads(trace_id, step_id);
+
 -- Agent profiles (persona with custom soul, model, tools)
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY,
@@ -340,12 +375,60 @@ export function initDatabase(dbPath: string): DbAdapter {
   addColumnIfMissing(db, "skill_changes", "trace_id", "TEXT");
   addColumnIfMissing(db, "skill_changes", "conversation_id", "TEXT");
 
+  // Observation Store：兼容已存在的早期/部分表结构
+  addColumnIfMissing(db, "observations", "trace_id", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "observations", "step_id", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "observations", "tool_name", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "observations", "input_hash", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "observations", "content_hash", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "observations", "raw_path", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "observations", "preview", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "observations", "facts", "TEXT NOT NULL DEFAULT '[]'");
+  addColumnIfMissing(db, "observations", "metadata", "TEXT NOT NULL DEFAULT '{}'");
+  addColumnIfMissing(db, "observations", "raw_chars", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "observations", "prompt_chars", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "observations", "saved_chars", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(
+    db,
+    "observations",
+    "created_at",
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  addColumnIfMissing(
+    db,
+    "observation_reads",
+    "observation_id",
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  addColumnIfMissing(db, "observation_reads", "trace_id", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "observation_reads", "step_id", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "observation_reads", "query", "TEXT");
+  addColumnIfMissing(db, "observation_reads", "offset", "INTEGER");
+  addColumnIfMissing(db, "observation_reads", "length", "INTEGER");
+  addColumnIfMissing(
+    db,
+    "observation_reads",
+    "returned_chars",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  addColumnIfMissing(
+    db,
+    "observation_reads",
+    "read_at",
+    "TEXT NOT NULL DEFAULT ''",
+  );
+
   // Create indexes for migration-added columns (must run after addColumnIfMissing)
   try {
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_tasks_executor ON tasks(executor);
       CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks(deadline);
       CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
+      CREATE INDEX IF NOT EXISTS idx_observations_content_hash ON observations(content_hash);
+      CREATE INDEX IF NOT EXISTS idx_observations_trace_step ON observations(trace_id, step_id);
+      CREATE INDEX IF NOT EXISTS idx_observations_created ON observations(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_observation_reads_observation ON observation_reads(observation_id, read_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_observation_reads_trace ON observation_reads(trace_id, step_id);
     `);
   } catch {
     // Indexes may already exist

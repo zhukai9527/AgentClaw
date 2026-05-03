@@ -331,6 +331,151 @@ describe("evaluateTrace", () => {
 });
 
 describe("evaluateTraceQuality", () => {
+  it("calculates observation savings from tool result metadata", () => {
+    const result = evaluateTraceQuality(
+      makeTrace({
+        id: "observation-metadata-trace",
+        steps: [
+          { type: "llm_call", iteration: 1, tokensIn: 8_000, tokensOut: 200 },
+          { type: "tool_call", name: "execute_code", input: { code: "collect large report" } },
+          {
+            type: "tool_result",
+            name: "execute_code",
+            content: "Observation stored: obs-001",
+            metadata: {
+              observationId: "obs-001",
+              observation: {
+                rawChars: 12_000,
+                promptChars: 900,
+              },
+            },
+            isError: false,
+            durationMs: 500,
+          },
+          { type: "tool_call", name: "observation_read", input: { observationId: "obs-001", offset: 0, length: 500 } },
+          {
+            type: "tool_result",
+            name: "observation_read",
+            content: "summary slice",
+            isError: false,
+            durationMs: 10,
+          },
+        ],
+      }),
+      {
+        minObservationsCreated: 1,
+        minObservationSavingsRate: 0.9,
+        maxObservationFullReads: 0,
+      },
+    );
+
+    expect(result.passed).toBe(true);
+    expect(result.metrics.observationsCreated).toBe(1);
+    expect(result.metrics.observationReadCalls).toBe(1);
+    expect(result.metrics.observationFullReads).toBe(0);
+    expect(result.metrics.rawChars).toBe(12_000);
+    expect(result.metrics.promptChars).toBe(900);
+    expect(result.metrics.savedChars).toBe(11_100);
+    expect(result.metrics.observationSavingsRate).toBeCloseTo(0.925);
+    expect(result.checks.find((c) => c.name === "observation_savings_rate")?.status).toBe("pass");
+  });
+
+  it("detects observation metadata from JSON tool result content", () => {
+    const result = evaluateTraceQuality(
+      makeTrace({
+        id: "observation-content-trace",
+        steps: [
+          { type: "llm_call", iteration: 1, tokensIn: 4_000, tokensOut: 100 },
+          { type: "tool_call", name: "web_fetch", input: { url: "https://example.com/large" } },
+          {
+            type: "tool_result",
+            name: "web_fetch",
+            content: JSON.stringify({
+              observationId: "obs-content-1",
+              observation: {
+                rawChars: 5_000,
+                promptChars: 1_000,
+              },
+            }),
+            isError: false,
+            durationMs: 100,
+          },
+        ],
+      }),
+    );
+
+    expect(result.metrics.observationsCreated).toBe(1);
+    expect(result.metrics.rawChars).toBe(5_000);
+    expect(result.metrics.promptChars).toBe(1_000);
+    expect(result.metrics.savedChars).toBe(4_000);
+    expect(result.metrics.observationSavingsRate).toBe(0.8);
+  });
+
+  it("counts unbounded or oversized observation reads as full reads", () => {
+    const result = evaluateTraceQuality(
+      makeTrace({
+        id: "observation-full-read-trace",
+        steps: [
+          { type: "llm_call", iteration: 1, tokensIn: 5_000, tokensOut: 100 },
+          { type: "tool_call", name: "observation_read", input: { observationId: "obs-001" } },
+          {
+            type: "tool_result",
+            name: "observation_read",
+            content: "short full result",
+            isError: false,
+            durationMs: 10,
+          },
+          { type: "tool_call", name: "observation_read", input: { observationId: "obs-002", offset: 0, length: 200 } },
+          {
+            type: "tool_result",
+            name: "observation_read",
+            content: "x".repeat(4_000),
+            isError: false,
+            durationMs: 10,
+          },
+        ],
+      }),
+      { maxObservationFullReads: 0 },
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.metrics.observationReadCalls).toBe(2);
+    expect(result.metrics.observationFullReads).toBe(2);
+    expect(result.checks.find((c) => c.name === "observation_full_reads")?.status).toBe("fail");
+  });
+
+  it("deducts score when observation thresholds fail", () => {
+    const result = evaluateTraceQuality(
+      makeTrace({
+        id: "observation-threshold-failure",
+        steps: [
+          { type: "llm_call", iteration: 1, tokensIn: 3_000, tokensOut: 100 },
+          { type: "tool_call", name: "execute_code", input: { code: "store small payload" } },
+          {
+            type: "tool_result",
+            name: "execute_code",
+            content: JSON.stringify({
+              observationId: "obs-low-savings",
+              rawChars: 1_000,
+              promptChars: 900,
+            }),
+            isError: false,
+            durationMs: 100,
+          },
+        ],
+      }),
+      {
+        minObservationsCreated: 2,
+        minObservationSavingsRate: 0.5,
+      },
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.score).toBe(70);
+    expect(result.checks.find((c) => c.name === "observations_created")?.status).toBe("fail");
+    expect(result.checks.find((c) => c.name === "observation_savings_rate")?.status).toBe("fail");
+  });
+
   it("fails a news trace that rereads overflow, burns tokens, and fabricates unavailable counts", () => {
     const trace = makeTrace({
       id: "bad-news-trace",
