@@ -642,6 +642,21 @@ def is_url(s):
     """检查是否为 URL"""
     return s.startswith('http://') or s.startswith('https://')
 
+def yt_dlp_cmd(*args):
+    """通过当前 Python 环境调用 yt-dlp，避免 Windows subprocess 找不到 Git Bash PATH 里的脚本。"""
+    return [sys.executable, '-m', 'yt_dlp', *args]
+
+def largest_file_with_ext(directory, ext):
+    """返回指定目录下同扩展名的最大文件。"""
+    files = [
+        os.path.join(directory, f)
+        for f in os.listdir(directory)
+        if f.endswith(ext)
+    ]
+    if not files:
+        return None
+    return max(files, key=os.path.getsize)
+
 def download_from_url(url, output_dir, srt_only=False, language=None):
     """
     从 URL 下载视频/音频，智能选择最优策略：
@@ -664,9 +679,9 @@ def download_from_url(url, output_dir, srt_only=False, language=None):
     # Step 1: 尝试下载 CC 字幕
     print(f'  尝试获取 CC 字幕...')
     cc_result = subprocess.run(
-        ['yt-dlp', '--no-warnings', '--write-auto-subs', '--write-subs',
+        yt_dlp_cmd('--no-warnings', '--write-auto-subs', '--write-subs',
          '--sub-langs', sub_langs, '--skip-download', '--convert-subs', 'srt',
-         '-o', os.path.join(output_dir, '%(id)s'), url],
+         '-o', os.path.join(output_dir, '%(id)s'), url),
         capture_output=True, text=True, timeout=60
     )
 
@@ -682,17 +697,16 @@ def download_from_url(url, output_dir, srt_only=False, language=None):
         if not srt_only:
             print(f'  下载视频用于烧录字幕...')
             dl_result = subprocess.run(
-                ['yt-dlp', '--no-warnings', '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
+                yt_dlp_cmd('--no-warnings', '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
                  '--merge-output-format', 'mp4',
-                 '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url],
+                 '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url),
                 capture_output=True, text=True, timeout=600
             )
             # 找到下载的视频
-            for f in os.listdir(output_dir):
-                if f.endswith('.mp4'):
-                    media_file = os.path.join(output_dir, f)
-                    print(f'  视频: {f} ({format_size(os.path.getsize(media_file))})')
-                    return media_file, cc_srt_files
+            media_file = largest_file_with_ext(output_dir, '.mp4')
+            if media_file:
+                print(f'  视频: {os.path.basename(media_file)} ({format_size(os.path.getsize(media_file))})')
+                return media_file, cc_srt_files
         return None, cc_srt_files
 
     print(f'  无 CC 字幕，需要 Whisper 转写')
@@ -701,31 +715,29 @@ def download_from_url(url, output_dir, srt_only=False, language=None):
         # 只需字幕 → 下载音频（体积小得多）
         print(f'  下载音频（mp3）...')
         dl_result = subprocess.run(
-            ['yt-dlp', '--no-warnings', '-x', '--audio-format', 'mp3',
+            yt_dlp_cmd('--no-warnings', '-x', '--audio-format', 'mp3',
              '--audio-quality', '0',
-             '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url],
+             '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url),
             capture_output=True, text=True, timeout=600
         )
         # 找到下载的音频
-        for f in os.listdir(output_dir):
-            if f.endswith('.mp3'):
-                media_file = os.path.join(output_dir, f)
-                print(f'  音频: {f} ({format_size(os.path.getsize(media_file))})')
-                return media_file, []
+        media_file = largest_file_with_ext(output_dir, '.mp3')
+        if media_file:
+            print(f'  音频: {os.path.basename(media_file)} ({format_size(os.path.getsize(media_file))})')
+            return media_file, []
     else:
         # 需要烧录 → 下载视频
         print(f'  下载视频（mp4）...')
         dl_result = subprocess.run(
-            ['yt-dlp', '--no-warnings', '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
+            yt_dlp_cmd('--no-warnings', '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
              '--merge-output-format', 'mp4',
-             '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url],
+             '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url),
             capture_output=True, text=True, timeout=600
         )
-        for f in os.listdir(output_dir):
-            if f.endswith('.mp4'):
-                media_file = os.path.join(output_dir, f)
-                print(f'  视频: {f} ({format_size(os.path.getsize(media_file))})')
-                return media_file, []
+        media_file = largest_file_with_ext(output_dir, '.mp4')
+        if media_file:
+            print(f'  视频: {os.path.basename(media_file)} ({format_size(os.path.getsize(media_file))})')
+            return media_file, []
 
     # 下载失败
     stderr = dl_result.stderr if dl_result else ''
