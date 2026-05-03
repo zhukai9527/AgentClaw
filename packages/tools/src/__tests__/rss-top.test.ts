@@ -50,4 +50,28 @@ describe("rss_top", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("feeds must include");
   });
+
+  it("缓存相同 feed/topN 的短期结果，避免重复网络抓取", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => atom,
+      headers: new Headers({ "content-type": "application/atom+xml" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = await rssTopTool.execute({
+      feeds: ["technology"],
+      topN: 2,
+    });
+    const second = await rssTopTool.execute({
+      feeds: ["technology"],
+      topN: 2,
+    });
+
+    expect(first.isError).toBeFalsy();
+    expect(second.isError).toBeFalsy();
+    expect(second.content).toBe(first.content);
+    expect(second.metadata).toMatchObject({ cacheHit: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

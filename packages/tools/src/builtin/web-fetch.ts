@@ -65,6 +65,9 @@ const JINA_TIMEOUT = 8_000;
 const PLAYWRIGHT_TIMEOUT = 30_000;
 /** Playwright 子进程最大输出（字节） */
 const PLAYWRIGHT_MAX_BUFFER = 2 * 1024 * 1024;
+const DEFAULT_PROMPT_MAX_CHARS = 3_500;
+const MIN_PROMPT_MAX_CHARS = 1_000;
+const MAX_PROMPT_MAX_CHARS = 20_000;
 
 /** 已知 SPA/JS 渲染站点——命中时直接走 Playwright，不判断内容长度 */
 const SPA_DOMAINS = new Set(siteConfig.spaDomains);
@@ -116,6 +119,64 @@ function cleanMarkdown(md: string): string {
     .trim();
 }
 
+function readPromptMaxChars(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_PROMPT_MAX_CHARS;
+  }
+  return Math.max(
+    MIN_PROMPT_MAX_CHARS,
+    Math.min(MAX_PROMPT_MAX_CHARS, Math.floor(value)),
+  );
+}
+
+function compactFetchedContent(
+  content: string,
+  url: string,
+  maxChars: number,
+): { content: string; compacted: boolean; originalLength: number } {
+  const originalLength = content.length;
+  const normalized = content.replace(/\n{3,}/g, "\n\n").trim();
+  const hasUrlSource = /^URL Source:/m.test(normalized);
+  const header = hasUrlSource ? "" : `URL Source: ${url}\n\n`;
+  const budget = Math.max(500, maxChars - header.length - 120);
+  if (normalized.length + header.length <= maxChars) {
+    return {
+      content: `${header}${normalized}`.trim(),
+      compacted: false,
+      originalLength,
+    };
+  }
+
+  const lines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^!\[/.test(line));
+  const selected: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    const isHighSignal =
+      /^#/.test(line) ||
+      /^Title:/i.test(line) ||
+      /^URL Source:/i.test(line) ||
+      /^Published Time:/i.test(line) ||
+      /^Date:/i.test(line) ||
+      line.length >= 40;
+    if (!isHighSignal) continue;
+    const next = line.length + 1;
+    if (used + next > budget) break;
+    selected.push(line);
+    used += next;
+  }
+
+  const body = selected.join("\n").slice(0, budget).trim();
+  return {
+    content:
+      `${header}${body}\n\n[content compacted] original ${originalLength} chars, returned <= ${maxChars} chars`.trim(),
+    compacted: true,
+    originalLength,
+  };
+}
+
 /** Convert HTML to Markdown: Readability extracts article → turndown converts, fallback to full-page */
 function htmlToMarkdown(html: string, _url?: string): string {
   // Try Readability first for article extraction
@@ -162,6 +223,11 @@ export const webFetchTool: Tool = {
         description:
           "When used with save_as, automatically send the saved file to the user. No need for a separate send_file call.",
       },
+      max_chars: {
+        type: "number",
+        description:
+          "Maximum characters returned to the LLM prompt for normal fetches. Full content is still used for save_as. Default 3500.",
+      },
     },
     required: ["url"],
   },
@@ -173,6 +239,7 @@ export const webFetchTool: Tool = {
     const url = input.url as string;
     const saveAs = input.save_as as string | undefined;
     const autoSend = input.auto_send === true || String(input.auto_send).toLowerCase() === "true";
+    const promptMaxChars = readPromptMaxChars(input.max_chars);
 
     // Validate URL
     let parsedUrl: URL;
@@ -316,18 +383,31 @@ export const webFetchTool: Tool = {
         content = `${content.slice(0, INTERNAL_MAX_LENGTH)}\n\n... [truncated at internal safety limit]`;
       }
 
+      const originalLengthBeforePromptCompaction = content.length;
+      const promptContent = isJsonResponse
+        ? {
+            content,
+            compacted: false,
+            originalLength: originalLengthBeforePromptCompaction,
+          }
+        : compactFetchedContent(content, url, promptMaxChars);
+
       const guidance =
         "hint: if this content contains the requested facts, synthesize the final answer now with this URL as source; use file_write only when saving is requested, and search more only if key facts are missing.";
 
       return {
-        content: isJsonResponse ? content : `${content}\n\n${guidance}`,
+        content: isJsonResponse
+          ? promptContent.content
+          : `${promptContent.content}\n\n${guidance}`,
         isError: false,
         metadata: {
           url,
           strategy,
           status: response.status,
           contentType,
-          originalLength: content.length,
+          originalLength: originalLengthBeforePromptCompaction,
+          returnedLength: isJsonResponse ? content.length : promptContent.content.length,
+          compacted: isJsonResponse ? false : promptContent.compacted,
         },
       };
     } catch (err) {

@@ -1084,6 +1084,8 @@ export class SimpleAgentLoop implements AgentLoop {
 
     let webResearchToolCalls = 0;
     const WEB_RESEARCH_TOOL_LIMIT = taskToolProfile.webResearchToolLimit;
+    let successfulWebSearchCalls = 0;
+    let successfulWebFetchCalls = 0;
     let overflowFileReadCalls = 0;
     const OVERFLOW_FILE_READ_LIMIT = 2;
     let forceSynthesisOnly = false;
@@ -1854,7 +1856,12 @@ export class SimpleAgentLoop implements AgentLoop {
                 content: `You have called ${effectiveToolName} ${nameCount} times in this session (limit: ${totalLimit}). You have enough information — stop searching and synthesize your answer NOW from the results you already have.`,
                 isError: true,
               };
-              if (taskToolProfile.kind === "reddit_rss") {
+              if (
+                taskToolProfile.kind === "reddit_rss" ||
+                (taskToolProfile.kind === "news_brief" &&
+                  (effectiveToolName === "web_fetch" ||
+                    successfulWebFetchCalls >= 2))
+              ) {
                 forceSynthesisOnly = true;
               }
               runtimeHints.push(
@@ -2151,6 +2158,12 @@ export class SimpleAgentLoop implements AgentLoop {
             await this.memoryStore.addTurn(convId, toolTurn);
 
             if (r.result.isError) iterationErrorCount++;
+            if (!r.result.isError && r.effectiveToolName === "web_search") {
+              successfulWebSearchCalls++;
+            }
+            if (!r.result.isError && r.effectiveToolName === "web_fetch") {
+              successfulWebFetchCalls++;
+            }
           }
         }
 
@@ -2263,6 +2276,17 @@ export class SimpleAgentLoop implements AgentLoop {
           if (factHint.includes("天气") || factHint.includes("气温")) {
             sufficientWeatherFactHint = factHint;
           }
+        }
+
+        if (
+          taskToolProfile.kind === "news_brief" &&
+          successfulWebSearchCalls >= 3 &&
+          successfulWebFetchCalls >= 2
+        ) {
+          forceSynthesisOnly = true;
+          runtimeHints.push(
+            "<news_ready_to_synthesize>News brief has enough search and fetch evidence. Tools are now unavailable; write the final answer with source URLs.</news_ready_to_synthesize>",
+          );
         }
 
         // Fingerprint: first 300 chars of LLM output + tool names called (normalized)

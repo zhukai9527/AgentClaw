@@ -3,6 +3,8 @@ import type { Tool, ToolResult } from "@agentclaw/types";
 const DEFAULT_SERPER_URL = "https://google.serper.dev/search";
 const DEFAULT_QUERIT_URL = "https://api.querit.ai/v1/search";
 const SEARCH_TIMEOUT = 10_000;
+const DEFAULT_MAX_RESULTS = 5;
+const HARD_MAX_RESULTS = 5;
 
 /** Search engine config — injected at startup via setSearchEngines() */
 interface SearchEngine {
@@ -19,6 +21,13 @@ let searchEngines: SearchEngine[] = [];
 /** Called by gateway to inject search engine config */
 export function setSearchEngines(engines: SearchEngine[]): void {
   searchEngines = engines;
+}
+
+function readMaxResults(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_MAX_RESULTS;
+  }
+  return Math.max(1, Math.min(HARD_MAX_RESULTS, Math.floor(value)));
 }
 
 interface SearchResult {
@@ -260,14 +269,14 @@ export const webSearchTool: Tool = {
     type: "object",
     properties: {
       query: { type: "string" },
-      max_results: { type: "number", default: 5 },
+      max_results: { type: "number", default: DEFAULT_MAX_RESULTS },
     },
     required: ["query"],
   },
 
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const query = input.query as string;
-    const maxResults = (input.max_results as number) ?? 5;
+    const maxResults = readMaxResults(input.max_results);
 
     if (!query.trim()) {
       return { content: "Error: empty search query", isError: true };

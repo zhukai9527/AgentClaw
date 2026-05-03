@@ -11,6 +11,7 @@
 - **JSON 抓取结果保持机器可解析**：`web_fetch` 对 `application/json` 不再追加人类 hint，避免 `execute_code` 中 `JSON.parse(await web_fetch(...))` 因尾部提示文本失败。
 - **send_file 路径审计**：发送结果现在记录 `originalPath`、`effectivePath` 和 `relocated`，并且只有文件确实从 workDir 外复制进来时才标记 relocated。
 - **P1 任务工具路由**：新闻简报只暴露 `web_search`/`web_fetch`/输出工具，Reddit/RSS 日报只暴露 `rss_top`/文件输出工具，并按任务类型收紧工具预算；真实回归中 AI 新闻任务稳定在约 11.5K input token，Reddit 日报收敛为 1 次 `rss_top` + 文件输出链路。
+- **P2 工具输出瘦身**：`web_search` 结果硬夹到 5 条，`web_fetch` 默认返回带来源 URL 的短事实卡并保留 `save_as` 完整保存路径，`rss_top` 对相同 feed/topN 做短期缓存；真实 AI 新闻回归约 `11.3K input token / 35.1s`，不再因超限搜索多跑一轮。
 
 ### Fixed
 - **定时任务新闻 trace 长循环**：取消 `execute_code nudge` 对 `web_search/web_fetch` 的硬拦截，避免模型在轻量并行搜索和批量脚本之间来回反弹；同时限制包含 `web_search/web_fetch` 的 `execute_code` 网络批处理最多 3 次，超过后强制综合已有材料输出。

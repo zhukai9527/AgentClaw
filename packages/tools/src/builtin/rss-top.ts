@@ -5,6 +5,16 @@ import type { Tool, ToolExecutionContext, ToolResult } from "@agentclaw/types";
 const FETCH_TIMEOUT_MS = 12_000;
 const DEFAULT_TOP_N = 5;
 const MAX_FEEDS = 20;
+const CACHE_TTL_MS = 5 * 60_000;
+const CACHE_MAX_ENTRIES = 100;
+
+type RssCacheEntry = {
+  content: string;
+  metadata: Record<string, unknown>;
+  expiresAt: number;
+};
+
+const rssCache = new Map<string, RssCacheEntry>();
 
 export const rssTopTool: Tool = {
   name: "rss_top",
@@ -55,11 +65,26 @@ export const rssTopTool: Tool = {
     const autoSend =
       input.auto_send === true ||
       String(input.auto_send).toLowerCase() === "true";
+    const cacheKey = buildCacheKey(feeds.value, topN.value);
+
+    if (!saveAs) {
+      const cached = readCache(cacheKey);
+      if (cached) {
+        return {
+          content: cached.content,
+          metadata: { ...cached.metadata, cacheHit: true },
+        };
+      }
+    }
 
     const sections = await Promise.all(
       feeds.value.slice(0, MAX_FEEDS).map((feed) => fetchFeed(feed, topN.value)),
     );
     const content = sections.map(formatSection).join("\n\n").trim();
+    const metadata = {
+      feeds: sections.length,
+      entries: sections.reduce((sum, section) => sum + section.entries.length, 0),
+    };
 
     if (saveAs) {
       const workDir =
@@ -82,12 +107,10 @@ export const rssTopTool: Tool = {
       };
     }
 
+    writeCache(cacheKey, content, metadata);
     return {
       content,
-      metadata: {
-        feeds: sections.length,
-        entries: sections.reduce((sum, section) => sum + section.entries.length, 0),
-      },
+      metadata,
     };
   },
 };
@@ -193,6 +216,39 @@ function normalizeFeed(feed: string): string {
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   const subreddit = trimmed.replace(/^r\//i, "").replace(/^\/?r\//i, "");
   return `https://www.reddit.com/r/${encodeURIComponent(subreddit)}/.rss`;
+}
+
+function buildCacheKey(feeds: string[], topN: number): string {
+  return JSON.stringify({
+    feeds: feeds.map((feed) => normalizeFeed(feed)),
+    topN,
+  });
+}
+
+function readCache(key: string): RssCacheEntry | null {
+  const cached = rssCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    rssCache.delete(key);
+    return null;
+  }
+  return cached;
+}
+
+function writeCache(
+  key: string,
+  content: string,
+  metadata: Record<string, unknown>,
+): void {
+  if (rssCache.size >= CACHE_MAX_ENTRIES) {
+    const oldest = rssCache.keys().next().value;
+    if (oldest) rssCache.delete(oldest);
+  }
+  rssCache.set(key, {
+    content,
+    metadata,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  });
 }
 
 function labelForFeed(feed: string): string {

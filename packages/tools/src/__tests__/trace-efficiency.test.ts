@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fileReadTool } from "../builtin/file-read.js";
 import { sendFileTool } from "../builtin/send-file.js";
 import { webFetchTool } from "../builtin/web-fetch.js";
+import { setSearchEngines, webSearchTool } from "../builtin/web-search.js";
 
 const tmpDirs: string[] = [];
 
@@ -16,6 +17,7 @@ async function makeTmpDir(): Promise<string> {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  setSearchEngines([]);
   await Promise.all(tmpDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -109,5 +111,74 @@ describe("trace efficiency tool behavior", () => {
     expect(result.isError).toBe(false);
     expect(JSON.parse(result.content)).toEqual({ ok: true });
     expect(result.content).not.toContain("hint:");
+  });
+
+  it("compacts long fetched pages into a bounded source card by default", async () => {
+    const body = `
+      <html>
+        <head><title>AI infrastructure update</title></head>
+        <body>
+          <article>
+            <h1>AI infrastructure update</h1>
+            <p>Published Time: 2026-05-03</p>
+            <p>${"OpenAI expands compute capacity. ".repeat(180)}</p>
+            <p>${"Nvidia and AMD supply accelerators. ".repeat(180)}</p>
+          </article>
+        </body>
+      </html>`;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers({ "content-type": "text/html" }),
+      text: async () => body,
+    } as Response);
+
+    const result = await webFetchTool.execute({
+      url: "https://example.com/ai",
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content.length).toBeLessThan(4_500);
+    expect(result.content).toContain("URL Source: https://example.com/ai");
+    expect(result.content).toContain("AI infrastructure update");
+    expect(result.content).toContain("[content compacted]");
+    expect(result.metadata).toMatchObject({
+      compacted: true,
+      url: "https://example.com/ai",
+    });
+  });
+
+  it("clamps web_search result count to keep snippets bounded", async () => {
+    setSearchEngines([
+      {
+        id: "local",
+        type: "searxng",
+        enabled: true,
+        url: "https://search.example",
+      },
+    ]);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        results: Array.from({ length: 8 }, (_, i) => ({
+          title: `Result ${i + 1}`,
+          url: `https://example.com/${i + 1}`,
+          content: "snippet ".repeat(30),
+        })),
+      }),
+      headers: new Headers({ "content-type": "application/json" }),
+    } as Response);
+
+    const result = await webSearchTool.execute({
+      query: "ai news",
+      max_results: 8,
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("results[5]");
+    expect(result.content).toContain("Result 5");
+    expect(result.content).not.toContain("Result 6");
+    expect(result.metadata).toMatchObject({ maxResults: 5 });
   });
 });
