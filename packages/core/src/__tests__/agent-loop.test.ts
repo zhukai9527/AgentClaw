@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { SimpleAgentLoop } from "../agent-loop.js";
 import type {
   LLMProvider,
+  LLMRequest,
   LLMResponse,
   LLMStreamChunk,
   ModelInfo,
@@ -412,6 +413,145 @@ describe("SimpleAgentLoop", () => {
       },
     ];
 
+    function createToolCaptureProvider(captured: string[][]): LLMProvider {
+      return {
+        name: "capture-provider",
+        models: [
+          {
+            id: "capture-model",
+            provider: "capture",
+            name: "Capture",
+            tier: "fast",
+            contextWindow: 4096,
+            supportsTools: true,
+            supportsStreaming: true,
+          },
+        ] as ModelInfo[],
+        chat: vi.fn().mockResolvedValue({
+          message: {
+            id: "msg-capture",
+            role: "assistant",
+            content: "done",
+            createdAt: new Date(),
+          },
+          model: "capture-model",
+          tokensIn: 1,
+          tokensOut: 1,
+          stopReason: "end_turn",
+        } as LLMResponse),
+        stream: vi.fn(async function* (request: LLMRequest) {
+          captured.push((request.tools ?? []).map((tool) => tool.name));
+          yield { type: "text", text: "done" } as LLMStreamChunk;
+          yield {
+            type: "done",
+            usage: { tokensIn: 5, tokensOut: 2 },
+            model: "capture-model",
+          } as LLMStreamChunk;
+        }) as unknown as LLMProvider["stream"],
+      };
+    }
+
+    it("新闻任务首轮只暴露搜索、抓取和输出工具", async () => {
+      const captured: string[][] = [];
+      const newsProvider = createToolCaptureProvider(captured);
+      const testToolRegistry = createMockToolRegistry([
+        createMockTool("web_search"),
+        createMockTool("web_fetch"),
+        createMockTool("rss_top"),
+        createMockTool("file_write"),
+        createMockTool("send_file"),
+        createMockTool("bash"),
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: newsProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+      });
+
+      await collectEvents(
+        loop.runStream("在外网搜索今日AI界新闻生成简报", "conv-news-tools"),
+      );
+
+      expect(captured[0]).toEqual(
+        expect.arrayContaining([
+          "web_search",
+          "web_fetch",
+          "file_write",
+          "send_file",
+        ]),
+      );
+      expect(captured[0]).not.toContain("rss_top");
+      expect(captured[0]).not.toContain("bash");
+    });
+
+    it("Reddit RSS 任务首轮只暴露 rss_top 和文件发送工具", async () => {
+      const captured: string[][] = [];
+      const rssProvider = createToolCaptureProvider(captured);
+      const testToolRegistry = createMockToolRegistry([
+        createMockTool("web_search"),
+        createMockTool("web_fetch"),
+        createMockTool("rss_top"),
+        createMockTool("file_write"),
+        createMockTool("send_file"),
+        createMockTool("bash"),
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: rssProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "执行以下任务，用 execute_code 抓取 Reddit 子版块 .rss 生成日报并 send_file",
+          "conv-rss-tools",
+        ),
+      );
+
+      expect(captured[0]).toEqual(
+        expect.arrayContaining(["rss_top", "file_write", "send_file"]),
+      );
+      expect(captured[0]).not.toContain("web_search");
+      expect(captured[0]).not.toContain("web_fetch");
+      expect(captured[0]).not.toContain("bash");
+    });
+
+    it("Reddit RSS 任务应硬拦截模型伪造的非白名单工具调用", async () => {
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-file-read", "file_read", {
+          path: "C:/Users/voroj/reddit-tech-ai-daily-2026-05-03.md",
+        }),
+        finalChunks,
+      ]);
+      const fileReadTool = createMockTool("file_read", {
+        content: "should not execute",
+      });
+      const testToolRegistry = createMockToolRegistry([
+        createMockTool("rss_top"),
+        createMockTool("file_write"),
+        createMockTool("send_file"),
+        fileReadTool,
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+      });
+
+      const events = await collectEvents(
+        loop.runStream("Reddit RSS 日报", "conv-rss-policy"),
+      );
+
+      const toolResult = events.find((event) => event.type === "tool_result")!;
+      const result = (toolResult.data as { result: ToolResult }).result;
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("not allowed for reddit_rss tasks");
+      expect(fileReadTool.execute).not.toHaveBeenCalled();
+    });
+
     it("应正确执行工具并将结果传回 LLM", async () => {
       // 第 1 轮：LLM 调用工具
       const toolCallChunks: LLMStreamChunk[] = [
@@ -568,7 +708,9 @@ describe("SimpleAgentLoop", () => {
       ).join("\n");
       expect(largeContent.length).toBeGreaterThan(8_000);
       const testProvider = createMockProvider([
-        createToolCallChunks("tc-big", "web_fetch", { url: "https://example.com" }),
+        createToolCallChunks("tc-big", "web_fetch", {
+          url: "https://example.com",
+        }),
         finalChunks,
       ]);
       const fetchTool = createMockTool("web_fetch", { content: largeContent });
@@ -583,8 +725,9 @@ describe("SimpleAgentLoop", () => {
       const events = await collectEvents(loop.runStream("fetch", "conv-obs"));
 
       expect(memoryStore.addObservation).toHaveBeenCalledTimes(1);
-      const observationArg = (memoryStore.addObservation as ReturnType<typeof vi.fn>)
-        .mock.calls[0][0] as Record<string, unknown>;
+      const observationArg = (
+        memoryStore.addObservation as ReturnType<typeof vi.fn>
+      ).mock.calls[0][0] as Record<string, unknown>;
       expect(observationArg.contentHash).toMatch(/^[a-f0-9]{64}$/);
       expect(observationArg.rawPath).toEqual(
         expect.stringContaining("overflow_web_fetch_"),
@@ -608,9 +751,9 @@ describe("SimpleAgentLoop", () => {
         expect.stringContaining("overflow_web_fetch_"),
       );
 
-      const trace = (memoryStore.addTrace as ReturnType<typeof vi.fn>).mock.calls.at(
-        -1,
-      )?.[0] as { steps: Array<Record<string, unknown>> };
+      const trace = (
+        memoryStore.addTrace as ReturnType<typeof vi.fn>
+      ).mock.calls.at(-1)?.[0] as { steps: Array<Record<string, unknown>> };
       const traceToolResult = trace.steps.find(
         (step) => step.type === "tool_result",
       );
@@ -625,8 +768,14 @@ describe("SimpleAgentLoop", () => {
       const largeContent = `${"same-output\n".repeat(900)}tail`;
       const testProvider = createMockProvider([
         [
-          ...createToolCallChunks("tc-one", "tool_a", { source: "a" }).slice(0, 2),
-          ...createToolCallChunks("tc-two", "tool_b", { source: "b" }).slice(0, 2),
+          ...createToolCallChunks("tc-one", "tool_a", { source: "a" }).slice(
+            0,
+            2,
+          ),
+          ...createToolCallChunks("tc-two", "tool_b", { source: "b" }).slice(
+            0,
+            2,
+          ),
           {
             type: "done",
             usage: { tokensIn: 10, tokensOut: 5 },
@@ -648,7 +797,9 @@ describe("SimpleAgentLoop", () => {
       (memoryStore.findObservationByHash as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce(null)
         .mockImplementation(async () => existingObservation);
-      (memoryStore.addObservation as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input) => {
+      (
+        memoryStore.addObservation as ReturnType<typeof vi.fn>
+      ).mockImplementationOnce(async (input) => {
         existingObservation = {
           id: "obs-existing",
           ...input,
@@ -677,9 +828,7 @@ describe("SimpleAgentLoop", () => {
       expect(toolResults).toHaveLength(2);
       expect(toolResults[0].metadata?.observationId).toBe("obs-existing");
       expect(toolResults[1].metadata?.observationId).toBe("obs-existing");
-      expect(toolResults[1].metadata?.overflowPath).toBe(
-        "D:/tmp/existing.txt",
-      );
+      expect(toolResults[1].metadata?.overflowPath).toBe("D:/tmp/existing.txt");
       expect(toolResults[1].content).toContain("observation://obs-existing");
     });
 
@@ -735,7 +884,9 @@ describe("SimpleAgentLoop", () => {
         config: { maxIterations: 3 },
       });
 
-      const events = await collectEvents(loop.runStream("reddit daily", "conv-rss"));
+      const events = await collectEvents(
+        loop.runStream("reddit daily", "conv-rss"),
+      );
 
       expect(memoryStore.addObservation).not.toHaveBeenCalled();
       const toolResult = events.find((event) => event.type === "tool_result")!;
@@ -1064,7 +1215,9 @@ describe("SimpleAgentLoop", () => {
         config: { maxIterations: 5 },
       });
 
-      const events = await collectEvents(loop.runStream("写代码", "conv-terminal"));
+      const events = await collectEvents(
+        loop.runStream("写代码", "conv-terminal"),
+      );
 
       expect(testProvider.stream).toHaveBeenCalledTimes(1);
       expect(delegateTool.execute).toHaveBeenCalledTimes(1);
