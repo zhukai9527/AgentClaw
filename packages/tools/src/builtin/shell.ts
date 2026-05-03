@@ -367,10 +367,9 @@ function runShell(
         }
 
         const exitCode = code ?? (signal ? 1 : 0);
-        const hasOutput = stdoutStr.trim().length > 0;
         resolve({
           content: output,
-          isError: exitCode !== 0 && !hasOutput,
+          isError: exitCode !== 0,
           metadata: { exitCode },
         });
       });
@@ -442,10 +441,9 @@ function runShell(
             return;
           }
 
-          const hasOutput = stdoutStr.trim().length > 0;
           resolve({
             content: output || error.message,
-            isError: !hasOutput,
+            isError: true,
             metadata: {
               exitCode: typeof error.code === "number" ? error.code : 1,
             },

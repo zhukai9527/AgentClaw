@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { execFile } from "node:child_process";
 import { shellTool } from "../builtin/shell.js";
 
 /**
@@ -204,6 +205,34 @@ describe("Shell 沙箱验证 (validateCommand)", () => {
 
     it("应允许 rm 不带 -rf 的形式", async () => {
       await expectAllowed("rm file.txt");
+    });
+  });
+
+  describe("命令退出码语义", () => {
+    it("非 0 退出即使有 stdout 也应标记为错误", async () => {
+      vi.mocked(execFile).mockImplementationOnce(
+        (_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+          const child = {
+            pid: 9999,
+            on: vi.fn(),
+            kill: vi.fn(),
+          };
+          const error = new Error("Command failed") as Error & { code: number };
+          error.code = 1;
+          setTimeout(
+            () => cb(error, Buffer.from("partial stdout"), Buffer.from("bad stderr")),
+            0,
+          );
+          return child as never;
+        },
+      );
+
+      const result = await execCommand("echo partial && exit 1");
+
+      expect(result.isError).toBe(true);
+      expect(result.metadata?.exitCode).toBe(1);
+      expect(result.content).toContain("partial stdout");
+      expect(result.content).toContain("bad stderr");
     });
   });
 
