@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createBuiltinTools } from "../builtin/index.js";
 
 describe("createBuiltinTools — 内置工具创建", () => {
-  /** 9 个核心工具的名称（始终加载） */
+  /** 10 个核心工具的名称（始终加载） */
   const CORE_TOOL_NAMES = [
     "bash", // shellTool
     "file_read",
@@ -13,10 +13,11 @@ describe("createBuiltinTools — 内置工具创建", () => {
     "ask_user",
     "web_fetch",
     "web_search",
+    "rss_top",
   ];
 
   describe("默认加载（无参数）", () => {
-    it("应创建 9 个核心工具", () => {
+    it("应创建 10 个核心工具", () => {
       const tools = createBuiltinTools();
 
       expect(tools).toHaveLength(CORE_TOOL_NAMES.length);
@@ -82,8 +83,8 @@ describe("createBuiltinTools — 内置工具创建", () => {
         claudeCode: true,
       });
 
-      // 9 核心 + 7 gateway + 2 memory + 3 skills + 1 claudeCode = 22
-      expect(tools).toHaveLength(22);
+      // 10 核心 + 7 gateway + 2 memory + 3 skills + 1 claudeCode = 23
+      expect(tools).toHaveLength(23);
     });
 
     it("空 options 应只加载核心工具", () => {

@@ -109,6 +109,25 @@ describe("observation_read", () => {
     expect(result.content).toContain("closed loop works");
   });
 
+  it("接受 observation:// 前缀并记录 canonical id", async () => {
+    const context = createContext("alpha\nNEEDLE_FACT: beta\nomega");
+
+    const result = await observationReadTool.execute(
+      { id: "observation://obs-1", query: "NEEDLE_FACT" },
+      context,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("NEEDLE_FACT: beta");
+    expect(context.recordObservationRead).toHaveBeenCalledWith({
+      id: "obs-1",
+      returnedChars: result.content.length,
+      query: "NEEDLE_FACT",
+      offset: undefined,
+      length: undefined,
+    });
+  });
+
   it("缺少 context 回调时返回错误", async () => {
     const result = await observationReadTool.execute({ id: "obs-4" });
 

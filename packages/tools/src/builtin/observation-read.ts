@@ -45,6 +45,9 @@ export const observationReadTool: Tool = {
     if (!id.ok) {
       return fail(id.message);
     }
+    const observationId = id.value.startsWith("observation://")
+      ? id.value.slice("observation://".length)
+      : id.value;
 
     const query = readOptionalString(input.query, "query");
     if (!query.ok) {
@@ -61,9 +64,9 @@ export const observationReadTool: Tool = {
       return fail(length.message);
     }
 
-    const observation = await context.getObservation(id.value);
+    const observation = await context.getObservation(observationId);
     if (!observation) {
-      return fail(`Observation "${id.value}" was not found.`);
+      return fail(`Observation "${observationId}" was not found.`);
     }
 
     const content = readBoundedContent(observation.raw, {
@@ -73,7 +76,7 @@ export const observationReadTool: Tool = {
     });
 
     await context.recordObservationRead({
-      id: id.value,
+      id: observationId,
       returnedChars: content.length,
       query: query.value,
       offset: offset.value,

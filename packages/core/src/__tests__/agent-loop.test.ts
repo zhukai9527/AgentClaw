@@ -644,19 +644,18 @@ describe("SimpleAgentLoop", () => {
         content: largeContent,
       });
       const testToolRegistry = createMockToolRegistry([toolA, toolB]);
-      const existingObservation = {
-        id: "obs-existing",
-        contentHash: createHash("sha256").update(largeContent).digest("hex"),
-        rawPath: "D:/tmp/existing.txt",
-      };
+      let existingObservation: Record<string, unknown> | null = null;
       (memoryStore.findObservationByHash as ReturnType<typeof vi.fn>)
         .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(existingObservation);
-      (memoryStore.addObservation as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-        id: "obs-existing",
-        content: largeContent,
-        contentHash: existingObservation.contentHash,
-        rawPath: existingObservation.rawPath,
+        .mockImplementation(async () => existingObservation);
+      (memoryStore.addObservation as ReturnType<typeof vi.fn>).mockImplementationOnce(async (input) => {
+        existingObservation = {
+          id: "obs-existing",
+          ...input,
+          rawPath: "D:/tmp/existing.txt",
+          createdAt: new Date(),
+        };
+        return existingObservation;
       });
       const loop = new SimpleAgentLoop({
         provider: testProvider,
@@ -679,7 +678,7 @@ describe("SimpleAgentLoop", () => {
       expect(toolResults[0].metadata?.observationId).toBe("obs-existing");
       expect(toolResults[1].metadata?.observationId).toBe("obs-existing");
       expect(toolResults[1].metadata?.overflowPath).toBe(
-        existingObservation.rawPath,
+        "D:/tmp/existing.txt",
       );
       expect(toolResults[1].content).toContain("observation://obs-existing");
     });
@@ -709,6 +708,39 @@ describe("SimpleAgentLoop", () => {
       const toolResult = events.find((event) => event.type === "tool_result")!;
       const result = (toolResult.data as { result: ToolResult }).result;
       expect(result.content).toBe(largeSkill);
+      expect(result.metadata?.observationId).toBeUndefined();
+    });
+
+    it("rss_top 紧凑汇总不应创建 observation，避免隐藏日报所需标题", async () => {
+      const largeRssSummary = Array.from(
+        { length: 140 },
+        (_, i) =>
+          `## r/topic-${i}\n1. Title ${i}\n   https://reddit.com/r/topic/comments/${i}`,
+      ).join("\n");
+      expect(largeRssSummary.length).toBeGreaterThan(8_000);
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-rss", "rss_top", {
+          feeds: ["technology"],
+          topN: 5,
+        }),
+        finalChunks,
+      ]);
+      const rssTool = createMockTool("rss_top", { content: largeRssSummary });
+      const testToolRegistry = createMockToolRegistry([rssTool]);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      const events = await collectEvents(loop.runStream("reddit daily", "conv-rss"));
+
+      expect(memoryStore.addObservation).not.toHaveBeenCalled();
+      const toolResult = events.find((event) => event.type === "tool_result")!;
+      const result = (toolResult.data as { result: ToolResult }).result;
+      expect(result.content).toBe(largeRssSummary);
       expect(result.metadata?.observationId).toBeUndefined();
     });
 

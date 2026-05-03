@@ -18,6 +18,7 @@ export {
   skillManageTool,
   skillCuratorTool,
   observationReadTool,
+  rssTopTool,
 } from "./builtin/index.js";
 export type { BuiltinToolsOptions } from "./builtin/index.js";
 export {

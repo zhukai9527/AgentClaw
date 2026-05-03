@@ -22,6 +22,7 @@ import { handoffTool } from "./handoff.js";
 import { webFetchTool } from "./web-fetch.js";
 import { webSearchTool } from "./web-search.js";
 import { observationReadTool } from "./observation-read.js";
+import { rssTopTool } from "./rss-top.js";
 
 // Re-exports consumed by @agentclaw/tools index.ts or other packages
 export { shellTool, shellInfo } from "./shell.js";
@@ -42,6 +43,7 @@ export { subagentTool } from "./subagent.js";
 export { browserCdpTool } from "./browser-cdp.js";
 export { handoffTool } from "./handoff.js";
 export { observationReadTool } from "./observation-read.js";
+export { rssTopTool } from "./rss-top.js";
 
 /** Options for configuring which conditional tools to include */
 export interface BuiltinToolsOptions {
@@ -70,6 +72,7 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
     askUserTool,
     webFetchTool,
     webSearchTool,
+    rssTopTool,
   ];
 
   // Conditional tools — loaded based on configuration

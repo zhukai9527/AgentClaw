@@ -281,6 +281,10 @@ async function applyOverflow(
   // fully visible to the LLM, truncating defeats the purpose
   if (toolName === "use_skill") return null;
 
+  // rss_top already returns reduced title/link lists. Overflowing it hides the
+  // exact compact data the model needs to write the report.
+  if (toolName === "rss_top") return null;
+
   // Never overflow file_read of an overflow file — prevents infinite loop
   // where LLM reads overflow → result overflows → LLM reads new overflow → ...
   if (toolName === "file_read" && typeof toolInput?.path === "string") {
@@ -300,9 +304,13 @@ async function applyOverflow(
   let observationId: string | undefined;
   let filePath: string | undefined;
   const existingObservation = await memoryStore.findObservationByHash(contentHash);
+  const reusableObservation =
+    existingObservation?.traceId === traceId ? existingObservation : null;
 
   if (existingObservation) {
-    observationId = existingObservation.id;
+    if (reusableObservation) {
+      observationId = reusableObservation.id;
+    }
     filePath = existingObservation.rawPath;
   } else {
     // Save full content to file
@@ -342,7 +350,7 @@ async function applyOverflow(
   const promptChars = finalContent.length;
   const savedChars = Math.max(0, totalChars - promptChars);
 
-  if (!existingObservation) {
+  if (!reusableObservation) {
     const observationInput: ObservationInput = {
       traceId,
       stepId,
@@ -459,6 +467,94 @@ function buildToolFactHint(results: ToolFactInput[]): string | null {
     unique.map((fact) => `- ${fact}`).join("\n") +
     "\n</facts_from_tools>"
   );
+}
+
+function buildSynthesisFallbackResponse(
+  inputText: string,
+  messages: Message[],
+  sentFiles: Array<{ url: string; filename: string }>,
+  fallbackSnippets: string[],
+  reason: string,
+): string {
+  const snippets: string[] = [...fallbackSnippets];
+
+  for (const message of messages) {
+    if (message.role !== "tool" || typeof message.content !== "string") {
+      continue;
+    }
+    try {
+      const blocks = JSON.parse(message.content) as ContentBlock[];
+      for (const block of blocks) {
+        if (block.type !== "tool_result") continue;
+        const result = block as ToolResultContent;
+        if (result.isError || typeof result.content !== "string") continue;
+        snippets.push(...extractFallbackLines(result.content));
+      }
+    } catch {
+      snippets.push(...extractFallbackLines(message.content));
+    }
+  }
+
+  const unique = [...new Set(snippets)].slice(0, 12);
+  const files = sentFiles
+    .map((file) => `- [${file.filename}](${file.url})`)
+    .join("\n");
+  const heading = inputText.includes("Reddit")
+    ? "已根据已抓取的 Reddit/RSS 结果生成阶段性总结。"
+    : "已根据已获取的搜索和网页结果生成阶段性总结。";
+  const body =
+    unique.length > 0
+      ? unique.map((line) => `- ${line}`).join("\n")
+      : "- 已达到工具预算，但没有足够可用事实形成可靠摘要。";
+
+  return [
+    heading,
+    "",
+    body,
+    files ? `\n已发送/生成的文件：\n${files}` : "",
+    "",
+    `说明：${reason}，系统已停止继续调用工具以避免空转。`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function extractFallbackLines(content: string): string[] {
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const selected: string[] = [];
+
+  for (const line of lines) {
+    if (selected.length >= 8) break;
+    if (
+      line.startsWith("results[") ||
+      line.startsWith("hint:") ||
+      line.startsWith("rawPath:") ||
+      line.startsWith("observation:") ||
+      line.startsWith("promptChars:") ||
+      line.startsWith("savedChars:") ||
+      line.startsWith("rawChars:")
+    ) {
+      continue;
+    }
+    if (/^https?:\/\//.test(line)) {
+      selected.push(line);
+      continue;
+    }
+    if (
+      line.includes(" — ") ||
+      line.startsWith("#") ||
+      line.startsWith("- ") ||
+      line.startsWith("🔥") ||
+      /^[A-Za-z0-9_ -]+:/.test(line)
+    ) {
+      selected.push(line.replace(/^[-#]\s*/, "").slice(0, 240));
+    }
+  }
+
+  return selected;
 }
 
 function extractWeatherFacts(
@@ -776,6 +872,11 @@ export class SimpleAgentLoop implements AgentLoop {
         "[news-task] Today is 2026-05-03. Finish in about 3 LLM turns. Use parallel web_search first, then web_fetch only for missing key facts, then final answer. Prefer primary/trusted sources only: official company blogs, regulator/government/university sources, Reuters, AP, Bloomberg, FT, The Verge, TechCrunch, MIT Technology Review, Stanford HAI. Explicitly reject Reddit, YouTube, Yahoo Finance, SEO aggregators, random blogs, and unsourced claims. Recent news only: if the item is not from today or the last 7 days, include it only when it is clearly still developing and mark the exact date. Output no more than 5 high-confidence items. Do not fetch raw pages when snippets already contain enough facts.",
       );
     }
+    if (/reddit|rss|subreddit|子版块|日报/i.test(inputTextForHeuristics)) {
+      runtimeHints.push(
+        "[RSS任务约束]多个 Reddit/RSS 源的 TopN 提取必须优先用 rss_top 一次完成。不要逐个 web_fetch 每个 RSS；需要发送日报时，rss_top 可配合 save_as/auto_send 或之后用 file_write/send_file。",
+      );
+    }
     let sufficientWeatherFactHint: string | null = null;
     // runtimeHints.join("\n") is computed dynamically each iteration (runtimeHints grows via push)
 
@@ -864,6 +965,7 @@ export class SimpleAgentLoop implements AgentLoop {
     let invalidFinalMarkupRetries = 0;
     let consecutiveMaxTokensWithoutTools = 0;
     let forcedStopReason: string | undefined;
+    const fallbackSnippets: string[] = [];
 
     // Pre-compute tool pruning data (fixed for the entire loop)
     const loopToolDefs = this.toolRegistry.definitions();
@@ -1199,6 +1301,18 @@ export class SimpleAgentLoop implements AgentLoop {
         toolCalls.push(call);
       }
 
+      if (forceSynthesisOnly && toolCalls.length > 0) {
+        toolCalls.length = 0;
+        forcedStopReason = "synthesis_only_tool_call_suppressed";
+        fullText = buildSynthesisFallbackResponse(
+          inputTextForHeuristics,
+          messages,
+          allSentFiles,
+          fallbackSnippets,
+          "工具预算已耗尽，模型仍尝试继续调用工具",
+        );
+      }
+
       totalToolCalls += toolCalls.length;
 
       if (toolCalls.length === 0 && llmStopReason === "max_tokens") {
@@ -1247,8 +1361,13 @@ export class SimpleAgentLoop implements AgentLoop {
         invalidFinalMarkupRetries++;
         if (invalidFinalMarkupRetries >= 2 || forceSynthesisOnly) {
           forcedStopReason = "invalid_tool_markup_final";
-          fullText =
-            "已停止：模型在工具不可用时仍输出工具调用标记。为避免继续空转，本轮没有继续消耗 token。";
+          fullText = buildSynthesisFallbackResponse(
+            inputTextForHeuristics,
+            messages,
+            allSentFiles,
+            fallbackSnippets,
+            "工具预算已耗尽，模型仍输出了不可执行的工具标记",
+          );
           storedText = fullText;
         } else {
         forceSynthesisOnly = true;
@@ -1465,6 +1584,7 @@ export class SimpleAgentLoop implements AgentLoop {
           getObservation: async (id: string) => {
             const observation = await this.memoryStore.getObservation(id);
             if (!observation) return undefined;
+            if (observation.traceId !== trace.id) return undefined;
             if (!existsSync(observation.rawPath)) return undefined;
             return {
               id: observation.id,
@@ -1970,6 +2090,11 @@ export class SimpleAgentLoop implements AgentLoop {
       }
 
       const factHint = buildToolFactHint(allExecResults);
+      for (const result of allExecResults) {
+        if (!result.result.isError) {
+          fallbackSnippets.push(...extractFallbackLines(result.result.content));
+        }
+      }
       if (factHint) {
         runtimeHints.push(factHint);
         if (factHint.includes("天气") || factHint.includes("气温")) {
