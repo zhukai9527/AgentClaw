@@ -85,6 +85,25 @@ CREATE TABLE IF NOT EXISTS traces (
 );
 CREATE INDEX IF NOT EXISTS idx_traces_created ON traces(created_at DESC);
 
+-- Shell background jobs (long-running user-visible tool work)
+CREATE TABLE IF NOT EXISTS background_jobs (
+  id TEXT PRIMARY KEY,
+  command TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+  pid INTEGER,
+  conversation_id TEXT,
+  trace_id TEXT,
+  agent_id TEXT,
+  exit_code INTEGER,
+  output TEXT,
+  error TEXT,
+  started_at TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_background_jobs_status ON background_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_background_jobs_started ON background_jobs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_background_jobs_conversation ON background_jobs(conversation_id);
+
 -- Task management (human & bot shared)
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,

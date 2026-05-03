@@ -25,6 +25,9 @@ import type {
   ObservationInput,
   ObservationRead,
   ObservationReadInput,
+  BackgroundJob,
+  BackgroundJobInput,
+  BackgroundJobUpdate,
 } from "@agentclaw/types";
 import { cosineSimilarity, SimpleBagOfWords } from "./embeddings.js";
 
@@ -2211,6 +2214,69 @@ export class SQLiteMemoryStore implements MemoryStore {
     };
   }
 
+  async recordBackgroundJob(job: BackgroundJobInput): Promise<void> {
+    this.db
+      .prepare(
+        `INSERT INTO background_jobs (
+           id, command, status, pid, conversation_id, trace_id, agent_id,
+           started_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        job.id,
+        job.command,
+        job.status,
+        job.pid ?? null,
+        job.conversationId ?? null,
+        job.traceId ?? null,
+        job.agentId ?? null,
+        job.startedAt.toISOString(),
+      );
+  }
+
+  async updateBackgroundJob(
+    id: string,
+    updates: BackgroundJobUpdate,
+  ): Promise<void> {
+    this.db
+      .prepare(
+        `UPDATE background_jobs
+         SET status = ?,
+             exit_code = ?,
+             output = ?,
+             error = ?,
+             completed_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        updates.status,
+        updates.exitCode ?? null,
+        updates.output ?? null,
+        updates.error ?? null,
+        updates.completedAt?.toISOString() ?? null,
+        id,
+      );
+  }
+
+  async getBackgroundJob(id: string): Promise<BackgroundJob | null> {
+    const row = this.db
+      .prepare("SELECT * FROM background_jobs WHERE id = ?")
+      .get(id) as BackgroundJobRow | undefined;
+    return row ? rowToBackgroundJob(row) : null;
+  }
+
+  async listBackgroundJobs(limit = 50): Promise<BackgroundJob[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM background_jobs
+         ORDER BY started_at DESC
+         LIMIT ?`,
+      )
+      .all(limit) as BackgroundJobRow[];
+    return rows.map(rowToBackgroundJob);
+  }
+
   // ─── Settings (key-value store) ─────────────────────────────────
 
   getSetting(key: string): string | null {
@@ -2870,6 +2936,38 @@ export interface SubAgentRow {
   iterations: number;
   created_at: string;
   completed_at: string | null;
+}
+
+interface BackgroundJobRow {
+  id: string;
+  command: string;
+  status: string;
+  pid: number | null;
+  conversation_id: string | null;
+  trace_id: string | null;
+  agent_id: string | null;
+  exit_code: number | null;
+  output: string | null;
+  error: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
+function rowToBackgroundJob(row: BackgroundJobRow): BackgroundJob {
+  return {
+    id: row.id,
+    command: row.command,
+    status: row.status as BackgroundJob["status"],
+    pid: row.pid ?? undefined,
+    conversationId: row.conversation_id ?? undefined,
+    traceId: row.trace_id ?? undefined,
+    agentId: row.agent_id ?? undefined,
+    exitCode: row.exit_code,
+    output: row.output ?? undefined,
+    error: row.error,
+    startedAt: new Date(row.started_at),
+    completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
+  };
 }
 
 interface TraceRow {

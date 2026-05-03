@@ -70,6 +70,10 @@ export type {
   ConversationTurn,
   TraceStep,
   Trace,
+  BackgroundJobStatus,
+  BackgroundJob,
+  BackgroundJobInput,
+  BackgroundJobUpdate,
 } from "./memory.js";
 
 export type {

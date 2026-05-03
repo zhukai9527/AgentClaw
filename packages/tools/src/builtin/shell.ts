@@ -290,6 +290,7 @@ function runShell(
   abortSignal?: AbortSignal,
   extraEnv?: Record<string, string>,
   onProgress?: (message: string) => void,
+  onStart?: (pid: number) => void,
 ): Promise<ToolResult> {
   const useShell =
     shellChoice === "powershell" && process.platform === "win32"
@@ -316,6 +317,7 @@ function runShell(
           ...extraEnv,
         },
       });
+      if (child.pid) onStart?.(child.pid);
 
       // Timeout handling
       const timer = setTimeout(() => {
@@ -458,6 +460,7 @@ function runShell(
         });
       },
     );
+    if (child.pid) onStart?.(child.pid);
 
     // Abort signal: kill child process when user stops the agent
     if (abortSignal) {
@@ -579,10 +582,33 @@ export const shellTool: Tool = {
     if (background) {
       const bgId = `bg_${Date.now().toString(36)}`;
       const shortCmd = command.length > 60 ? `${command.slice(0, 60)}...` : command;
+      const startedAt = new Date();
+      let pid: number | undefined;
       // Initialize queue if needed
       if (context && !context.backgroundQueue) context.backgroundQueue = [];
+      const task = runShell(
+        effectiveCommand,
+        timeout,
+        effectiveShell,
+        context?.abortSignal,
+        extraEnv,
+        undefined,
+        (childPid) => {
+          pid = childPid;
+        },
+      );
+      await context?.recordBackgroundJob?.({
+        id: bgId,
+        command,
+        status: "running",
+        pid,
+        conversationId: context?.conversationId,
+        traceId: context?.traceId,
+        agentId: context?.agentId,
+        startedAt,
+      });
       // Fire and forget — push result to queue when done
-      runShell(effectiveCommand, timeout, effectiveShell, context?.abortSignal, extraEnv).then(
+      task.then(
         (r) => {
           context?.backgroundQueue?.push({
             id: bgId,
@@ -591,21 +617,49 @@ export const shellTool: Tool = {
             isError: !!r.isError,
             completedAt: new Date(),
           });
+          const exitCode =
+            typeof r.metadata?.exitCode === "number"
+              ? r.metadata.exitCode
+              : r.metadata?.exitCode === null
+                ? null
+                : undefined;
+          const status = r.isError ? "failed" : "completed";
+          context?.updateBackgroundJob?.(bgId, {
+            status,
+            exitCode,
+            output: r.content,
+            error: r.isError ? r.content : null,
+            completedAt: new Date(),
+          });
+          context?.notifyUser?.(
+            `Background task ${bgId} ${status}: ${shortCmd}`,
+          ).catch(() => {});
         },
         (err) => {
+          const content = `Background task failed: ${err instanceof Error ? err.message : String(err)}`;
           context?.backgroundQueue?.push({
             id: bgId,
             command: shortCmd,
-            content: `Background task failed: ${err instanceof Error ? err.message : String(err)}`,
+            content,
             isError: true,
             completedAt: new Date(),
           });
+          context?.updateBackgroundJob?.(bgId, {
+            status: "failed",
+            exitCode: undefined,
+            output: content,
+            error: content,
+            completedAt: new Date(),
+          });
+          context?.notifyUser?.(
+            `Background task ${bgId} failed: ${shortCmd}`,
+          ).catch(() => {});
         },
       );
       return {
-        content: `Background task started (${bgId}): \`${shortCmd}\`\nYou'll be notified when it completes. Continue with other work.`,
+        content: `Background task started (${bgId}${pid ? `, pid ${pid}` : ""}): \`${shortCmd}\`\nYou'll be notified when it completes. Continue with other work.`,
         isError: false,
-        metadata: { backgroundId: bgId },
+        metadata: { backgroundId: bgId, pid },
       };
     }
 

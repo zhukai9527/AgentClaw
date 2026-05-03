@@ -211,7 +211,7 @@ describe("Shell 沙箱验证 (validateCommand)", () => {
   describe("命令退出码语义", () => {
     it("非 0 退出即使有 stdout 也应标记为错误", async () => {
       vi.mocked(execFile).mockImplementationOnce(
-        (_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+        ((_cmd: string, _args: unknown, _opts: unknown, cb: Function) => {
           const child = {
             pid: 9999,
             on: vi.fn(),
@@ -224,7 +224,7 @@ describe("Shell 沙箱验证 (validateCommand)", () => {
             0,
           );
           return child as never;
-        },
+        }) as never,
       );
 
       const result = await execCommand("echo partial && exit 1");
@@ -233,6 +233,62 @@ describe("Shell 沙箱验证 (validateCommand)", () => {
       expect(result.metadata?.exitCode).toBe(1);
       expect(result.content).toContain("partial stdout");
       expect(result.content).toContain("bad stderr");
+    });
+  });
+
+  describe("后台任务闭环", () => {
+    it("启动后台任务时应记录 running，完成后更新状态并通知用户", async () => {
+      const recordBackgroundJob = vi.fn().mockResolvedValue(undefined);
+      const updateBackgroundJob = vi.fn().mockResolvedValue(undefined);
+      const notifyUser = vi.fn().mockResolvedValue(undefined);
+      const backgroundQueue: NonNullable<
+        Parameters<typeof shellTool.execute>[1]
+      >["backgroundQueue"] = [];
+
+      const context = {
+        backgroundQueue,
+        recordBackgroundJob,
+        updateBackgroundJob,
+        notifyUser,
+        conversationId: "conv-1",
+        traceId: "trace-1",
+        agentId: "agent-1",
+      } as never;
+
+      const result = await shellTool.execute(
+        { command: "echo done", background: true },
+        context,
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.metadata?.backgroundId).toMatch(/^bg_/);
+      expect(result.metadata?.pid).toBe(9999);
+      expect(recordBackgroundJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: result.metadata?.backgroundId,
+          command: "echo done",
+          status: "running",
+          pid: 9999,
+          conversationId: "conv-1",
+          traceId: "trace-1",
+          agentId: "agent-1",
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(updateBackgroundJob).toHaveBeenCalledWith(
+          result.metadata?.backgroundId,
+          expect.objectContaining({
+            status: "completed",
+            exitCode: 0,
+            output: "mocked",
+          }),
+        );
+      });
+      expect(notifyUser).toHaveBeenCalledWith(
+        expect.stringContaining(`Background task ${result.metadata?.backgroundId} completed`),
+      );
+      expect(backgroundQueue).toHaveLength(1);
     });
   });
 

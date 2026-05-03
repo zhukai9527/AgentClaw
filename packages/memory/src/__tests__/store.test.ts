@@ -58,6 +58,7 @@ describe("initDatabase — 数据库初始化", () => {
     expect(tableNames).toContain("chat_targets");
     expect(tableNames).toContain("traces");
     expect(tableNames).toContain("tasks");
+    expect(tableNames).toContain("background_jobs");
     expect(tableNames).toContain("subagents");
     expect(tableNames).toContain("agents");
     expect(tableNames).toContain("memories_fts");
@@ -80,6 +81,53 @@ describe("initDatabase — 数据库初始化", () => {
     // 模拟重复执行 schema — 由于 IF NOT EXISTS 不应出错
     expect(() => initDatabase(":memory:")).not.toThrow();
     db.close();
+  });
+});
+
+describe("SQLiteMemoryStore — 后台任务持久化", () => {
+  let store: SQLiteMemoryStore;
+  let _db: DbAdapter;
+
+  beforeEach(() => {
+    ({ db: _db, store } = createStore());
+  });
+
+  it("应记录后台任务 running 状态并更新为 completed", async () => {
+    await (store as any).recordBackgroundJob({
+      id: "bg_test",
+      command: "echo done",
+      status: "running",
+      pid: 1234,
+      conversationId: "conv-1",
+      traceId: "trace-1",
+      agentId: "agent-1",
+      startedAt: new Date("2026-05-03T10:00:00.000Z"),
+    });
+
+    await (store as any).updateBackgroundJob("bg_test", {
+      status: "completed",
+      exitCode: 0,
+      output: "done",
+      error: null,
+      completedAt: new Date("2026-05-03T10:00:01.000Z"),
+    });
+
+    const job = await (store as any).getBackgroundJob("bg_test");
+
+    expect(job).toMatchObject({
+      id: "bg_test",
+      command: "echo done",
+      status: "completed",
+      pid: 1234,
+      conversationId: "conv-1",
+      traceId: "trace-1",
+      agentId: "agent-1",
+      exitCode: 0,
+      output: "done",
+      error: null,
+    });
+    expect(job.startedAt).toEqual(new Date("2026-05-03T10:00:00.000Z"));
+    expect(job.completedAt).toEqual(new Date("2026-05-03T10:00:01.000Z"));
   });
 });
 

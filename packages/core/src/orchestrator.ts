@@ -305,6 +305,9 @@ export class SimpleOrchestrator implements Orchestrator {
         memoryStore.recordEvolutionEvent(event),
       listEvolutionRuns: (query) => memoryStore.listEvolutionRuns(query),
       listEvolutionEvents: (query) => memoryStore.listEvolutionEvents(query),
+      recordBackgroundJob: (job) => memoryStore.recordBackgroundJob(job),
+      updateBackgroundJob: (id, updates) =>
+        memoryStore.updateBackgroundJob(id, updates),
       toolHooks: {
         before: (call: { name: string; input: Record<string, unknown> }) =>
           this.hookManager.runBeforeHooks(call),

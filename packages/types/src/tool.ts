@@ -179,6 +179,28 @@ export interface ToolExecutionContext {
     isError: boolean;
     completedAt: Date;
   }>;
+  /** Persist a long-running background job when it starts. */
+  recordBackgroundJob?: (job: {
+    id: string;
+    command: string;
+    status: "running" | "completed" | "failed";
+    pid?: number;
+    conversationId?: string;
+    traceId?: string;
+    agentId?: string;
+    startedAt: Date;
+  }) => Promise<void> | void;
+  /** Persist background job completion/failure. */
+  updateBackgroundJob?: (
+    id: string,
+    updates: {
+      status: "running" | "completed" | "failed";
+      exitCode?: number | null;
+      output?: string;
+      error?: string | null;
+      completedAt?: Date;
+    },
+  ) => Promise<void> | void;
   /** Memory namespace for per-agent isolation (Hive) */
   memoryNamespace?: string;
   /** Skills disabled for this agent (Hive per-agent blacklist) */

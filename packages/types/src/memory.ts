@@ -305,6 +305,42 @@ export interface Observation {
   createdAt: Date;
 }
 
+export type BackgroundJobStatus = "running" | "completed" | "failed";
+
+export interface BackgroundJob {
+  id: string;
+  command: string;
+  status: BackgroundJobStatus;
+  pid?: number;
+  conversationId?: string;
+  traceId?: string;
+  agentId?: string;
+  exitCode?: number | null;
+  output?: string;
+  error?: string | null;
+  startedAt: Date;
+  completedAt?: Date;
+}
+
+export interface BackgroundJobInput {
+  id: string;
+  command: string;
+  status: BackgroundJobStatus;
+  pid?: number;
+  conversationId?: string;
+  traceId?: string;
+  agentId?: string;
+  startedAt: Date;
+}
+
+export interface BackgroundJobUpdate {
+  status: BackgroundJobStatus;
+  exitCode?: number | null;
+  output?: string;
+  error?: string | null;
+  completedAt?: Date;
+}
+
 export type ObservationInput = Omit<Observation, "id" | "createdAt">;
 
 export interface ObservationRead {
@@ -425,6 +461,18 @@ export interface MemoryStore {
     tokensOut: number;
     durationMs: number;
   }>;
+
+  /** Persist a long-running background job when it starts. */
+  recordBackgroundJob(job: BackgroundJobInput): Promise<void>;
+
+  /** Persist a long-running background job completion/failure. */
+  updateBackgroundJob(id: string, updates: BackgroundJobUpdate): Promise<void>;
+
+  /** Get one persisted background job by ID. */
+  getBackgroundJob(id: string): Promise<BackgroundJob | null>;
+
+  /** List recent persisted background jobs. */
+  listBackgroundJobs(limit?: number): Promise<BackgroundJob[]>;
 
   /** Persist a new sub-agent record */
   addSubAgent(agent: {
