@@ -17,7 +17,6 @@ export {
   recallTool,
   skillManageTool,
   skillCuratorTool,
-  executeCodeTool,
   observationReadTool,
 } from "./builtin/index.js";
 export type { BuiltinToolsOptions } from "./builtin/index.js";

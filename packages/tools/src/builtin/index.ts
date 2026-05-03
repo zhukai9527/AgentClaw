@@ -19,7 +19,6 @@ import { sandboxTool } from "./sandbox.js";
 import { subagentTool } from "./subagent.js";
 import { browserCdpTool } from "./browser-cdp.js";
 import { handoffTool } from "./handoff.js";
-import { executeCodeTool } from "./execute-code.js";
 import { webFetchTool } from "./web-fetch.js";
 import { webSearchTool } from "./web-search.js";
 import { observationReadTool } from "./observation-read.js";
@@ -42,7 +41,6 @@ export { sandboxTool } from "./sandbox.js";
 export { subagentTool } from "./subagent.js";
 export { browserCdpTool } from "./browser-cdp.js";
 export { handoffTool } from "./handoff.js";
-export { executeCodeTool } from "./execute-code.js";
 export { observationReadTool } from "./observation-read.js";
 
 /** Options for configuring which conditional tools to include */
@@ -84,7 +82,6 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
       subagentTool,
       browserCdpTool,
       handoffTool,
-      executeCodeTool,
     );
   }
   if (options?.memory) {

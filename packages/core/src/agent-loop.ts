@@ -141,7 +141,7 @@ const MICRO_COMPACT_KEEP_RECENT = 3;
 const MICRO_COMPACT_THRESHOLD = 800;
 const MICRO_COMPACT_PREVIEW = 200;
 /** Tool names whose input arguments should be truncated after execution */
-const TRUNCATE_ARG_TOOLS = new Set(["file_write", "file_edit", "execute_code", "bash"]);
+const TRUNCATE_ARG_TOOLS = new Set(["file_write", "file_edit", "bash"]);
 const TRUNCATE_ARG_KEYS = new Set(["content", "new_string", "code", "command"]);
 const TRUNCATE_ARG_PREVIEW = 50;
 
@@ -212,7 +212,7 @@ function microCompact(messages: Message[]): void {
 
     // ── Tool Argument Truncation ──
     // Also truncate the corresponding assistant message's tool_call input args
-    // (file_write content, file_edit new_string, execute_code code are huge after execution)
+    // (file_write content, file_edit new_string, and bash commands can be huge after execution)
     if (idx > 0 && messages[idx - 1]?.role === "assistant") {
       const assistantMsg = messages[idx - 1];
       if (Array.isArray(assistantMsg.content)) {
@@ -765,7 +765,7 @@ export class SimpleAgentLoop implements AgentLoop {
     const isNewsBriefTask = /新闻|简报|news|brief/i.test(inputTextForHeuristics);
     if (isNewsBriefTask) {
       runtimeHints.push(
-        "[新闻任务约束]优先在3轮以内完成：第1轮用execute_code批量搜索并筛选，第2轮只在必要时抓取少量原文，第3轮必须合成最终答复。只采用高可信来源：官方公告/公司博客/监管机构/学术机构/Reuters/AP/Bloomberg/FT/The Verge/TechCrunch/MIT Technology Review/Stanford HAI等。不要使用Reddit、YouTube、低质量SEO聚合站或个人博客作为事实来源，除非用户明确要求。无法用可信来源交叉确认的新闻点直接跳过或标注未确认。execute_code输出必须是紧凑facts JSON，最多8条，每条包含title/source/url/date/confidence/summary，不要打印原始网页全文。",
+        "[新闻任务约束]优先在3轮以内完成：第1轮并行 web_search 搜索并筛选，第2轮只在必要时用 web_fetch 抓取少量原文，第3轮必须合成最终答复。只采用高可信来源：官方公告/公司博客/监管机构/学术机构/Reuters/AP/Bloomberg/FT/The Verge/TechCrunch/MIT Technology Review/Stanford HAI等。不要使用Reddit、YouTube、低质量SEO聚合站或个人博客作为事实来源，除非用户明确要求。无法用可信来源交叉确认的新闻点直接跳过或标注未确认。已有搜索结果足够时不要继续抓取原文。",
       );
     }
     const isAiNewsTask = /\bAI\b|news|brief|artificial intelligence/i.test(
@@ -773,7 +773,7 @@ export class SimpleAgentLoop implements AgentLoop {
     );
     if (isAiNewsTask) {
       runtimeHints.push(
-        "[news-task] Today is 2026-05-03. Finish in about 3 LLM turns. Use at most 3 network execute_code batches, then final answer. Prefer primary/trusted sources only: official company blogs, regulator/government/university sources, Reuters, AP, Bloomberg, FT, The Verge, TechCrunch, MIT Technology Review, Stanford HAI. Explicitly reject Reddit, YouTube, Yahoo Finance, SEO aggregators, random blogs, and unsourced claims. Recent news only: if the item is not from today or the last 7 days, include it only when it is clearly still developing and mark the exact date. Output no more than 5 high-confidence items. In execute_code print compact facts JSON only: title, source, url, date, confidence, summary. Do not print raw pages.",
+        "[news-task] Today is 2026-05-03. Finish in about 3 LLM turns. Use parallel web_search first, then web_fetch only for missing key facts, then final answer. Prefer primary/trusted sources only: official company blogs, regulator/government/university sources, Reuters, AP, Bloomberg, FT, The Verge, TechCrunch, MIT Technology Review, Stanford HAI. Explicitly reject Reddit, YouTube, Yahoo Finance, SEO aggregators, random blogs, and unsourced claims. Recent news only: if the item is not from today or the last 7 days, include it only when it is clearly still developing and mark the exact date. Output no more than 5 high-confidence items. Do not fetch raw pages when snippets already contain enough facts.",
       );
     }
     let sufficientWeatherFactHint: string | null = null;
@@ -856,13 +856,6 @@ export class SimpleAgentLoop implements AgentLoop {
     let escalated = false;
     const STRIKE_THRESHOLD = 3;
 
-    // execute_code nudge: when agent uses 3+ web_search/web_fetch calls without
-    // using execute_code, inject a hint reminding it to batch via execute_code.
-    let executeCodeNudged = false;
-    let usedExecuteCode = false;
-    const FETCH_SEARCH_NUDGE_THRESHOLD = 3;
-    let networkExecuteCodeCalls = 0;
-    const NETWORK_EXECUTE_CODE_LIMIT = 3;
     let webResearchToolCalls = 0;
     const WEB_RESEARCH_TOOL_LIMIT = 6;
     let overflowFileReadCalls = 0;
@@ -1517,17 +1510,6 @@ export class SimpleAgentLoop implements AgentLoop {
           const nameCount = (toolNameCounts.get(effectiveToolName) ?? 0) + 1;
           toolNameCounts.set(effectiveToolName, nameCount);
           const totalLimit = TOOL_TOTAL_LIMITS[effectiveToolName];
-          const executeCodeText =
-            effectiveToolName === "execute_code" &&
-            typeof effectiveToolInput.code === "string"
-              ? effectiveToolInput.code
-              : "";
-          const isNetworkExecuteCode =
-            /\bweb_(?:search|fetch)\s*\(/.test(executeCodeText);
-          if (effectiveToolName === "execute_code") {
-            usedExecuteCode = true;
-            if (isNetworkExecuteCode) networkExecuteCodeCalls++;
-          }
           const isWebResearchTool =
             effectiveToolName === "web_search" ||
             effectiveToolName === "web_fetch";
@@ -1593,51 +1575,6 @@ export class SimpleAgentLoop implements AgentLoop {
             runtimeHints.push(
               "<research_budget_exhausted>Research budget is exhausted. No more tools are available. Write the final answer from the gathered facts now.</research_budget_exhausted>",
             );
-          } else if (
-            isNetworkExecuteCode &&
-            networkExecuteCodeCalls > NETWORK_EXECUTE_CODE_LIMIT
-          ) {
-            console.log(
-              `[agent-loop] Network execute_code limit reached: ${networkExecuteCodeCalls}/${NETWORK_EXECUTE_CODE_LIMIT}`,
-            );
-            result = {
-              content:
-                `You already ran ${NETWORK_EXECUTE_CODE_LIMIT} network execute_code batch(es). ` +
-                "Stop searching/fetching now. Do not read overflow files. Generate the final answer from the search and fetch results already in context.",
-              isError: true,
-            };
-            forceSynthesisOnly = true;
-            runtimeHints.push(
-              "<research_budget_exhausted>Research budget is exhausted. No more tools are available. Write the final answer from the gathered facts now.</research_budget_exhausted>",
-            );
-          } else if (
-            false &&
-            executeCodeNudged &&
-            !usedExecuteCode &&
-            (effectiveToolName === "web_search" ||
-              effectiveToolName === "web_fetch")
-          ) {
-            // After nudge fired, hard-block further web_search/web_fetch
-            // until the model uses execute_code to batch remaining work.
-            console.log(
-              `[agent-loop] execute_code nudge: blocking ${effectiveToolName} (use execute_code instead)`,
-            );
-            // Check if model already has enough fetched content
-            result = {
-              content:
-                (toolNameCounts.get("web_fetch") ?? 0) >= 2
-                  ? "已拦截：你已经收集了足够的信息，不能再调用 web_search/web_fetch。" +
-                    "也不要用 file_read/grep 去读 overflow 文件。" +
-                    "请立即用你已经收到的内容（包括预览）直接生成最终回复给用户。"
-                  : "已拦截：不能再逐个调用 web_search/web_fetch。" +
-                    "用 execute_code 写 JS 脚本批量完成：在脚本中使用内置全局函数 await web_fetch(url) 和 await web_search(query)（无需 import），" +
-                    "用 Promise.all 并行请求，console.log() 输出结果。",
-              isError: true,
-            };
-            result.content =
-              (toolNameCounts.get("web_fetch") ?? 0) >= 2
-                ? "Blocked: enough fetched content is already available. Do not call web_search/web_fetch again, and do not read overflow files. Generate the final answer from the content already in context, including previews."
-                : "Blocked: stop calling web_search/web_fetch one by one. Use execute_code with JavaScript, call the built-in await web_fetch(url) and await web_search(query), run requests with Promise.all, reduce the data inside the script, and console.log only the compact final result.";
           } else if (totalLimit && nameCount > totalLimit) {
             console.log(
               `[agent-loop] Total call limit reached: ${effectiveToolName} (${nameCount}/${totalLimit})`,
@@ -1695,64 +1632,6 @@ export class SimpleAgentLoop implements AgentLoop {
               { name: effectiveToolName, input: effectiveToolInput },
               result!,
             );
-          }
-
-          // Overflow mode: large outputs → save to file, give LLM a preview
-          if (
-            (isNewsBriefTask || isAiNewsTask) &&
-            isNetworkExecuteCode &&
-            result &&
-            !result.isError
-          ) {
-            const lowTrustNewsSource =
-              /(?:reddit\.com|youtube\.com|youtu\.be|finance\.yahoo\.com|blog\.mean\.ceo|medium\.com|substack\.com|quora\.com)/i;
-            let filteredContent = result.content;
-            try {
-              const parsed = JSON.parse(filteredContent) as unknown;
-              if (Array.isArray(parsed)) {
-                filteredContent = JSON.stringify(
-                  parsed.filter((item) => {
-                    if (!item || typeof item !== "object") return true;
-                    const url = String((item as { url?: unknown }).url ?? "");
-                    return !lowTrustNewsSource.test(url);
-                  }),
-                  null,
-                  2,
-                );
-              }
-            } catch {
-              if (filteredContent.includes("\n=== ")) {
-                filteredContent = filteredContent
-                  .split(/\n(?==== )/)
-                  .filter((chunk) => !lowTrustNewsSource.test(chunk.slice(0, 300)))
-                  .join("\n");
-              }
-            }
-            if (filteredContent !== result.content) {
-              result.content = filteredContent;
-              result.metadata = {
-                ...(result.metadata ?? {}),
-                lowTrustNewsSourcesFiltered: true,
-              };
-            }
-          }
-
-          if (
-            (isNewsBriefTask || isAiNewsTask) &&
-            isNetworkExecuteCode &&
-            result &&
-            !result.isError &&
-            result.content.length > 2400
-          ) {
-            const originalLength = result.content.length;
-            result.content =
-              result.content.slice(0, 2400) +
-              `\n\n[news network result compacted from ${originalLength} chars; use this preview only and synthesize now]`;
-            result.metadata = {
-              ...(result.metadata ?? {}),
-              newsCompacted: true,
-              originalLength,
-            };
           }
 
           await applyOverflow(
@@ -2098,19 +1977,6 @@ export class SimpleAgentLoop implements AgentLoop {
         }
       }
 
-      // ── Three-strike escalation: detect stuck LLM ──
-      if (
-        false &&
-        (isNewsBriefTask || isAiNewsTask) &&
-        networkExecuteCodeCalls >= NETWORK_EXECUTE_CODE_LIMIT &&
-        iterationErrorCount === 0
-      ) {
-        forceSynthesisOnly = true;
-        runtimeHints.push(
-          "<news_synthesis_only>News research budget is complete. Do not call tools again. Write the final Chinese brief now using only trusted, dated, high-confidence facts already gathered; omit weak or unverified items.</news_synthesis_only>",
-        );
-      }
-
       // Fingerprint: first 300 chars of LLM output + tool names called (normalized)
       if (fullText && !escalated) {
         const toolNames = toolCalls
@@ -2145,44 +2011,6 @@ export class SimpleAgentLoop implements AgentLoop {
             );
             console.warn(
               `[agent-loop] Three-strike escalation triggered at iteration ${iterations}`,
-            );
-          }
-        }
-      }
-
-      // ── execute_code nudge: detect sequential web_search/web_fetch abuse ──
-      // System prompt says "≥3 tool calls chain → use execute_code", but weak
-      // models ignore this. After 3+ fetch/search calls, inject a one-time hint.
-      if (!executeCodeNudged && loopAvailableTools.has("execute_code")) {
-        if (toolNameCounts.has("execute_code")) usedExecuteCode = true;
-        if (!usedExecuteCode) {
-          const fetchSearchTotal =
-            (toolNameCounts.get("web_search") ?? 0) +
-            (toolNameCounts.get("web_fetch") ?? 0);
-          if (fetchSearchTotal >= FETCH_SEARCH_NUDGE_THRESHOLD) {
-            executeCodeNudged = true;
-            // If we already have successful web_fetch results, the model has
-            // enough data — nudge it to output directly instead of pushing
-            // execute_code (which often fails on CJK string escaping).
-            const hasEnoughData =
-              (toolNameCounts.get("web_fetch") ?? 0) >= 2;
-            runtimeHints.push(
-              hasEnoughData
-                ? "<execute_code_hint>你已经成功抓取了多个网页内容，信息量足够。" +
-                  "不要再调用 web_search/web_fetch，也不要用 file_read/grep 去读 overflow 文件。" +
-                  "直接用你已经收到的内容（包括预览）生成最终回复给用户。</execute_code_hint>"
-                : "<execute_code_hint>你已经逐个调用了 " +
-                  fetchSearchTotal +
-                  " 次 web_search/web_fetch。系统规则要求：多步链式操作必须用 execute_code 写 JS 脚本一次完成。" +
-                  "请立即改用 execute_code，在脚本中用 await web_fetch(url) 和 await web_search(query) " +
-                  "（execute_code 内置全局函数，无需 import）并行抓取多个 URL（Promise.all），" +
-                  "在脚本内完成数据提取和汇总，用 console.log() 输出最终结果。</execute_code_hint>",
-            );
-            runtimeHints[runtimeHints.length - 1] = hasEnoughData
-              ? "<execute_code_hint>You already have enough fetched content. Do not call web_search/web_fetch again, and do not read overflow files. Generate the final answer from existing content and previews.</execute_code_hint>"
-              : `<execute_code_hint>You have called web_search/web_fetch ${fetchSearchTotal} times one by one. Use execute_code with JavaScript now: call the built-in await web_fetch(url) and await web_search(query), run requests with Promise.all, extract and reduce data inside the script, and console.log only the compact final result.</execute_code_hint>`;
-            console.warn(
-              `[agent-loop] execute_code nudge triggered: ${fetchSearchTotal} fetch/search calls without execute_code`,
             );
           }
         }
