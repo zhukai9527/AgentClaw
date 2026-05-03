@@ -5,6 +5,7 @@
 ### Added
 - **Trace 质量评分器**：新增 `evaluateTraceQuality`，可对真实 trace 的 LLM 轮次、工具调用、输入 token、耗时、cache 命中、overflow 全文读回和 Reddit 计数字段伪造进行确定性评分；新增 `scripts/trace-quality-regression.mts` 作为线上近似闭环回归入口。
 - **Observation Store 回归指标**：`evaluateTraceQuality` 新增 observation 创建数、读取数、全文读回数、原始字符数、提示字符数、节省字符数和节省率，并提供最低创建数、最低节省率、最大全文读回数阈值，防止 P0 Observation Store 退化成上下文全文回灌。
+- **微信公众号草稿发布脚本**：`wechat-publish` 新增 `publish_draft.py`，把草稿 JSON 组装、封面上传和创建草稿收敛到单一入口，并支持 dry-run 回归验证。
 
 ### Changed
 - **overflow 文件读取策略**：`file_read` 对 `overflow_*.txt` 默认只返回短预览，必须通过 `offset` / `length` 做定向范围读取，避免 `execute_code` 大输出被全文读回上下文。
@@ -14,6 +15,7 @@
 - **P2 工具输出瘦身**：`web_search` 结果硬夹到 5 条，`web_fetch` 默认返回带来源 URL 的短事实卡并保留 `save_as` 完整保存路径，`rss_top` 对相同 feed/topN 做短期缓存；真实 AI 新闻回归约 `11.3K input token / 35.1s`，不再因超限搜索多跑一轮。
 
 ### Fixed
+- **微信公众号发布流程漂移**：`wechat-publish` 技能改为只走发布脚本，移除手写 token/curl 流程，避免模型绕过反代、读取历史临时脚本或重复创建草稿；`md2wx.py` 支持 UTF-8 BOM Markdown，防止 Windows 文件标题解析成文件名。
 - **定时任务新闻 trace 长循环**：取消 `execute_code nudge` 对 `web_search/web_fetch` 的硬拦截，避免模型在轻量并行搜索和批量脚本之间来回反弹；同时限制包含 `web_search/web_fetch` 的 `execute_code` 网络批处理最多 3 次，超过后强制综合已有材料输出。
 - **Web 研究组合预算**：新增 `web_search`/`web_fetch` 总调用上限和 overflow 文件读取上限，防止定时任务从 `execute_code` 长循环退化成搜索、抓取、读片段的混合长循环。
 - **批量新闻任务 token 浪费回归**：用生产 trace 固化失败样本，防止新闻/RSS 类任务再次出现 5 轮 LLM、60K+ input token、overflow 全文回灌和 RSS 缺失点赞/评论却填 0 的问题。

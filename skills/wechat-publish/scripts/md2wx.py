@@ -316,7 +316,7 @@ def main():
     )
     args = parser.parse_args()
 
-    md_text = Path(args.input).read_text(encoding="utf-8")
+    md_text = Path(args.input).read_text(encoding="utf-8-sig")
 
     # Extract title from first H1
     title_match = re.search(r"^# (.+)$", md_text, re.MULTILINE)
