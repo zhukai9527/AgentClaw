@@ -170,12 +170,14 @@ def parse_srt(content):
 
 def write_srt(blocks, output):
     """写入 SRT 文件"""
+    os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
     with open(output, 'w', encoding='utf-8') as f:
         for b in blocks:
             f.write(f"{b['index']}\n{b['timestamp']}\n{b['text']}\n\n")
 
 def write_plain_text(segments, output, translated=None, chinese_only=False, source_only=False):
     """写入无时间戳纯文本字幕。"""
+    os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
     lines = []
     translated = translated or []
     for i, seg in enumerate(segments):
@@ -679,21 +681,37 @@ def _ffmpeg_dir_from_binary(path):
     if not path:
         return None
     directory = os.path.dirname(os.path.abspath(path))
-    ffmpeg = os.path.join(directory, 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg')
-    ffprobe = os.path.join(directory, 'ffprobe.exe' if sys.platform == 'win32' else 'ffprobe')
-    if os.path.exists(ffmpeg) and os.path.exists(ffprobe):
+    if _ffmpeg_dir_from_candidate(directory):
         return directory
     return None
+
+def msys_drive_root(drive_letter):
+    """返回 MSYS `/e/...` 对应的 Windows 盘符根目录，测试中可替换。"""
+    return f'{drive_letter.upper()}:\\'
+
+def msys_to_windows_path(path):
+    """把 Git Bash/MSYS 风格路径 `/e/foo` 转成 Windows 路径 `E:\foo`。"""
+    if not path or sys.platform != 'win32':
+        return path
+    m = re.match(r'^/([a-zA-Z])(?:/(.*))?$', path)
+    if not m:
+        return path
+    root = msys_drive_root(m.group(1))
+    rest = (m.group(2) or '').replace('/', '\\')
+    return os.path.join(root, rest) if rest else root
 
 def _ffmpeg_dir_from_candidate(directory):
     if not directory:
         return None
+    directory = msys_to_windows_path(directory)
     directory = os.path.abspath(os.path.expanduser(directory))
     if os.path.isfile(directory):
         return _ffmpeg_dir_from_binary(directory)
-    ffmpeg = os.path.join(directory, 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg')
-    ffprobe = os.path.join(directory, 'ffprobe.exe' if sys.platform == 'win32' else 'ffprobe')
-    if os.path.exists(ffmpeg) and os.path.exists(ffprobe):
+    ffmpeg_names = ['ffmpeg.exe', 'ffmpeg'] if sys.platform == 'win32' else ['ffmpeg']
+    ffprobe_names = ['ffprobe.exe', 'ffprobe'] if sys.platform == 'win32' else ['ffprobe']
+    has_ffmpeg = any(os.path.exists(os.path.join(directory, name)) for name in ffmpeg_names)
+    has_ffprobe = any(os.path.exists(os.path.join(directory, name)) for name in ffprobe_names)
+    if has_ffmpeg and has_ffprobe:
         return directory
     return None
 
@@ -708,8 +726,17 @@ def find_ffmpeg_location():
     if found:
         return found
 
+    found = _ffmpeg_dir_from_binary(shutil.which('ffprobe'))
+    if found:
+        return found
+
     if sys.platform == 'win32':
-        for command in (['where', 'ffmpeg'], ['powershell.exe', '-NoProfile', '-Command', '(Get-Command ffmpeg -ErrorAction SilentlyContinue).Source']):
+        for command in (
+            ['where', 'ffmpeg'],
+            ['where', 'ffprobe'],
+            ['powershell.exe', '-NoProfile', '-Command', '(Get-Command ffmpeg -ErrorAction SilentlyContinue).Source'],
+            ['powershell.exe', '-NoProfile', '-Command', '(Get-Command ffprobe -ErrorAction SilentlyContinue).Source'],
+        ):
             try:
                 result = subprocess.run(command, capture_output=True, text=True, timeout=5)
                 for line in result.stdout.splitlines():
@@ -726,6 +753,7 @@ def find_ffmpeg_location():
             os.path.expanduser(r'~\scoop\shims'),
             r'C:\Program Files\Git\mingw64\bin',
             r'C:\Program Files\Git\usr\bin',
+            r'E:\So-VITS-SVC\so-vits-svc\ffmpeg\bin',
         ]
         for candidate in candidates:
             found = _ffmpeg_dir_from_candidate(candidate)
@@ -745,6 +773,30 @@ def yt_dlp_cmd_with_ffmpeg(*args, required=False):
         return yt_dlp_cmd(*args)
     return yt_dlp_cmd('--ffmpeg-location', ffmpeg_location, *args)
 
+def run_download_command(cmd, timeout):
+    """运行下载命令；对 X/网络瞬断做一次确定性重试。"""
+    last_result = None
+    for attempt in range(2):
+        if attempt:
+            print('  下载失败，重试 1 次...')
+            time.sleep(1)
+        last_result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if last_result.returncode == 0:
+            return last_result
+        combined = f'{last_result.stderr}\n{last_result.stdout}'.lower()
+        retryable = any(
+            marker in combined
+            for marker in (
+                'eof occurred in violation of protocol',
+                'bad guest token',
+                'connection reset',
+                'timed out',
+            )
+        )
+        if not retryable:
+            break
+    return last_result
+
 def largest_file_with_ext(directory, ext):
     """返回指定目录下同扩展名的最大文件。"""
     files = [
@@ -756,12 +808,13 @@ def largest_file_with_ext(directory, ext):
         return None
     return max(files, key=os.path.getsize)
 
-def download_from_url(url, output_dir, srt_only=False, language=None):
+def download_from_url(url, output_dir, srt_only=False, language=None, prefer_video=False):
     """
     从 URL 下载视频/音频，智能选择最优策略：
     1. 先尝试下载 CC 字幕（最快，跳过 Whisper）
     2. 如果没有 CC 字幕：
-       - srt_only 模式：只下载音频 mp3（体积小 20 倍）
+       - srt_only 模式：默认只下载音频 mp3（体积小）
+       - prefer_video 模式：下载视频容器，适合 Twitter/X 上音频 HLS 很慢但视频直链很快的转写任务
        - 烧录模式：下载完整视频 mp4
     返回 (media_file, cc_srt_files) — cc_srt_files 非空表示已有字幕，无需 Whisper
     """
@@ -796,12 +849,12 @@ def download_from_url(url, output_dir, srt_only=False, language=None):
         # CC 字幕模式下如果需要烧录，还得下载视频
         if not srt_only:
             print(f'  下载视频用于烧录字幕...')
-            dl_result = subprocess.run(
+            dl_result = run_download_command(
                 yt_dlp_cmd_with_ffmpeg('--no-warnings', '--playlist-items', '1',
                  '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
                  '--merge-output-format', 'mp4',
                  '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url, required=True),
-                capture_output=True, text=True, timeout=600
+                timeout=600
             )
             # 找到下载的视频
             media_file = largest_file_with_ext(output_dir, '.mp4')
@@ -812,16 +865,16 @@ def download_from_url(url, output_dir, srt_only=False, language=None):
 
     print(f'  无 CC 字幕，需要 Whisper 转写')
 
-    if srt_only:
+    if srt_only and not prefer_video:
         # 只需字幕 → 下载音频（体积小得多）
         print(f'  下载音频（mp3）...')
-        dl_result = subprocess.run(
+        dl_result = run_download_command(
             yt_dlp_cmd_with_ffmpeg('--no-warnings', '--playlist-items', '1',
              '-f', 'ba/bestaudio/worst[ext=mp4]/worst',
              '-x', '--audio-format', 'mp3',
              '--audio-quality', '0',
              '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url, required=True),
-            capture_output=True, text=True, timeout=600
+            timeout=600
         )
         # 找到下载的音频
         media_file = largest_file_with_ext(output_dir, '.mp3')
@@ -829,14 +882,14 @@ def download_from_url(url, output_dir, srt_only=False, language=None):
             print(f'  音频: {os.path.basename(media_file)} ({format_size(os.path.getsize(media_file))})')
             return media_file, []
     else:
-        # 需要烧录 → 下载视频
+        # 需要烧录或最快转写 → 下载视频容器。Twitter/X 的音频 HLS 往往比视频直链慢。
         print(f'  下载视频（mp4）...')
-        dl_result = subprocess.run(
+        dl_result = run_download_command(
             yt_dlp_cmd_with_ffmpeg('--no-warnings', '--playlist-items', '1',
              '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
              '--merge-output-format', 'mp4',
              '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url, required=True),
-            capture_output=True, text=True, timeout=600
+            timeout=600
         )
         media_file = largest_file_with_ext(output_dir, '.mp4')
         if media_file:
@@ -909,7 +962,11 @@ def main():
         dl_dir = tempfile.mkdtemp(prefix='subtitle_dl_')
 
         media_file, cc_srt_files = download_from_url(
-            args.video, dl_dir, srt_only=args.srt_only, language=args.language
+            args.video,
+            dl_dir,
+            srt_only=args.srt_only,
+            language=args.language,
+            prefer_video=args.txt_only,
         )
 
         if cc_srt_files and args.srt_only:

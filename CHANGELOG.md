@@ -13,11 +13,14 @@
 - **JSON 抓取结果保持机器可解析**：`web_fetch` 对 `application/json` 不再追加人类 hint，避免 `execute_code` 中 `JSON.parse(await web_fetch(...))` 因尾部提示文本失败。
 - **send_file 路径审计**：发送结果现在记录 `originalPath`、`effectivePath` 和 `relocated`，并且只有文件确实从 workDir 外复制进来时才标记 relocated。
 - **shell 文件发送边界**：`shell` 只有显式 `auto_send=true` 时才发送检测到的文件，避免命令参数里的中间视频、SRT 等路径被误发给用户。
+- **X 长视频纯文本字幕极速路径**：`bilingual-subtitle --txt-only` 的 URL 模式改为下载视频容器后直接交给 faster-whisper demux 转写；真实 83 分钟 X 视频回归从 10 分钟超时收敛到 8分43秒，只发送最终 `.txt`。
 - **P1 任务工具路由**：新闻简报只暴露 `web_search`/`web_fetch`/输出工具，Reddit/RSS 日报只暴露 `rss_top`/文件输出工具，并按任务类型收紧工具预算；真实回归中 AI 新闻任务稳定在约 11.5K input token，Reddit 日报收敛为 1 次 `rss_top` + 文件输出链路。
 - **P2 工具输出瘦身**：`web_search` 结果硬夹到 5 条，`web_fetch` 默认返回带来源 URL 的短事实卡并保留 `save_as` 完整保存路径，`rss_top` 对相同 feed/topN 做短期缓存；真实 AI 新闻回归约 `11.3K input token / 35.1s`，不再因超限搜索多跑一轮。
 
 ### Fixed
 - **URL 字幕音频下载失败**：`bilingual-subtitle` 现在会定位 `ffmpeg/ffprobe` 并显式传给 `yt-dlp`，无 CC 字幕时只下载音频转写，不再因为 Python 子进程 PATH 缺失退化成手写下载完整视频。
+- **Git Bash ffmpeg 路径识别**：`bilingual-subtitle` 支持 `/e/...` MSYS 路径转换，并优先选择同时包含 `ffmpeg` 和 `ffprobe` 的目录，避免只找到 `ffmpeg.exe` 但缺 `ffprobe.exe` 时失败。
+- **字幕输出目录缺失**：纯文本/SRT 写出前会自动创建父目录，避免 gateway 会话工作目录尚未存在时，长视频转写完成后因写文件失败重跑。
 - **微信公众号发布流程漂移**：`wechat-publish` 技能改为只走发布脚本，移除手写 token/curl 流程，避免模型绕过反代、读取历史临时脚本或重复创建草稿；`md2wx.py` 支持 UTF-8 BOM Markdown，防止 Windows 文件标题解析成文件名。
 - **定时任务新闻 trace 长循环**：取消 `execute_code nudge` 对 `web_search/web_fetch` 的硬拦截，避免模型在轻量并行搜索和批量脚本之间来回反弹；同时限制包含 `web_search/web_fetch` 的 `execute_code` 网络批处理最多 3 次，超过后强制综合已有材料输出。
 - **Web 研究组合预算**：新增 `web_search`/`web_fetch` 总调用上限和 overflow 文件读取上限，防止定时任务从 `execute_code` 长循环退化成搜索、抓取、读片段的混合长循环。
