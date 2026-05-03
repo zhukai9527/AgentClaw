@@ -681,17 +681,12 @@ export const shellTool: Tool = {
         result.content.slice(-half);
     }
 
-    // Detect output files and send to frontend for inline display.
-    // auto_send=true: scan stdout for file paths (e.g. ffmpeg progress output)
-    // auto_send unset: only scan the command itself (avoid sending files listed by ls/find)
-    if (!result.isError && context?.sendFile) {
+    // Detect output files and send to frontend for inline display only when the
+    // caller explicitly requests that side effect.
+    if (!result.isError && context?.sendFile && autoSend) {
       let paths: string[];
-      if (autoSend) {
-        paths = detectFilePaths(result.content);
-        if (paths.length === 0) {
-          paths = detectFilePaths(command);
-        }
-      } else {
+      paths = detectFilePaths(result.content);
+      if (paths.length === 0) {
         paths = detectFilePaths(command);
       }
       let sentCount = 0;
@@ -705,7 +700,7 @@ export const shellTool: Tool = {
           }
         }
       }
-      if (autoSend && sentCount > 0) {
+      if (sentCount > 0) {
         result.autoComplete = true;
       }
     }

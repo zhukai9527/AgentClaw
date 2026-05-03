@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { execFile } from "node:child_process";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { shellTool } from "../builtin/shell.js";
 
 /**
@@ -289,6 +292,30 @@ describe("Shell 沙箱验证 (validateCommand)", () => {
         expect.stringContaining(`Background task ${result.metadata?.backgroundId} completed`),
       );
       expect(backgroundQueue).toHaveLength(1);
+    });
+  });
+
+  describe("文件发送副作用", () => {
+    it("未设置 auto_send 时不应发送命令参数里的文件路径", async () => {
+      const root = join(tmpdir(), `agentclaw-shell-${Date.now()}`);
+      const workDir = join(root, "data", "tmp", "trace-1");
+      const outputPath = join(workDir, "final.txt");
+      await mkdir(workDir, { recursive: true });
+      await writeFile(outputPath, "done", "utf-8");
+      const sendFile = vi.fn().mockResolvedValue(undefined);
+
+      try {
+        const result = await shellTool.execute(
+          { command: `echo done > '${outputPath}'` },
+          { workDir, sendFile } as never,
+        );
+
+        expect(result.isError).toBe(false);
+        expect(sendFile).not.toHaveBeenCalled();
+        expect(result.autoComplete).not.toBe(true);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
     });
   });
 

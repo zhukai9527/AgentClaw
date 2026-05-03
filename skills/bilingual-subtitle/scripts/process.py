@@ -8,6 +8,7 @@
 """
 import sys
 import os
+import shutil
 
 # Windows 控制台 UTF-8 编码支持
 if sys.platform == 'win32':
@@ -173,14 +174,40 @@ def write_srt(blocks, output):
         for b in blocks:
             f.write(f"{b['index']}\n{b['timestamp']}\n{b['text']}\n\n")
 
+def write_plain_text(segments, output, translated=None, chinese_only=False, source_only=False):
+    """写入无时间戳纯文本字幕。"""
+    lines = []
+    translated = translated or []
+    for i, seg in enumerate(segments):
+        source_text = (seg.get('text') or '').strip()
+        translated_text = ''
+        if i < len(translated):
+            translated_text = (translated[i].get('text') or '').strip()
+
+        if chinese_only:
+            text_parts = [translated_text or source_text]
+        elif source_only or not translated_text:
+            text_parts = [source_text]
+        else:
+            text_parts = [source_text, translated_text]
+
+        for text in text_parts:
+            if text:
+                lines.append(text)
+
+    with open(output, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
+        if lines:
+            f.write('\n')
+
 # ============== 步骤 1: 提取字幕 ==============
 
-def extract_subtitles(video, output, language=None, model='small', word_timestamps=False, no_speech_threshold=0.6):
+def extract_subtitles(video, output, language=None, model='small', word_timestamps=False, no_speech_threshold=0.6, beam_size=1):
     """使用 Whisper 提取字幕，自动检测硬件。返回 (segments, detected_language)"""
     step_start = time.time()
     print(f'\n[1/4] 提取字幕...')
     print(f'  视频: {video}')
-    print(f'  语言: {language or "自动检测"}, 模型: {model}')
+    print(f'  语言: {language or "自动检测"}, 模型: {model}, beam_size: {beam_size}')
     print(f'  VAD 过滤: 已启用')
     if word_timestamps:
         print(f'  词级时间戳: 已启用')
@@ -221,6 +248,7 @@ def extract_subtitles(video, output, language=None, model='small', word_timestam
             segs, info = whisper_model.transcribe(
                 video,
                 language=language,
+                beam_size=beam_size,
                 word_timestamps=word_timestamps,
                 vad_filter=True,
                 vad_parameters=dict(min_silence_duration_ms=500)
@@ -249,6 +277,7 @@ def extract_subtitles(video, output, language=None, model='small', word_timestam
         segs, info = whisper_model.transcribe(
             video,
             language=language,
+            beam_size=beam_size,
             word_timestamps=word_timestamps,
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=500)
@@ -646,6 +675,76 @@ def yt_dlp_cmd(*args):
     """通过当前 Python 环境调用 yt-dlp，避免 Windows subprocess 找不到 Git Bash PATH 里的脚本。"""
     return [sys.executable, '-m', 'yt_dlp', *args]
 
+def _ffmpeg_dir_from_binary(path):
+    if not path:
+        return None
+    directory = os.path.dirname(os.path.abspath(path))
+    ffmpeg = os.path.join(directory, 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg')
+    ffprobe = os.path.join(directory, 'ffprobe.exe' if sys.platform == 'win32' else 'ffprobe')
+    if os.path.exists(ffmpeg) and os.path.exists(ffprobe):
+        return directory
+    return None
+
+def _ffmpeg_dir_from_candidate(directory):
+    if not directory:
+        return None
+    directory = os.path.abspath(os.path.expanduser(directory))
+    if os.path.isfile(directory):
+        return _ffmpeg_dir_from_binary(directory)
+    ffmpeg = os.path.join(directory, 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg')
+    ffprobe = os.path.join(directory, 'ffprobe.exe' if sys.platform == 'win32' else 'ffprobe')
+    if os.path.exists(ffmpeg) and os.path.exists(ffprobe):
+        return directory
+    return None
+
+def find_ffmpeg_location():
+    """返回 yt-dlp 可用的 ffmpeg/ffprobe 目录；找不到返回 None。"""
+    env_location = os.environ.get('FFMPEG_LOCATION') or os.environ.get('FFMPEG_HOME')
+    found = _ffmpeg_dir_from_candidate(env_location)
+    if found:
+        return found
+
+    found = _ffmpeg_dir_from_binary(shutil.which('ffmpeg'))
+    if found:
+        return found
+
+    if sys.platform == 'win32':
+        for command in (['where', 'ffmpeg'], ['powershell.exe', '-NoProfile', '-Command', '(Get-Command ffmpeg -ErrorAction SilentlyContinue).Source']):
+            try:
+                result = subprocess.run(command, capture_output=True, text=True, timeout=5)
+                for line in result.stdout.splitlines():
+                    found = _ffmpeg_dir_from_binary(line.strip())
+                    if found:
+                        return found
+            except Exception:
+                pass
+
+        candidates = [
+            r'C:\Program Files\ffmpeg\bin',
+            r'C:\ffmpeg\bin',
+            r'C:\ProgramData\chocolatey\bin',
+            os.path.expanduser(r'~\scoop\shims'),
+            r'C:\Program Files\Git\mingw64\bin',
+            r'C:\Program Files\Git\usr\bin',
+        ]
+        for candidate in candidates:
+            found = _ffmpeg_dir_from_candidate(candidate)
+            if found:
+                return found
+
+    return None
+
+def yt_dlp_cmd_with_ffmpeg(*args, required=False):
+    """构造 yt-dlp 命令，能定位到 ffmpeg 时显式传给 yt-dlp。"""
+    ffmpeg_location = find_ffmpeg_location()
+    if not ffmpeg_location:
+        if required:
+            print('  错误: 下载/转换音频需要 ffmpeg 和 ffprobe，但当前运行环境未找到')
+            print('  请确认 ffmpeg/ffprobe 已安装并加入 PATH，或设置 FFMPEG_LOCATION 指向其目录')
+            sys.exit(1)
+        return yt_dlp_cmd(*args)
+    return yt_dlp_cmd('--ffmpeg-location', ffmpeg_location, *args)
+
 def largest_file_with_ext(directory, ext):
     """返回指定目录下同扩展名的最大文件。"""
     files = [
@@ -679,7 +778,8 @@ def download_from_url(url, output_dir, srt_only=False, language=None):
     # Step 1: 尝试下载 CC 字幕
     print(f'  尝试获取 CC 字幕...')
     cc_result = subprocess.run(
-        yt_dlp_cmd('--no-warnings', '--write-auto-subs', '--write-subs',
+        yt_dlp_cmd_with_ffmpeg('--no-warnings', '--playlist-items', '1',
+         '--write-auto-subs', '--write-subs',
          '--sub-langs', sub_langs, '--skip-download', '--convert-subs', 'srt',
          '-o', os.path.join(output_dir, '%(id)s'), url),
         capture_output=True, text=True, timeout=60
@@ -697,9 +797,10 @@ def download_from_url(url, output_dir, srt_only=False, language=None):
         if not srt_only:
             print(f'  下载视频用于烧录字幕...')
             dl_result = subprocess.run(
-                yt_dlp_cmd('--no-warnings', '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
+                yt_dlp_cmd_with_ffmpeg('--no-warnings', '--playlist-items', '1',
+                 '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
                  '--merge-output-format', 'mp4',
-                 '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url),
+                 '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url, required=True),
                 capture_output=True, text=True, timeout=600
             )
             # 找到下载的视频
@@ -715,9 +816,11 @@ def download_from_url(url, output_dir, srt_only=False, language=None):
         # 只需字幕 → 下载音频（体积小得多）
         print(f'  下载音频（mp3）...')
         dl_result = subprocess.run(
-            yt_dlp_cmd('--no-warnings', '-x', '--audio-format', 'mp3',
+            yt_dlp_cmd_with_ffmpeg('--no-warnings', '--playlist-items', '1',
+             '-f', 'ba/bestaudio/worst[ext=mp4]/worst',
+             '-x', '--audio-format', 'mp3',
              '--audio-quality', '0',
-             '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url),
+             '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url, required=True),
             capture_output=True, text=True, timeout=600
         )
         # 找到下载的音频
@@ -729,9 +832,10 @@ def download_from_url(url, output_dir, srt_only=False, language=None):
         # 需要烧录 → 下载视频
         print(f'  下载视频（mp4）...')
         dl_result = subprocess.run(
-            yt_dlp_cmd('--no-warnings', '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
+            yt_dlp_cmd_with_ffmpeg('--no-warnings', '--playlist-items', '1',
+             '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
              '--merge-output-format', 'mp4',
-             '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url),
+             '-o', os.path.join(output_dir, '%(id)s.%(ext)s'), url, required=True),
             capture_output=True, text=True, timeout=600
         )
         media_file = largest_file_with_ext(output_dir, '.mp4')
@@ -761,6 +865,7 @@ def main():
 示例:
   python process.py video.mp4 --srt-only
   python process.py 'https://x.com/user/status/123' --srt-only -o out.srt
+  python process.py 'https://x.com/user/status/123' --source-only --txt-only -o out.txt
   python process.py 'https://youtube.com/watch?v=xxx' -o output.mp4
   python process.py video.mp4 -l zh --source-only --srt-only
         '''
@@ -770,15 +875,20 @@ def main():
     parser.add_argument('-l', '--language', default=None, help='源语言 (默认: 自动检测)')
     parser.add_argument('-t', '--target', default='zh-CN', help='目标语言 (默认: zh-CN)')
     parser.add_argument('-m', '--model', default='small', help='Whisper 模型 (默认: small)')
+    parser.add_argument('--beam-size', type=int, default=1, help='Whisper beam size，1 最快 (默认: 1)')
     parser.add_argument('--fontsize', type=int, default=14, help='字幕字号 (默认: 14)')
     parser.add_argument('--margin', type=int, default=25, help='字幕底部边距 (默认: 25)')
     parser.add_argument('--srt-only', action='store_true', help='仅生成 SRT，跳过视频编码')
+    parser.add_argument('--txt-only', action='store_true', help='仅生成无时间戳纯文本，跳过视频编码')
     parser.add_argument('--chinese-only', action='store_true', help='仅输出中文字幕（适用于已有英文硬字幕的视频）')
     parser.add_argument('--source-only', action='store_true', help='仅输出原文字幕（不翻译）')
     parser.add_argument('--karaoke', action='store_true', help='卡拉OK模式（逐词高亮）')
     parser.add_argument('--highlight-color', default='&H00FFFF&', help='高亮颜色 ASS 格式 (默认: &H00FFFF& 黄色)')
     parser.add_argument('--no-speech-threshold', type=float, default=0.6, help='非语音过滤阈值 0-1 (默认: 0.6)')
     args = parser.parse_args()
+
+    if args.txt_only:
+        args.srt_only = True
 
     # 互斥检查
     if args.chinese_only and args.source_only:
@@ -803,7 +913,7 @@ def main():
         )
 
         if cc_srt_files and args.srt_only:
-            # 已有 CC 字幕且只需 SRT → 直接输出，跳过 Whisper
+            # 已有 CC 字幕且只需字幕文件 → 直接输出，跳过 Whisper
             best = cc_srt_files[0]
             for f in cc_srt_files:
                 if args.language and args.language in os.path.basename(f):
@@ -811,10 +921,18 @@ def main():
                     break
 
             # 输出到 -o 指定路径，或当前工作目录
-            output_path = args.output or os.path.join(os.getcwd(), os.path.basename(best))
+            if args.output:
+                output_path = args.output
+            elif args.txt_only:
+                output_path = os.path.join(os.getcwd(), f'{os.path.splitext(os.path.basename(best))[0]}.txt')
+            else:
+                output_path = os.path.join(os.getcwd(), os.path.basename(best))
             output_path = os.path.abspath(output_path)
-            if os.path.abspath(best) != output_path:
-                import shutil
+            if args.txt_only:
+                with open(best, 'r', encoding='utf-8') as f:
+                    blocks = parse_srt(f.read())
+                write_plain_text(blocks, output_path)
+            elif os.path.abspath(best) != output_path:
                 shutil.copy2(best, output_path)
             elapsed = time.time() - start_time
             print(f'\n已有 CC 字幕，无需 Whisper 转写')
@@ -848,7 +966,10 @@ def main():
     else:
         out_dir = os.path.dirname(os.path.abspath(args.video))
 
-    if args.karaoke:
+    if args.txt_only:
+        suffix = '_source' if args.source_only else '_text'
+        sub_ext = '.txt'
+    elif args.karaoke:
         suffix = '_karaoke'
         sub_ext = '.ass'
     elif args.source_only:
@@ -860,8 +981,8 @@ def main():
     else:
         suffix = '_bilingual'
         sub_ext = '.srt'
-    # If -o points to a subtitle file (.srt/.ass) and --srt-only, use it directly as subtitle_output
-    if args.output and args.srt_only and args.output.endswith(('.srt', '.ass')):
+    # If -o points to a subtitle file (.srt/.ass/.txt) and --srt-only, use it directly as subtitle_output
+    if args.output and args.srt_only and args.output.endswith(('.srt', '.ass', '.txt')):
         subtitle_output = os.path.abspath(args.output)
         video_output = None
     else:
@@ -875,7 +996,7 @@ def main():
     print(f'输出: {subtitle_output if args.srt_only else video_output}')
 
     # 步骤 1: 提取
-    segments, detected_lang = extract_subtitles(args.video, None, args.language, args.model, word_timestamps=args.karaoke, no_speech_threshold=args.no_speech_threshold)
+    segments, detected_lang = extract_subtitles(args.video, None, args.language, args.model, word_timestamps=args.karaoke, no_speech_threshold=args.no_speech_threshold, beam_size=args.beam_size)
 
     # 用检测到的语言作为翻译源语言（用户显式指定的优先）
     source_lang = args.language or detected_lang
@@ -905,7 +1026,11 @@ def main():
             translated = []
 
     # 步骤 3: 生成字幕
-    if args.karaoke:
+    if args.txt_only:
+        print(f'\n[3/4] 生成无时间戳纯文本字幕...')
+        write_plain_text(segments, subtitle_output, translated, args.chinese_only, args.source_only)
+        print(f'  保存到: {subtitle_output}')
+    elif args.karaoke:
         generate_karaoke_ass(segments, subtitle_output, args.fontsize, args.margin, args.highlight_color)
     else:
         merge_bilingual(segments, translated, subtitle_output, args.chinese_only, args.source_only)

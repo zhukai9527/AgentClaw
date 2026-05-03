@@ -13,7 +13,12 @@ All output files go to the working directory (工作目录). Always use `auto_se
 
 The script auto-detects URLs and handles: CC subtitle download → audio/video download → Whisper → translate → merge.
 
-### Subtitles only (fastest)
+### Plain text subtitles, no timestamps (fastest when user says no timestamps)
+```
+{"command": "python skills/bilingual-subtitle/scripts/process.py 'URL' --source-only --txt-only -m tiny --beam-size 1 -o {WORKDIR}/output_source.txt", "timeout": 1800000, "auto_send": true}
+```
+
+### SRT subtitles only
 ```
 {"command": "python skills/bilingual-subtitle/scripts/process.py 'URL' --srt-only -o {WORKDIR}/output_bilingual.srt", "timeout": 600000, "auto_send": true}
 ```
@@ -62,9 +67,11 @@ The script auto-detects URLs and handles: CC subtitle download → audio/video d
 | `-l, --language` | Source language (auto-detected by Whisper if omitted) | auto-detect |
 | `-t, --target` | Target language | `zh-CN` |
 | `-m, --model` | Whisper model (tiny/base/small/medium/large) | `small` |
+| `--beam-size` | Whisper beam size; 1 is fastest | `1` |
 | `--fontsize` | Subtitle font size | `14` |
 | `--margin` | Bottom margin | `25` |
 | `--srt-only` | Generate subtitle file only, skip video encoding | - |
+| `--txt-only` | Generate plain text without timestamps, skip video encoding | - |
 | `--chinese-only` | Output Chinese subtitles only | - |
 | `--source-only` | Output source language subtitles only, skip translation entirely | - |
 | `--karaoke` | Karaoke mode with word-level highlight | - |
@@ -74,7 +81,8 @@ The script auto-detects URLs and handles: CC subtitle download → audio/video d
 - ALWAYS use bash shell (default), never PowerShell.
 - ALWAYS copy the exact command templates above. Do NOT rename scripts or invent parameters.
 - The ONLY script is `skills/bilingual-subtitle/scripts/process.py`. No other scripts should be called directly.
-- timeout: 300000 (5min) for local files with --srt-only, 600000 (10min) for URLs or video encoding.
+- timeout: 300000 (5min) for local files with --srt-only, 600000 (10min) for normal URLs or video encoding. For long videos or user-provided duration >30 minutes, use 1800000 (30min).
 - GPU auto-detected: NVIDIA CUDA > Apple Silicon mlx > CPU int8. No config needed.
 - Source language is auto-detected by Whisper. Use `-l` only to override (e.g., `-l zh` to force Chinese). If source and target language match, translation is automatically skipped.
+- If the user asks for subtitles without timestamps or pure transcript text, use `--source-only --txt-only -m tiny --beam-size 1` directly. Do not generate SRT and post-process with shell.
 - Do NOT run yt-dlp separately. The script handles URL downloading internally.
