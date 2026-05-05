@@ -38,14 +38,22 @@ describe("createBuiltinTools — 内置工具创建", () => {
       const tools = createBuiltinTools({ gateway: true });
       const names = tools.map((t) => t.name);
 
-      expect(tools.length).toBe(CORE_TOOL_NAMES.length + 7);
+      expect(tools.length).toBe(CORE_TOOL_NAMES.length + 6);
       expect(names).toContain("send_file");
       expect(names).toContain("schedule");
       expect(names).toContain("update_todo");
       expect(names).toContain("sandbox");
       expect(names).toContain("subagent");
-      expect(names).toContain("browser_cdp");
+      expect(names).not.toContain("browser_cdp");
       expect(names).not.toContain("execute_code");
+    });
+
+    it("gateway=true 且 browserCdp=true 时才加载 browser_cdp", () => {
+      const tools = createBuiltinTools({ gateway: true, browserCdp: true });
+      const names = tools.map((t) => t.name);
+
+      expect(tools.length).toBe(CORE_TOOL_NAMES.length + 7);
+      expect(names).toContain("browser_cdp");
     });
 
     it("memory=true 应额外加载 remember 和 recall", () => {
@@ -83,8 +91,8 @@ describe("createBuiltinTools — 内置工具创建", () => {
         claudeCode: true,
       });
 
-      // 10 核心 + 7 gateway + 2 memory + 3 skills + 1 claudeCode = 23
-      expect(tools).toHaveLength(23);
+      // 10 核心 + 6 gateway + 2 memory + 3 skills + 1 claudeCode = 22
+      expect(tools).toHaveLength(22);
     });
 
     it("空 options 应只加载核心工具", () => {

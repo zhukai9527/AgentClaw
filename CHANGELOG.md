@@ -3,12 +3,14 @@
 ## [Unreleased] - 2026-05-03
 
 ### Added
+- **一键安装脚本**：新增 `scripts/install.sh`，支持 Linux、macOS 和 Termux 交互式安装，自动检查基础依赖、配置模型 Provider/API Key、构建并启动服务，让默认路径直接进入 Web 对话。
 - **Trace 质量评分器**：新增 `evaluateTraceQuality`，可对真实 trace 的 LLM 轮次、工具调用、输入 token、耗时、cache 命中、overflow 全文读回和 Reddit 计数字段伪造进行确定性评分；新增 `scripts/trace-quality-regression.mts` 作为线上近似闭环回归入口。
 - **Observation Store 回归指标**：`evaluateTraceQuality` 新增 observation 创建数、读取数、全文读回数、原始字符数、提示字符数、节省字符数和节省率，并提供最低创建数、最低节省率、最大全文读回数阈值，防止 P0 Observation Store 退化成上下文全文回灌。
 - **微信公众号草稿发布脚本**：`wechat-publish` 新增 `publish_article.py` 一键发布入口和 `publish_draft.py` 草稿脚本，把封面生成、Markdown 转换、草稿 JSON 组装、封面上传和创建草稿收敛到单一命令，并支持 dry-run 回归验证。
 - **纯文本字幕极速入口**：`bilingual-subtitle` 新增 `--txt-only` 和 `--beam-size`，URL 字幕任务可直接生成无时间戳 `.txt`，最快模板显式使用 `tiny + beam_size=1`，不再先生成 SRT 再用 shell 清洗。
 
 ### Changed
+- **默认部署瘦身**：Docker 默认只启动 AgentClaw 核心服务，不再自动启动 SearXNG/Redis，本地搜索改为 `search` profile 和 Settings 配置；默认镜像不再安装 Chromium/CJK 字体，`browser_cdp` 需要显式设置 `AGENTCLAW_ENABLE_BROWSER_CDP=true` 才注册。
 - **overflow 文件读取策略**：`file_read` 对 `overflow_*.txt` 默认只返回短预览，必须通过 `offset` / `length` 做定向范围读取，避免 `execute_code` 大输出被全文读回上下文。
 - **JSON 抓取结果保持机器可解析**：`web_fetch` 对 `application/json` 不再追加人类 hint，避免 `execute_code` 中 `JSON.parse(await web_fetch(...))` 因尾部提示文本失败。
 - **send_file 路径审计**：发送结果现在记录 `originalPath`、`effectivePath` 和 `relocated`，并且只有文件确实从 workDir 外复制进来时才标记 relocated。
@@ -26,6 +28,9 @@
 - **Web 研究组合预算**：新增 `web_search`/`web_fetch` 总调用上限和 overflow 文件读取上限，防止定时任务从 `execute_code` 长循环退化成搜索、抓取、读片段的混合长循环。
 - **批量新闻任务 token 浪费回归**：用生产 trace 固化失败样本，防止新闻/RSS 类任务再次出现 5 轮 LLM、60K+ input token、overflow 全文回灌和 RSS 缺失点赞/评论却填 0 的问题。
 - **最终回复 XML 外泄**：修复模型在合成阶段输出不可执行工具标记时，`response_complete` 仍发送旧 content block 的问题；新闻简报会在最终答案缺 URL 时从真实工具结果补来源链接。
+
+### Removed
+- **默认 Deno 运行时**：移除 Docker 镜像中的 Deno 安装和启动时 Deno 探测；当前运行路径没有真实依赖，避免默认安装额外下载未使用的运行时。
 
 ## [1.5.19] - 2026-05-02
 

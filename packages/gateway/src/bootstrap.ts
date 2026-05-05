@@ -228,6 +228,7 @@ export async function bootstrap(): Promise<AppContext> {
   const toolRegistry = new ToolRegistryImpl();
   const builtinTools = createBuiltinTools({
     gateway: true, // gateway 模式，启用 send_file/schedule
+    browserCdp: process.env.AGENTCLAW_ENABLE_BROWSER_CDP === "true", // 浏览器自动化需要显式安装 Chrome/Chromium 后启用
     memory: true, // 启用 remember
     skills: true, // 启用 use_skill
     claudeCode: true, // 启用 claude_code（Claude Code CLI）
@@ -314,7 +315,6 @@ export async function bootstrap(): Promise<AppContext> {
     "magick",
     "node",
     "npm",
-    "deno",
     "claude",
   ];
   const availableCli: string[] = [];

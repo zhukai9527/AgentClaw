@@ -30,7 +30,7 @@ AgentClaw Hive（Agent 托管平台）
   ├── LLM 提供商 (Claude, OpenAI, Gemini, DeepSeek, Kimi, Qwen, Doubao...)
   ├── 智能路由 (自动故障切换, Fast Provider 路由)
   ├── 核心工具 (shell, file_read/write/edit, glob, grep, ask_user, web_fetch, web_search, context_search, compact)
-  ├── 条件工具 (send_file, schedule, remember, use_skill, execute_code, sandbox, subagent, browser_cdp...)
+  ├── 条件工具 (send_file, schedule, remember, use_skill, sandbox, subagent...)
   ├── 记忆 (对话历史 + 长期记忆 + 自动压缩 + namespace 隔离)
   ├── 技能 x12 (gws-calendar/gmail/drive/sheets/tasks, pdf, docx, xlsx, pptx, bilingual-subtitle...)
   ├── 子代理 (并行任务派发与汇总)
@@ -81,7 +81,19 @@ agentclaw/
 
 启动后通过 Setup Wizard 配置 LLM Provider 即可使用。
 
-### Docker 部署（推荐）
+### 一键安装（推荐）
+
+Linux、macOS 和 Termux 可用一条命令完成安装、模型配置、构建和启动：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vorojar/AgentClaw/master/scripts/install.sh | bash
+```
+
+安装器会自动检查并安装基础依赖（`git`、`curl`、Node.js、pnpm、`ffmpeg`、Python/构建工具），随后引导选择模型提供商并填写 API Key。完成后打开 http://127.0.0.1:3100 即可开始对话。
+
+默认安装只启用核心对话能力，避免首次安装拉取 Chromium、SearXNG、Redis 等重依赖。搜索引擎、消息渠道、浏览器自动化等高级能力可在安装后按需配置。
+
+### Docker 部署
 
 ```bash
 git clone https://github.com/vorojar/AgentClaw.git
@@ -93,6 +105,20 @@ docker compose up -d
 ```
 
 打开 http://localhost:3100 即可使用。
+
+Docker 默认只启动 AgentClaw 核心服务，不再自动启动本地搜索。需要本地 SearXNG 时：
+
+```bash
+docker compose --profile search up -d
+```
+
+随后在 Settings > Search 配置 `http://searxng:8080`，或使用 Serper / Querit / Custom 搜索 API。
+
+浏览器自动化默认关闭。需要 `browser_cdp` 时请自行安装 Chrome/Chromium，或用 `--build-arg INSTALL_BROWSER=true` 构建 Docker 镜像，并设置：
+
+```env
+AGENTCLAW_ENABLE_BROWSER_CDP=true
+```
 
 ### 手动部署
 
@@ -216,7 +242,7 @@ POST /api/v1/agents/:id/sessions/:sid/chat # 会话内对话
 | 核心 | `grep` | 按正则搜索文件内容 |
 | 核心 | `ask_user` | 向用户提问 |
 | 核心 | `web_fetch` | 抓取网页内容（Readability 正文提取 + SPA 自动降级 Playwright） |
-| 核心 | `web_search` | 搜索互联网（SearXNG + Serper fallback） |
+| 核心 | `web_search` | 搜索互联网（在 Settings 中配置 Serper / Querit / Custom / SearXNG） |
 | 核心 | `context_search` | 搜索当前会话上下文 |
 | 核心 | `compact` | 主动压缩上下文（LLM 管理 token 预算） |
 | 条件 | `execute_code` | 沙箱执行 JS/Python 脚本（Programmatic Tool Calling） |
@@ -227,7 +253,7 @@ POST /api/v1/agents/:id/sessions/:sid/chat # 会话内对话
 | 条件 | `use_skill` | 调用技能 |
 | 条件 | `sandbox` | Docker 容器内安全执行命令 |
 | 条件 | `subagent` | 子代理编排（spawn/result/kill/list） |
-| 条件 | `browser_cdp` | 浏览器 CDP 自动化（Playwright） |
+| 条件 | `browser_cdp` | 浏览器 CDP 自动化（默认关闭，需安装 Chrome/Chromium 并设置 `AGENTCLAW_ENABLE_BROWSER_CDP=true`） |
 | 条件 | `social_post` | 一键发帖到 X/小红书/即刻 |
 | 条件 | `handoff` | 将对话交接给更合适的专家 Agent |
 | 条件 | `claude_code` | 委托 Claude Code CLI 执行编码任务 |

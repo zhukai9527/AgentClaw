@@ -55,6 +55,8 @@ export interface BuiltinToolsOptions {
   skills?: boolean;
   /** Enable claude_code tool (Claude Code CLI integration) */
   claudeCode?: boolean;
+  /** 启用 browser_cdp 工具（需要 Chrome/Chromium 运行时） */
+  browserCdp?: boolean;
   /** Enable observation_read tool (requires observation callbacks) */
   observationRead?: boolean;
 }
@@ -83,9 +85,11 @@ export function createBuiltinTools(options?: BuiltinToolsOptions): Tool[] {
       updateTodoTool,
       sandboxTool,
       subagentTool,
-      browserCdpTool,
       handoffTool,
     );
+  }
+  if (options?.browserCdp) {
+    tools.push(browserCdpTool);
   }
   if (options?.memory) {
     tools.push(rememberTool, recallTool);

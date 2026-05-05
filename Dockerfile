@@ -34,17 +34,20 @@ RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debia
 RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
     sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
 
-# Install runtime CLI tools + Chromium for browser_cdp headless automation
+# 安装默认运行时工具。浏览器自动化不进入默认镜像。
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg git curl python3 \
-    chromium \
-    fonts-ipafont-gothic fonts-wqy-zenhei fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Deno
-RUN curl -fsSL https://deno.land/install.sh | sh
-ENV DENO_INSTALL="/root/.deno"
-ENV PATH="${DENO_INSTALL}/bin:${PATH}"
+# 需要 browser_cdp 时，用 --build-arg INSTALL_BROWSER=true 构建镜像，
+# 并在运行时设置 AGENTCLAW_ENABLE_BROWSER_CDP=true。
+ARG INSTALL_BROWSER=false
+RUN if [ "$INSTALL_BROWSER" = "true" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends \
+        chromium \
+        fonts-ipafont-gothic fonts-wqy-zenhei fonts-noto-cjk \
+      && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # Copy built artifacts from builder
 COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
