@@ -93,6 +93,24 @@ describe("OpenAICompatibleProvider", () => {
       const p = new OpenAICompatibleProvider({ models: customModels });
       expect(p.models).toEqual(customModels);
     });
+
+    it("自定义 MiMo 默认模型应自动登记 1M 上下文", () => {
+      const p = new OpenAICompatibleProvider({
+        providerName: "xiaomi",
+        defaultModel: "mimo-v2.5-pro",
+        baseURL: "https://token-plan-cn.xiaomimimo.com/v1",
+      });
+
+      expect(p.models[0]).toEqual(
+        expect.objectContaining({
+          id: "mimo-v2.5-pro",
+          provider: "xiaomi",
+          contextWindow: 1_048_576,
+          supportsTools: true,
+          supportsStreaming: true,
+        }),
+      );
+    });
   });
 
   // ── chat() 非流式调用测试 ──

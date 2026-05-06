@@ -27,6 +27,77 @@ export interface OpenAICompatibleOptions {
   extraBody?: Record<string, unknown>;
 }
 
+function buildDefaultModels(
+  providerName: string,
+  defaultModel?: string,
+  baseURL?: string,
+): ModelInfo[] {
+  const openaiDefaults: ModelInfo[] = [
+    {
+      id: "gpt-4o",
+      provider: providerName,
+      name: "GPT-4o",
+      tier: "flagship",
+      contextWindow: 128_000,
+      supportsTools: true,
+      supportsStreaming: true,
+      costPer1kInput: 0.0025,
+      costPer1kOutput: 0.01,
+    },
+    {
+      id: "gpt-4o-mini",
+      provider: providerName,
+      name: "GPT-4o Mini",
+      tier: "fast",
+      contextWindow: 128_000,
+      supportsTools: true,
+      supportsStreaming: true,
+      costPer1kInput: 0.00015,
+      costPer1kOutput: 0.0006,
+    },
+  ];
+
+  if (!defaultModel || openaiDefaults.some((m) => m.id === defaultModel)) {
+    return openaiDefaults;
+  }
+
+  return [
+    {
+      id: defaultModel,
+      provider: providerName,
+      name: defaultModel,
+      tier: inferModelTier(defaultModel),
+      contextWindow: inferContextWindow(defaultModel, baseURL),
+      supportsTools: true,
+      supportsStreaming: true,
+    },
+  ];
+}
+
+function inferContextWindow(modelId: string, baseURL?: string): number {
+  const normalizedModel = modelId.toLowerCase();
+  const normalizedBaseURL = baseURL?.toLowerCase() ?? "";
+
+  if (
+    normalizedModel.includes("mimo-v2.5") ||
+    normalizedModel.includes("mimo-v2-pro") ||
+    normalizedBaseURL.includes("xiaomimimo.com")
+  ) {
+    return 1_048_576;
+  }
+
+  return 128_000;
+}
+
+function inferModelTier(modelId: string): ModelInfo["tier"] {
+  const normalized = modelId.toLowerCase();
+  if (normalized.includes("mini") || normalized.includes("lite")) return "fast";
+  if (normalized.includes("local") || normalized.includes("ollama")) {
+    return "local";
+  }
+  return "flagship";
+}
+
 /**
  * OpenAI-compatible LLM Provider.
  * Works with OpenAI, Kimi, DeepSeek, MiniMax, Qwen, Ollama, etc.
@@ -54,30 +125,9 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
       process.env.OPENAI_EMBEDDING_MODEL ??
       "text-embedding-3-small";
     this.extraBody = options.extraBody;
-    this.models = options.models ?? [
-      {
-        id: "gpt-4o",
-        provider: this.name,
-        name: "GPT-4o",
-        tier: "flagship",
-        contextWindow: 128_000,
-        supportsTools: true,
-        supportsStreaming: true,
-        costPer1kInput: 0.0025,
-        costPer1kOutput: 0.01,
-      },
-      {
-        id: "gpt-4o-mini",
-        provider: this.name,
-        name: "GPT-4o Mini",
-        tier: "fast",
-        contextWindow: 128_000,
-        supportsTools: true,
-        supportsStreaming: true,
-        costPer1kInput: 0.00015,
-        costPer1kOutput: 0.0006,
-      },
-    ];
+    this.models =
+      options.models ??
+      buildDefaultModels(this.name, options.defaultModel, options.baseURL);
     this.defaultModel = options.defaultModel ?? this.models[0].id;
   }
 

@@ -20,6 +20,7 @@
 - **P2 工具输出瘦身**：`web_search` 结果硬夹到 5 条，`web_fetch` 默认返回带来源 URL 的短事实卡并保留 `save_as` 完整保存路径，`rss_top` 对相同 feed/topN 做短期缓存；真实 AI 新闻回归约 `11.3K input token / 35.1s`，不再因超限搜索多跑一轮。
 
 ### Fixed
+- **MiMo 1M 上下文未生效**：OpenAI-compatible 自定义 provider 现在会按默认模型自动登记模型元数据；`mimo-v2.5-pro` 和小米 MiMo API 地址自动识别为 1,048,576 context window，避免被通用 128K 默认值提前触发上下文压缩。
 - **URL 字幕音频下载失败**：`bilingual-subtitle` 现在会定位 `ffmpeg/ffprobe` 并显式传给 `yt-dlp`，无 CC 字幕时只下载音频转写，不再因为 Python 子进程 PATH 缺失退化成手写下载完整视频。
 - **Git Bash ffmpeg 路径识别**：`bilingual-subtitle` 支持 `/e/...` MSYS 路径转换，并优先选择同时包含 `ffmpeg` 和 `ffprobe` 的目录，避免只找到 `ffmpeg.exe` 但缺 `ffprobe.exe` 时失败。
 - **字幕输出目录缺失**：纯文本/SRT 写出前会自动创建父目录，避免 gateway 会话工作目录尚未存在时，长视频转写完成后因写文件失败重跑。
