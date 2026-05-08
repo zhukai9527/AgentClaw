@@ -12,6 +12,12 @@ function asNonNegativeInteger(value: unknown): number | undefined {
   return Math.floor(n);
 }
 
+function asPositiveInteger(value: unknown): number | undefined {
+  const n = asNonNegativeInteger(value);
+  if (n === undefined || n < 1) return undefined;
+  return n;
+}
+
 export const fileReadTool: Tool = {
   name: "file_read",
   description: "Read a file.",
@@ -30,6 +36,16 @@ export const fileReadTool: Tool = {
         type: "number",
         description:
           "Optional maximum characters to read from offset. Overflow files are capped.",
+      },
+      line: {
+        type: "number",
+        description:
+          "Optional 1-based line number for reading context around a grep match.",
+      },
+      context_lines: {
+        type: "number",
+        description:
+          "Optional number of lines before and after line. Defaults to 20 when line is set.",
       },
     },
     required: ["path"],
@@ -68,7 +84,45 @@ export const fileReadTool: Tool = {
       const content = await readFile(filePath, "utf-8");
       const offset = asNonNegativeInteger(input.offset) ?? 0;
       const requestedLength = asNonNegativeInteger(input.length);
+      const line = asPositiveInteger(input.line);
+      const contextLines = Math.min(
+        asNonNegativeInteger(input.context_lines) ?? 20,
+        100,
+      );
       const isOverflowFile = /^overflow_.*\.txt$/i.test(basename);
+
+      if (input.line !== undefined) {
+        if (line === undefined) {
+          return {
+            content: "Invalid line: expected a 1-based positive integer.",
+            isError: true,
+            metadata: { path: filePath },
+          };
+        }
+        const lines = content.split(/\r?\n/);
+        const targetIndex = Math.min(line - 1, lines.length - 1);
+        const start = Math.max(0, targetIndex - contextLines);
+        const end = Math.min(lines.length - 1, targetIndex + contextLines);
+        const width = String(end + 1).length;
+        const snippet = lines
+          .slice(start, end + 1)
+          .map((text, index) => {
+            const lineNo = start + index + 1;
+            const prefix = lineNo === line ? ">" : " ";
+            return `${prefix} ${String(lineNo).padStart(width, " ")} | ${text}`;
+          })
+          .join("\n");
+        return {
+          content: snippet,
+          isError: false,
+          metadata: {
+            path: filePath,
+            line,
+            contextLines,
+            totalLines: lines.length,
+          },
+        };
+      }
 
       if (isOverflowFile) {
         if (input.offset !== undefined || input.length !== undefined) {

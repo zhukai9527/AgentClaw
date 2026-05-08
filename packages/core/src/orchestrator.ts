@@ -29,6 +29,32 @@ import { LRUCache } from "lru-cache";
 /** How many user turns between automatic memory extraction runs */
 const EXTRACT_EVERY_N_TURNS = 8;
 
+function formatPromptDateTime(): { datetime: string; timezone: string } {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const datetime = new Date().toLocaleString("zh-CN", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    weekday: "long",
+    hour12: false,
+  });
+  return { datetime, timezone };
+}
+
+function resolveRuntimePromptVars(prompt?: string): string | undefined {
+  if (!prompt) return prompt;
+  if (!prompt.includes("{{datetime}}") && !prompt.includes("{{timezone}}")) {
+    return prompt;
+  }
+  const { datetime, timezone } = formatPromptDateTime();
+  return prompt
+    .replace(/\{\{datetime\}\}/g, datetime)
+    .replace(/\{\{timezone\}\}/g, timezone);
+}
+
 export class SimpleOrchestrator implements Orchestrator {
   private sessions = new LRUCache<string, Session>({ max: 10000 });
   private turnCounters = new LRUCache<string, number>({ max: 10000 });
@@ -381,7 +407,7 @@ export class SimpleOrchestrator implements Orchestrator {
 
     // Compact tool callback: force-compress conversation context on demand
     const compactContextManager = new SimpleContextManager({
-      systemPrompt: this.systemPrompt,
+      systemPrompt: resolveRuntimePromptVars(this.systemPrompt),
       memoryStore: this.memoryStore,
       skillRegistry: this.skillRegistry,
       provider: this.provider,
@@ -720,7 +746,7 @@ Message: ${userText.slice(0, 300)}`;
     const effectiveProvider = provider ?? this.provider;
 
     // Resolve system prompt: inject agent's soul
-    let systemPrompt = this.systemPrompt;
+    let systemPrompt = resolveRuntimePromptVars(this.systemPrompt);
     const soul = agent?.soul ?? this.agents.get("default")?.soul ?? "";
     if (systemPrompt?.includes("{{soul}}")) {
       systemPrompt = systemPrompt.replace("{{soul}}", soul);

@@ -354,5 +354,49 @@ describe("SimpleOrchestrator", () => {
         orchestrator.updateSystemPrompt("另一个提示词"),
       ).not.toThrow();
     });
+
+    it("应在每次处理消息时解析当前时间模板变量", async () => {
+      vi.useFakeTimers();
+      try {
+        const prompts: string[] = [];
+        provider.stream = vi.fn(function* (request) {
+          prompts.push(request.systemPrompt ?? "");
+          yield { type: "text", text: "hello" } as LLMStreamChunk;
+          yield {
+            type: "done",
+            usage: { tokensIn: 10, tokensOut: 5 },
+            model: "mock-model",
+          } as LLMStreamChunk;
+        }) as unknown as LLMProvider["stream"];
+        const dynamicOrchestrator = new SimpleOrchestrator({
+          provider,
+          toolRegistry,
+          memoryStore,
+          systemPrompt: "当前时间：{{datetime}}；时区：{{timezone}}",
+        });
+
+        vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
+        const firstSession = await dynamicOrchestrator.createSession();
+        await collectEvents(
+          dynamicOrchestrator.processInputStream(firstSession.id, "hello"),
+        );
+        const firstPrompt = prompts.filter(Boolean).at(-1);
+
+        vi.setSystemTime(new Date("2026-05-10T00:00:00.000Z"));
+        const secondSession = await dynamicOrchestrator.createSession();
+        await collectEvents(
+          dynamicOrchestrator.processInputStream(secondSession.id, "hello"),
+        );
+        const secondPrompt = prompts.filter(Boolean).at(-1);
+
+        expect(firstPrompt).not.toContain("{{datetime}}");
+        expect(firstPrompt).not.toContain("{{timezone}}");
+        expect(secondPrompt).not.toContain("{{datetime}}");
+        expect(secondPrompt).not.toContain("{{timezone}}");
+        expect(secondPrompt).not.toBe(firstPrompt);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

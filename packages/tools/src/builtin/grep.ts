@@ -140,7 +140,7 @@ export const grepTool: Tool = {
           };
         }
         return {
-          content: `matches[${totalMatches}]:\n${matches.join("\n")}\n\nhint: use file_read(path, offset) to see full context around a match`,
+          content: `matches[${totalMatches}]:\n${matches.join("\n")}\n\nhint: use file_read with {"path": "...", "line": <match line>} to see context around a match`,
           isError: false,
           metadata: { matchCount: totalMatches, filesSearched: 1 },
         };
@@ -225,7 +225,7 @@ export const grepTool: Tool = {
           : "";
 
       return {
-        content: `matches[${totalMatches}]:\n${matches.join("\n")}${suffix}\n\nhint: use file_read(path, offset) to see full context around a match`,
+        content: `matches[${totalMatches}]:\n${matches.join("\n")}${suffix}\n\nhint: use file_read with {"path": "...", "line": <match line>} to see context around a match`,
         isError: false,
         metadata: {
           matchCount: totalMatches,

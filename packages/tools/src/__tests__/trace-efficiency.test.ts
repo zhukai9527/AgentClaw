@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fileReadTool } from "../builtin/file-read.js";
+import { grepTool } from "../builtin/grep.js";
 import { sendFileTool } from "../builtin/send-file.js";
 import { webFetchTool } from "../builtin/web-fetch.js";
 import { setSearchEngines, webSearchTool } from "../builtin/web-search.js";
@@ -53,6 +54,45 @@ describe("trace efficiency tool behavior", () => {
       offset: 95,
       length: 20,
     });
+  });
+
+  it("supports line-centered reads for grep match line numbers", async () => {
+    const dir = await makeTmpDir();
+    const path = join(dir, "source.ts");
+    await writeFile(
+      path,
+      ["one", "two", "three", "target", "five", "six"].join("\n"),
+      "utf-8",
+    );
+
+    const result = await fileReadTool.execute({
+      path,
+      line: 4,
+      context_lines: 1,
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("  3 | three");
+    expect(result.content).toContain("> 4 | target");
+    expect(result.content).toContain("  5 | five");
+    expect(result.content).not.toContain("one");
+    expect(result.metadata).toMatchObject({
+      path,
+      line: 4,
+      contextLines: 1,
+    });
+  });
+
+  it("grep hint should point to line reads, not character offsets", async () => {
+    const dir = await makeTmpDir();
+    const path = join(dir, "source.ts");
+    await writeFile(path, "const target = true;\n", "utf-8");
+
+    const result = await grepTool.execute({ path, pattern: "target" });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain('"line": <match line>');
+    expect(result.content).not.toContain("file_read(path, offset)");
   });
 
   it("reports original and effective paths when send_file relocates a file", async () => {

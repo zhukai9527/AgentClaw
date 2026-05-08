@@ -20,6 +20,8 @@
 - **P2 工具输出瘦身**：`web_search` 结果硬夹到 5 条，`web_fetch` 默认返回带来源 URL 的短事实卡并保留 `save_as` 完整保存路径，`rss_top` 对相同 feed/topN 做短期缓存；真实 AI 新闻回归约 `11.3K input token / 35.1s`，不再因超限搜索多跑一轮。
 
 ### Fixed
+- **系统时间注入过期**：`system-prompt.md` 中的 `{{datetime}}` / `{{timezone}}` 不再在 gateway 启动时固化，而是在每次 agent loop 创建时解析，避免服务运行多天后“明天/今天”推算使用旧日期。
+- **grep 后续读取误导**：`file_read` 新增 `line` / `context_lines` 行号上下文读取，`grep` hint 改为引导按匹配行读取，避免模型把 grep 行号当字符 offset 反复读到无关片段并耗尽工具预算。
 - **MiMo 1M 上下文未生效**：OpenAI-compatible 自定义 provider 现在会按默认模型自动登记模型元数据；`mimo-v2.5-pro` 和小米 MiMo API 地址自动识别为 1,048,576 context window，避免被通用 128K 默认值提前触发上下文压缩。
 - **URL 字幕音频下载失败**：`bilingual-subtitle` 现在会定位 `ffmpeg/ffprobe` 并显式传给 `yt-dlp`，无 CC 字幕时只下载音频转写，不再因为 Python 子进程 PATH 缺失退化成手写下载完整视频。
 - **Git Bash ffmpeg 路径识别**：`bilingual-subtitle` 支持 `/e/...` MSYS 路径转换，并优先选择同时包含 `ffmpeg` 和 `ffprobe` 的目录，避免只找到 `ffmpeg.exe` 但缺 `ffprobe.exe` 时失败。

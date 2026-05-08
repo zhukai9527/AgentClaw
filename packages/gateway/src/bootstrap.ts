@@ -62,6 +62,28 @@ export interface AppRuntimeConfig {
   skillsDir: string;
 }
 
+const RUNTIME_SYSTEM_PROMPT_VARS = new Set([
+  "soul",
+  "platformHint",
+  "datetime",
+  "timezone",
+]);
+
+export function renderSystemPromptTemplate(
+  template: string,
+  vars: Record<string, string>,
+): string {
+  let prompt = template.replace(/\{\{(\w+)\}\}/g, (match, key) =>
+    RUNTIME_SYSTEM_PROMPT_VARS.has(key) ? match : (vars[key] ?? ""),
+  );
+  prompt = prompt.replace(
+    /\{\{#if (\w+)\}\}(.*?)\{\{\/if\}\}/gs,
+    (match, key, content) =>
+      RUNTIME_SYSTEM_PROMPT_VARS.has(key) ? match : vars[key] ? content : "",
+  );
+  return prompt;
+}
+
 /** 从 ProviderInstance 创建 LLMProvider */
 function createProviderFromInstance(
   inst: ProviderInstance,
@@ -374,20 +396,7 @@ export async function bootstrap(): Promise<AppContext> {
 
   if (existsSync(systemPromptPath)) {
     const template = readFileSync(systemPromptPath, "utf-8");
-    const datetime = new Date().toLocaleString("zh-CN", {
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      weekday: "long",
-      hour12: false,
-    });
-
     const vars: Record<string, string> = {
-      datetime,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       os: osName,
       arch: arch(),
       shell: shellDesc,
@@ -398,17 +407,7 @@ export async function bootstrap(): Promise<AppContext> {
       hasClaudeCode: availableCli.includes("claude") ? "true" : "",
       health: formatHealthResults(healthResults),
     };
-    // Replace {{var}} placeholders (keep {{soul}} and {{platformHint}} for per-session resolution)
-    const deferredVars = new Set(["soul", "platformHint"]);
-    defaultSystemPrompt = template.replace(/\{\{(\w+)\}\}/g, (match, key) =>
-      deferredVars.has(key) ? match : (vars[key] ?? ""),
-    );
-    // Handle {{#if var}}...{{/if}} conditionals (keep deferred vars for per-session resolution)
-    defaultSystemPrompt = defaultSystemPrompt.replace(
-      /\{\{#if (\w+)\}\}(.*?)\{\{\/if\}\}/gs,
-      (match, key, content) =>
-        deferredVars.has(key) ? match : vars[key] ? content : "",
-    );
+    defaultSystemPrompt = renderSystemPromptTemplate(template, vars);
     console.log(`[bootstrap] System prompt loaded from ${systemPromptPath}`);
   } else {
     defaultSystemPrompt = `You are AgentClaw, a powerful AI assistant. Reply concisely.`;
