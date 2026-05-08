@@ -93,7 +93,7 @@ export const skillManageTool: Tool = {
     context?: ToolExecutionContext,
   ): Promise<ToolResult> {
     const action = String(input.action ?? "").trim() as SkillManageAction;
-    const skillId = String(input.skillId ?? input.name ?? "").trim();
+    const skillId = String(input.skillId ?? "").trim();
 
     try {
       if (action === "stats") {
@@ -247,7 +247,10 @@ async function writeSupportingFile(
 
   const target = resolveSkillTarget(skillDir, filePath);
   const before = readTextIfExists(target);
-  const content = String(input.content ?? input.fileContent ?? "");
+  if (typeof input.content !== "string") {
+    return fail("content is required for write_file");
+  }
+  const content = input.content;
   writeTextAtomic(target, content);
   await recordChange(context, {
     skillId,

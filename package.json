@@ -13,7 +13,7 @@
     "clean": "turbo clean",
     "lint": "turbo lint",
     "knip": "knip",
-    "test": "turbo test",
+    "test": "turbo test && vitest run scripts/__tests__/live-agent-eval.test.ts",
     "test:watch": "vitest",
     "format": "biome format --write .",
     "lint:biome": "biome lint .",

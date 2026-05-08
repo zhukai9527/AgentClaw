@@ -485,6 +485,52 @@ describe("SimpleAgentLoop", () => {
       expect(captured[0]).not.toContain("bash");
     });
 
+    it("AI 新闻任务 runtime hint 必须使用当前日期", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
+      try {
+        const capturedMessages: Message[][] = [];
+        const newsProvider: LLMProvider = {
+          name: "runtime-date-provider",
+          models: [
+            {
+              id: "runtime-date-model",
+              provider: "runtime-date",
+              name: "Runtime Date",
+              tier: "fast",
+              contextWindow: 4096,
+              supportsTools: true,
+              supportsStreaming: true,
+            },
+          ] as ModelInfo[],
+          chat: vi.fn(),
+          stream: vi.fn(async function* (request: LLMRequest) {
+            capturedMessages.push(request.messages);
+            yield { type: "text", text: "done" } as LLMStreamChunk;
+            yield {
+              type: "done",
+              usage: { tokensIn: 5, tokensOut: 2 },
+              model: "runtime-date-model",
+            } as LLMStreamChunk;
+          }) as unknown as LLMProvider["stream"],
+        };
+        const loop = new SimpleAgentLoop({
+          provider: newsProvider,
+          toolRegistry: createMockToolRegistry([createMockTool("web_search")]),
+          contextManager,
+          memoryStore,
+        });
+
+        await collectEvents(loop.runStream("AI news brief", "conv-ai-news"));
+
+        const promptText = JSON.stringify(capturedMessages[0]);
+        expect(promptText).toContain("Today is 2026-05-08");
+        expect(promptText).not.toContain("Today is 2026-05-03");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("Reddit RSS 任务首轮只暴露 rss_top 和文件发送工具", async () => {
       const captured: string[][] = [];
       const rssProvider = createToolCaptureProvider(captured);

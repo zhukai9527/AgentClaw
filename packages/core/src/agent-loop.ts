@@ -506,6 +506,19 @@ function buildTaskToolProfile(
   };
 }
 
+function currentLocalDateString(date = new Date()): string {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
 function filterToolDefinitionsForTask<T extends { name: string }>(
   tools: T[],
   profile: TaskToolProfile,
@@ -989,7 +1002,7 @@ export class SimpleAgentLoop implements AgentLoop {
     );
     if (isAiNewsTask) {
       runtimeHints.push(
-        "[news-task] Today is 2026-05-03. Finish in about 3 LLM turns. Use parallel web_search first, then web_fetch only for missing key facts, then final answer. Prefer primary/trusted sources only: official company blogs, regulator/government/university sources, Reuters, AP, Bloomberg, FT, The Verge, TechCrunch, MIT Technology Review, Stanford HAI. Explicitly reject Reddit, YouTube, Yahoo Finance, SEO aggregators, random blogs, and unsourced claims. Recent news only: if the item is not from today or the last 7 days, include it only when it is clearly still developing and mark the exact date. Output no more than 5 high-confidence items. Do not fetch raw pages when snippets already contain enough facts.",
+        `[news-task] Today is ${currentLocalDateString()}. Finish in about 3 LLM turns. Use parallel web_search first, then web_fetch only for missing key facts, then final answer. Prefer primary/trusted sources only: official company blogs, regulator/government/university sources, Reuters, AP, Bloomberg, FT, The Verge, TechCrunch, MIT Technology Review, Stanford HAI. Explicitly reject Reddit, YouTube, Yahoo Finance, SEO aggregators, random blogs, and unsourced claims. Recent news only: if the item is not from today or the last 7 days, include it only when it is clearly still developing and mark the exact date. Output no more than 5 high-confidence items. Do not fetch raw pages when snippets already contain enough facts.`,
       );
     }
     if (/reddit|rss|subreddit|子版块|日报/i.test(inputTextForHeuristics)) {

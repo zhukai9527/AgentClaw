@@ -53,6 +53,10 @@ export const skillCuratorTool: Tool = {
         description: "When true, report changes without mutating files",
       },
       limit: { type: "number", description: "Status row limit" },
+      reason: {
+        type: "string",
+        description: "Why this curator change is needed",
+      },
     },
     required: ["action"],
   },

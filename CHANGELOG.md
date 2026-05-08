@@ -20,6 +20,9 @@
 - **P2 工具输出瘦身**：`web_search` 结果硬夹到 5 条，`web_fetch` 默认返回带来源 URL 的短事实卡并保留 `save_as` 完整保存路径，`rss_top` 对相同 feed/topN 做短期缓存；真实 AI 新闻回归约 `11.3K input token / 35.1s`，不再因超限搜索多跑一轮。
 
 ### Fixed
+- **Skill 能力身份参数漂移**：`skill_manage` 不再把显示名 `name` 当作 `skillId`，`write_file` 不再接受隐藏 `fileContent`，`skill_curator` 的 `reason` 参数补齐到 schema；线上 skill 能力回归也改为只认 canonical `skillId`。
+- **线上能力回归日期与工具漂移**：`live-agent-eval` 不再硬编码历史日期，也不再把已不存在的 `execute_code` 当作实时检索工具加分；脚本守卫测试纳入根测试命令。
+- **新闻任务提示日期固化**：AI 新闻任务 runtime hint 不再写死 `2026-05-03`，改为每次 agent loop 运行时按当前本地日期注入。
 - **工具预算硬停止不彻底**：全局工具调用上限触发后现在会立即进入强制合成模式，并在下一轮清空工具定义，避免模型收到“不要再调工具”的自然语言错误后继续尝试工具。
 - **子代理预算绕过**：`SimpleSubAgentManager` 现在把父级共享 `IterationBudget` 传给子 agent loop，防止并行子代理绕开父任务预算继续执行。
 - **CLI 当前时间固化**：交互式 CLI 的 system prompt 改为保留 `{{datetime}}` / `{{timezone}}` 模板变量，由 core 在每次 agent loop 创建时动态解析。

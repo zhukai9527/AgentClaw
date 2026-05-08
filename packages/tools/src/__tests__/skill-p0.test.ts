@@ -160,6 +160,22 @@ describe("P0 skill management tools", () => {
     expect(content).not.toContain("name: Pretty Gap Review");
   });
 
+  it("create 必须使用 skillId，不能把 name 当作目录身份", async () => {
+    const result = await skillManageTool.execute(
+      {
+        action: "create",
+        name: "display-name",
+        description: "Display name is not identity",
+        instructions: "## Procedure\nUse canonical ids.\n",
+      },
+      createContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("skillId is required");
+    expect(existsSync(skillFile("display-name"))).toBe(false);
+  });
+
   it("rejects path traversal skill ids without creating files", async () => {
     const result = await skillManageTool.execute(
       {
@@ -244,6 +260,26 @@ describe("P0 skill management tools", () => {
         "utf-8",
       ),
     ).toBe("reference data");
+  });
+
+  it("write_file 只接受 content，不能接受隐藏 fileContent 参数", async () => {
+    writeSkill("support", "## Procedure\nUse references.\n");
+
+    const result = await skillManageTool.execute(
+      {
+        action: "write_file",
+        skillId: "support",
+        filePath: "references/legacy.md",
+        fileContent: "legacy data",
+      },
+      createContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("content is required");
+    expect(
+      existsSync(path.join(skillsDir, "support", "references", "legacy.md")),
+    ).toBe(false);
   });
 
   it("rejects supporting file path traversal", async () => {
@@ -347,5 +383,14 @@ describe("P0 skill management tools", () => {
       action: "backup",
       success: true,
     });
+  });
+
+  it("skill_curator archive 应在 schema 中声明 reason 参数", () => {
+    const properties = skillCuratorTool.parameters.properties as Record<
+      string,
+      unknown
+    >;
+
+    expect(properties.reason).toBeDefined();
   });
 });

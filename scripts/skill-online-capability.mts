@@ -228,12 +228,7 @@ function hasToolCall(
   return run.toolCalls.some((call) => {
     if (call.name !== name) return false;
     if (action && call.input.action !== action) return false;
-    if (
-      skillId &&
-      call.input.skillId !== skillId &&
-      call.input.name !== skillId
-    )
-      return false;
+    if (skillId && call.input.skillId !== skillId) return false;
     return true;
   });
 }

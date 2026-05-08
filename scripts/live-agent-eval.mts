@@ -7,7 +7,20 @@ type EvalCase = {
   input: string;
 };
 
-const today = "2026-04-29";
+function currentDateString(date = new Date()): string {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+const today = currentDateString();
 
 const cases: EvalCase[] = [
   {
@@ -75,9 +88,9 @@ function scoreCase(
     return { score, notes };
   }
 
-  const usedRealtimeTool =
-    toolCalls.some((name) => name === "web_search" || name === "web_fetch") ||
-    (toolCalls.includes("execute_code") && /https?:\/\//.test(toolResultText));
+  const usedRealtimeTool = toolCalls.some(
+    (name) => name === "web_search" || name === "web_fetch",
+  );
 
   if (usedRealtimeTool) {
     score += 2;
