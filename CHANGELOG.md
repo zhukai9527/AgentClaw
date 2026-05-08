@@ -4,6 +4,7 @@
 
 ### Added
 - **微信公众号发布统一 CLI 契约**：`wechat-publish` 新增 `wechat_publish.py`，提供 `capabilities/inspect/preview/publish` 四个子命令和 `success/code/message/data` JSON envelope；`SKILL.md` 收敛为只走统一入口，避免 Agent 继续拆步骤或解析旧脚本行文本。
+- **微信公众号发布真实入口回归**：新增 `scripts/wechat-publish-skill-regression.mts`，从真实 Agent session 验证 `use_skill`、统一 CLI、dry-run 产物、无旧脚本、无直接微信 API 和无参数缩写漂移；根测试命令纳入对应 evaluator 单测。
 - **一键安装脚本**：新增 `scripts/install.sh`，支持 Linux、macOS 和 Termux 交互式安装，自动检查基础依赖、配置模型 Provider/API Key、构建并启动服务，让默认路径直接进入 Web 对话。
 - **Trace 质量评分器**：新增 `evaluateTraceQuality`，可对真实 trace 的 LLM 轮次、工具调用、输入 token、耗时、cache 命中、overflow 全文读回和 Reddit 计数字段伪造进行确定性评分；新增 `scripts/trace-quality-regression.mts` 作为线上近似闭环回归入口。
 - **Observation Store 回归指标**：`evaluateTraceQuality` 新增 observation 创建数、读取数、全文读回数、原始字符数、提示字符数、节省字符数和节省率，并提供最低创建数、最低节省率、最大全文读回数阈值，防止 P0 Observation Store 退化成上下文全文回灌。

@@ -27,6 +27,7 @@ python skills/wechat-publish/scripts/wechat_publish.py publish {INPUT_MD} --titl
 - 用户只要求查看效果时用 `preview`，它只写本地 HTML，不上传图片、不创建草稿。
 - 用户明确要求发布到公众号草稿箱时才用 `publish`。成功后只根据 JSON 中的 `data.draft_media_id` 和 `data.artifacts` 汇报结果。
 - stdout 是唯一机器契约：`success/code/message/data`。不要解析旧脚本的行文本输出。
+- 参数名必须写完整，尤其是 `--out-dir`；CLI 不接受 `--out` 这类缩写。
 
 ## 禁止事项
 

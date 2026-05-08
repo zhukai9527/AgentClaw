@@ -33,6 +33,12 @@ DIGEST_LIMIT = 120
 JSON_CONTRACT = "success/code/message/data"
 
 
+class StrictArgumentParser(argparse.ArgumentParser):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
+
+
 def response(success: bool, code: str, message: str, data: dict[str, Any]) -> dict[str, Any]:
     return {
         "success": success,
@@ -179,14 +185,14 @@ def inspect_article(
                 }
             )
 
-    has_cover_contract = cover_exists or bool(thumb_media_id.strip())
-    if draft and not has_cover_contract:
+    generated_cover_available = importlib.util.find_spec("playwright") is not None
+    if draft and not (cover_exists or bool(thumb_media_id.strip())) and not generated_cover_available:
         checks.append(
             {
                 "level": "error",
-                "code": "COVER_REQUIRED",
+                "code": "COVER_GENERATOR_UNAVAILABLE",
                 "field": "cover",
-                "message": "draft creation requires --cover or --thumb-media-id",
+                "message": "draft creation requires Playwright-generated cover, --cover, or --thumb-media-id",
             }
         )
 
@@ -206,6 +212,7 @@ def inspect_article(
             "path": cover_path or None,
             "exists": cover_exists,
             "thumb_media_id": thumb_media_id or None,
+            "generated": not cover_path and not thumb_media_id,
         },
         "readiness": {
             "convert_ready": convert_ready,
@@ -320,25 +327,45 @@ def add_common_article_args(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="wechat-publish deterministic CLI")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser = StrictArgumentParser(description="wechat-publish deterministic CLI")
+    subparsers = parser.add_subparsers(
+        dest="command",
+        required=True,
+        parser_class=StrictArgumentParser,
+    )
 
-    p_cap = subparsers.add_parser("capabilities", help="Show runtime capabilities")
+    p_cap = subparsers.add_parser(
+        "capabilities",
+        help="Show runtime capabilities",
+    )
     p_cap.add_argument("--json", action="store_true", help="Emit JSON envelope")
 
-    p_inspect = subparsers.add_parser("inspect", help="Inspect article readiness")
+    p_inspect = subparsers.add_parser(
+        "inspect",
+        help="Inspect article readiness",
+    )
     add_common_article_args(p_inspect)
     p_inspect.add_argument("--draft", action="store_true", help="Evaluate draft readiness")
     p_inspect.add_argument("--cover", default="", help="Existing cover image path")
     p_inspect.add_argument("--thumb-media-id", default="", help="Existing WeChat cover media_id")
 
-    p_preview = subparsers.add_parser("preview", help="Write local preview HTML")
+    p_preview = subparsers.add_parser(
+        "preview",
+        help="Write local preview HTML",
+    )
     add_common_article_args(p_preview)
     p_preview.add_argument("--out-dir", required=True, help="Output directory")
 
-    p_publish = subparsers.add_parser("publish", help="Create draft or dry-run draft JSON")
+    p_publish = subparsers.add_parser(
+        "publish",
+        help="Create draft or dry-run draft JSON",
+    )
     add_common_article_args(p_publish)
-    p_publish.add_argument("--title", required=True, help="Cover title")
+    p_publish.add_argument(
+        "--title",
+        default="",
+        help="Cover title. Defaults to Markdown H1 when omitted.",
+    )
     p_publish.add_argument("--subtitle", default="", help="Cover subtitle")
     p_publish.add_argument("--scheme", default="dark", choices=list(cover_script.SCHEMES.keys()))
     p_publish.add_argument("--out-dir", required=True, help="Output directory")
@@ -397,8 +424,15 @@ def handle(args: argparse.Namespace) -> tuple[str, str, dict[str, Any]]:
         draft_json = out_dir / "draft.json"
         cover_path = None if args.skip_cover else out_dir / "cover.png"
 
+        cover_title = args.title.strip()
+        if not cover_title:
+            markdown_text = read_markdown(markdown)
+            cover_title = resolve_title(markdown_text, markdown, args.article_title)[
+                "value"
+            ]
+
         if cover_path is not None:
-            run_cover(args.title, args.subtitle, args.scheme, cover_path)
+            run_cover(cover_title, args.subtitle, args.scheme, cover_path)
 
         write_article_json(
             markdown,

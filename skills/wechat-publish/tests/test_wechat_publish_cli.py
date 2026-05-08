@@ -80,11 +80,9 @@ class WechatPublishCliTest(unittest.TestCase):
         self.assertEqual(data["metadata"]["title"]["source"], "markdown.heading")
         self.assertLessEqual(data["metadata"]["digest"]["length"], 120)
         self.assertIs(data["readiness"]["convert_ready"], True)
-        self.assertIs(data["readiness"]["draft_ready"], False)
-        self.assertIn(
-            "COVER_REQUIRED",
-            [check["code"] for check in data["checks"]],
-        )
+        self.assertIs(data["readiness"]["draft_ready"], True)
+        self.assertEqual(data["checks"], [])
+        self.assertIs(data["cover"]["generated"], True)
 
     def test_preview_writes_html_without_draft_side_effects(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -130,6 +128,53 @@ class WechatPublishCliTest(unittest.TestCase):
             self.assertTrue(Path(data["artifacts"]["article_json"]).is_file())
             self.assertTrue(Path(data["artifacts"]["draft_json"]).is_file())
             self.assertIsNone(data["artifacts"]["cover"])
+
+    def test_publish_uses_markdown_h1_as_default_cover_title(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            article = self.make_article(root)
+            data = self.assert_success(
+                run_cli(
+                    "publish",
+                    str(article),
+                    "--out-dir",
+                    str(root),
+                    "--dry-run",
+                    "--skip-cover",
+                    "--json",
+                ),
+                "DRAFT_DRY_RUN_READY",
+            )
+
+            draft = json.loads(
+                Path(data["artifacts"]["draft_json"]).read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(draft["articles"][0]["title"], "测试标题")
+
+    def test_cli_rejects_abbreviated_options(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            article = self.make_article(root)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CLI),
+                    "publish",
+                    str(article),
+                    "--out",
+                    str(root),
+                    "--dry-run",
+                    "--json",
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("the following arguments are required: --out-dir", result.stderr)
 
     def test_skill_primary_path_uses_unified_cli(self):
         text = SKILL.read_text(encoding="utf-8")
