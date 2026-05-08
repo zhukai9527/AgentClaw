@@ -39,7 +39,7 @@ export const scheduleTool: Tool = {
     input: Record<string, unknown>,
     context?: ToolExecutionContext,
   ): Promise<ToolResult> {
-    const op = String(input.op ?? input.action ?? "").trim();
+    const op = String(input.op ?? "").trim();
 
     // We need access to the scheduler - pass it through context
     if (!context?.scheduler) {
@@ -54,13 +54,13 @@ export const scheduleTool: Tool = {
     switch (op) {
       case "create": {
         const cron = input.cron as string;
-        const rawMessage = (input.prompt ?? input.message) as string;
+        const rawMessage = input.prompt as string;
         const name = input.name as string | undefined;
 
         if (!cron || !rawMessage) {
           return {
             content:
-              "Both 'cron' and 'message' are required for creating a task.",
+              "Both 'cron' and 'prompt' are required for creating a task.",
             isError: true,
           };
         }
@@ -97,7 +97,7 @@ export const scheduleTool: Tool = {
         if (tasks.length === 0) {
           return {
             content:
-              "0 scheduled tasks.\n\nhint: use schedule(op='create', name='...', cron='...', message='...') to create one",
+              "0 scheduled tasks.\n\nhint: use schedule(op='create', name='...', cron='...', prompt='...') to create one",
             isError: false,
           };
         }

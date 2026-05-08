@@ -7,7 +7,7 @@
       { "name": "file_read", "inputContains": { "path": "auth" } },
       { "name": "file_edit" }
     ],
-    "forbiddenTools": ["shell"],
+    "forbiddenTools": ["bash"],
     "responseContains": "fix|edit|修复",
     "maxDurationMs": 30000
   },
@@ -30,7 +30,7 @@
         "name": "use_skill",
         "inputContains": { "name": "bilingual-subtitle" }
       },
-      { "name": "shell", "inputContains": { "command": "process.py" } }
+      { "name": "bash", "inputContains": { "command": "process.py" } }
     ],
     "forbiddenTools": ["web_search"],
     "maxDurationMs": 300000

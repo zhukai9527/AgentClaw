@@ -82,7 +82,7 @@ export class ToolHookManager {
     return current;
   }
 
-  /** Register preset hooks (Biome lint on file_write, shell exit code warning) */
+  /** Register preset hooks (Biome lint on file_write, bash exit code warning) */
   registerPresetHooks(): void {
     // file_write: auto-run Biome lint on .ts/.js files
     this.addToolHook("file_write", {
@@ -148,8 +148,8 @@ export class ToolHookManager {
       },
     });
 
-    // shell: warn on non-zero exit code
-    this.addToolHook("shell", {
+    // bash: warn on non-zero exit code
+    this.addToolHook("bash", {
       after: async (_call, result) => {
         const exitCode = result.metadata?.exitCode as number | undefined;
         if (exitCode !== undefined && exitCode !== 0) {

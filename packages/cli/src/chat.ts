@@ -21,6 +21,34 @@ interface ChatOptions {
   skillsDir?: string;
 }
 
+export function buildSystemPrompt(): string {
+  const os = platform();
+  const osName =
+    os === "win32" ? "Windows" : os === "darwin" ? "macOS" : "Linux";
+  const shellDesc =
+    shellInfo.name === "bash"
+      ? "bash (Git Bash). Use standard Unix/bash commands."
+      : "PowerShell. Use PowerShell syntax.";
+
+  return `You are AgentClaw, a powerful AI assistant.
+
+## When to use tools
+- For casual conversation, greetings, chitchat, or simple questions you already know the answer to: reply directly in plain text. Do NOT call any tools.
+- For tasks that genuinely require action (file operations, web search, running commands, etc.): use the appropriate tool.
+
+## Runtime Environment
+- Current date/time: {{datetime}}
+- Timezone: {{timezone}}
+- OS: ${osName} (${arch()})
+- Shell: ${shellDesc}
+- Home directory: ${homedir()}
+IMPORTANT: Always use commands for THIS OS (${osName}). Never try commands from other operating systems.
+
+## Style
+- Be concise. Respond in the same language the user uses.
+- Do NOT narrate your actions. Just do it and report the result.`;
+}
+
 export async function startChat(options: ChatOptions): Promise<void> {
   // Initialize memory
   const db = initDatabase(options.databasePath);
@@ -49,32 +77,7 @@ export async function startChat(options: ChatOptions): Promise<void> {
     memoryStore,
   });
 
-  // Build system prompt with runtime environment info
-  const os = platform();
-  const osName =
-    os === "win32" ? "Windows" : os === "darwin" ? "macOS" : "Linux";
-  const shellDesc =
-    shellInfo.name === "bash"
-      ? "bash (Git Bash). Use standard Unix/bash commands."
-      : "PowerShell. Use PowerShell syntax.";
-
-  const systemPrompt = `You are AgentClaw, a powerful AI assistant.
-
-## When to use tools
-- For casual conversation, greetings, chitchat, or simple questions you already know the answer to: reply directly in plain text. Do NOT call any tools.
-- For tasks that genuinely require action (file operations, web search, running commands, etc.): use the appropriate tool.
-
-## Runtime Environment
-- Current date/time: ${new Date().toLocaleString("zh-CN", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "long", hour12: false })}
-- Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}
-- OS: ${osName} (${arch()})
-- Shell: ${shellDesc}
-- Home directory: ${homedir()}
-IMPORTANT: Always use commands for THIS OS (${osName}). Never try commands from other operating systems.
-
-## Style
-- Be concise. Respond in the same language the user uses.
-- Do NOT narrate your actions. Just do it and report the result.`;
+  const systemPrompt = buildSystemPrompt();
 
   // Initialize orchestrator
   const orchestrator = new SimpleOrchestrator({

@@ -205,10 +205,10 @@ describe("evaluateTrace", () => {
     it("should pass when no forbidden tools are called", () => {
       const testCase: TrajectoryTestCase = {
         id: "t9",
-        description: "Should not call shell",
+        description: "Should not call bash",
         userInput: "fix the login bug",
         expectedTools: [],
-        forbiddenTools: ["shell", "web_fetch"],
+        forbiddenTools: ["bash", "web_fetch"],
       };
 
       const result = evaluateTrace(testCase, makeTrace());

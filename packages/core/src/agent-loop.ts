@@ -1768,6 +1768,10 @@ export class SimpleAgentLoop implements AgentLoop {
                 content: `Global tool call limit reached (${MAX_TOTAL_TOOL_CALLS}). You MUST stop using tools and respond to the user immediately with whatever information you have gathered so far.`,
                 isError: true,
               };
+              forceSynthesisOnly = true;
+              runtimeHints.push(
+                `<tool_budget_exhausted>Total tool call budget is exhausted (${MAX_TOTAL_TOOL_CALLS}). No tools are available now. Write the final answer from gathered facts immediately.</tool_budget_exhausted>`,
+              );
             }
 
             const dupKey = buildFailKey(effectiveToolName, effectiveToolInput);

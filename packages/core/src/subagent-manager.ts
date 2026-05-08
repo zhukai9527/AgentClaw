@@ -120,8 +120,7 @@ export class SimpleSubAgentManager implements SubAgentManager {
         maxIterations,
         model: options?.model ?? this.agentConfig?.model,
       },
-      // Children rely on their own maxIterations — no shared budget.
-      // Recursive delegation is already blocked by SUBAGENT_BLOCKED_TOOLS.
+      iterationBudget: this.iterationBudget,
     });
 
     return {

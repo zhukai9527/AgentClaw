@@ -20,6 +20,11 @@
 - **P2 工具输出瘦身**：`web_search` 结果硬夹到 5 条，`web_fetch` 默认返回带来源 URL 的短事实卡并保留 `save_as` 完整保存路径，`rss_top` 对相同 feed/topN 做短期缓存；真实 AI 新闻回归约 `11.3K input token / 35.1s`，不再因超限搜索多跑一轮。
 
 ### Fixed
+- **工具预算硬停止不彻底**：全局工具调用上限触发后现在会立即进入强制合成模式，并在下一轮清空工具定义，避免模型收到“不要再调工具”的自然语言错误后继续尝试工具。
+- **子代理预算绕过**：`SimpleSubAgentManager` 现在把父级共享 `IterationBudget` 传给子 agent loop，防止并行子代理绕开父任务预算继续执行。
+- **CLI 当前时间固化**：交互式 CLI 的 system prompt 改为保留 `{{datetime}}` / `{{timezone}}` 模板变量，由 core 在每次 agent loop 创建时动态解析。
+- **工具提示参数漂移**：`schedule` 空列表 hint 和缺参错误统一使用 canonical `prompt` 参数；`subagent` explore 白名单移除不存在的 `shell` 工具名。
+- **工具 ID 与参数唯一事实源漂移**：preset hook 改为监听真实 `bash` 工具名，eval 示例同步使用 `bash`；`schedule` 创建任务不再接受隐藏的 `message` 参数，操作参数也只接受 canonical `op`，避免 schema、提示词和执行层继续分叉。
 - **系统时间注入过期**：`system-prompt.md` 中的 `{{datetime}}` / `{{timezone}}` 不再在 gateway 启动时固化，而是在每次 agent loop 创建时解析，避免服务运行多天后“明天/今天”推算使用旧日期。
 - **grep 后续读取误导**：`file_read` 新增 `line` / `context_lines` 行号上下文读取，`grep` hint 改为引导按匹配行读取，避免模型把 grep 行号当字符 offset 反复读到无关片段并耗尽工具预算。
 - **MiMo 1M 上下文未生效**：OpenAI-compatible 自定义 provider 现在会按默认模型自动登记模型元数据；`mimo-v2.5-pro` 和小米 MiMo API 地址自动识别为 1,048,576 context window，避免被通用 128K 默认值提前触发上下文压缩。

@@ -1230,6 +1230,90 @@ describe("SimpleAgentLoop", () => {
       );
     });
 
+    it("达到全局工具调用上限后下一轮必须清空工具定义并强制合成", async () => {
+      const firstRoundChunks: LLMStreamChunk[] = [];
+      for (let i = 0; i < 41; i++) {
+        firstRoundChunks.push(
+          {
+            type: "tool_use_start",
+            toolUse: { id: `tc-${i}`, name: "probe_tool", input: "" },
+          },
+          {
+            type: "tool_use_delta",
+            toolUse: {
+              id: `tc-${i}`,
+              name: "",
+              input: JSON.stringify({ index: i }),
+            },
+          },
+        );
+      }
+      firstRoundChunks.push({
+        type: "done",
+        usage: { tokensIn: 10, tokensOut: 5 },
+        model: "mock-model",
+      });
+
+      const capturedTools: string[][] = [];
+      let callIndex = 0;
+      const testProvider: LLMProvider = {
+        name: "budget-provider",
+        models: [
+          {
+            id: "mock-model",
+            provider: "mock",
+            name: "Mock",
+            tier: "fast",
+            contextWindow: 4096,
+            supportsTools: true,
+            supportsStreaming: true,
+          },
+        ] as ModelInfo[],
+        chat: vi.fn(),
+        stream: vi.fn(async function* (request: LLMRequest) {
+          capturedTools.push((request.tools ?? []).map((tool) => tool.name));
+          if (callIndex === 0) {
+            callIndex++;
+            yield* firstRoundChunks;
+            return;
+          }
+          callIndex++;
+          yield {
+            type: "tool_use_start",
+            toolUse: { id: "tc-after-limit", name: "probe_tool", input: "" },
+          } as LLMStreamChunk;
+          yield {
+            type: "tool_use_delta",
+            toolUse: {
+              id: "tc-after-limit",
+              name: "",
+              input: JSON.stringify({ index: 999 }),
+            },
+          } as LLMStreamChunk;
+          yield {
+            type: "done",
+            usage: { tokensIn: 10, tokensOut: 5 },
+            model: "mock-model",
+          } as LLMStreamChunk;
+        }) as unknown as LLMProvider["stream"],
+      };
+      const probeTool = createMockTool("probe_tool", { content: "ok" });
+      const testToolRegistry = createMockToolRegistry([probeTool]);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      await collectEvents(loop.runStream("probe", "conv-global-limit"));
+
+      expect(capturedTools.length).toBeGreaterThanOrEqual(2);
+      expect(capturedTools[0]).toContain("probe_tool");
+      expect(capturedTools[1]).toEqual([]);
+    });
+
     it("连续 max_tokens 且没有工具调用时应熔断，避免 687 秒空转", async () => {
       const truncatedChunks: LLMStreamChunk[] = [
         { type: "text", text: "我将创建页面，下面开始生成完整 HTML。" },

@@ -75,7 +75,6 @@ export const subagentTool: Tool = {
       "grep",
       "web_fetch",
       "web_search",
-      "shell",
     ];
 
     switch (action) {
