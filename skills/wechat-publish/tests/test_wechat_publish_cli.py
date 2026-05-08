@@ -67,6 +67,8 @@ class WechatPublishCliTest(unittest.TestCase):
         self.assertIn("tech-modern", data["themes"])
         self.assertIn("dark", data["cover_schemes"])
         self.assertEqual(data["json_contract"], "success/code/message/data")
+        self.assertIn("--out-dir", data["canonical_args"]["publish"])
+        self.assertNotIn("--out", data["canonical_args"]["publish"])
 
     def test_inspect_reports_metadata_readiness_and_checks(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -99,7 +101,9 @@ class WechatPublishCliTest(unittest.TestCase):
             self.assertFalse(draft.exists())
             html = preview.read_text(encoding="utf-8")
 
-        self.assertIn("<section", html)
+        self.assertIn("<!doctype html>", html.lower())
+        self.assertIn('<meta charset="utf-8">', html.lower())
+        self.assertIn("<title>测试标题</title>", html)
         self.assertIn("测试标题", html)
 
     def test_publish_dry_run_returns_json_contract_and_artifacts(self):
@@ -127,7 +131,17 @@ class WechatPublishCliTest(unittest.TestCase):
             self.assertEqual(data["mode"], "dry-run")
             self.assertTrue(Path(data["artifacts"]["article_json"]).is_file())
             self.assertTrue(Path(data["artifacts"]["draft_json"]).is_file())
+            self.assertTrue(Path(data["artifacts"]["manifest_json"]).is_file())
             self.assertIsNone(data["artifacts"]["cover"])
+
+            manifest = json.loads(
+                Path(data["artifacts"]["manifest_json"]).read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(manifest["mode"], "dry-run")
+        self.assertEqual(manifest["code"], "DRAFT_DRY_RUN_READY")
+        self.assertEqual(manifest["source_file"], str(article))
+        self.assertEqual(manifest["artifacts"]["draft_json"], data["artifacts"]["draft_json"])
 
     def test_publish_uses_markdown_h1_as_default_cover_title(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -175,6 +189,18 @@ class WechatPublishCliTest(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("the following arguments are required: --out-dir", result.stderr)
+
+    def test_skip_cover_is_hidden_from_help(self):
+        result = subprocess.run(
+            [sys.executable, str(CLI), "publish", "--help"],
+            cwd=REPO_ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn("--skip-cover", result.stdout)
 
     def test_skill_primary_path_uses_unified_cli(self):
         text = SKILL.read_text(encoding="utf-8")

@@ -244,6 +244,30 @@ def write_article_json(
     return article
 
 
+def standalone_preview_html(title: str, body_html: str) -> str:
+    escaped_title = (
+        title.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+    return "\n".join(
+        [
+            "<!doctype html>",
+            '<html lang="zh-CN">',
+            "<head>",
+            '<meta charset="utf-8">',
+            '<meta name="viewport" content="width=device-width, initial-scale=1">',
+            f"<title>{escaped_title}</title>",
+            "</head>",
+            '<body style="margin:0;background:#f6f7f9;">',
+            body_html,
+            "</body>",
+            "</html>",
+        ]
+    )
+
+
 def run_cover(title: str, subtitle: str, scheme: str, out_path: Path) -> None:
     cmd = [
         sys.executable,
@@ -300,6 +324,11 @@ def capabilities() -> dict[str, Any]:
         "themes": sorted(md2wx.THEMES.keys()),
         "cover_schemes": sorted(cover_script.SCHEMES.keys()),
         "json_contract": JSON_CONTRACT,
+        "canonical_args": {
+            "inspect": ["--draft", "--theme", "--article-title", "--digest", "--author", "--cover", "--thumb-media-id", "--json"],
+            "preview": ["--out-dir", "--theme", "--article-title", "--digest", "--author", "--json"],
+            "publish": ["--out-dir", "--theme", "--article-title", "--digest", "--author", "--title", "--subtitle", "--scheme", "--dry-run", "--thumb-media-id", "--content-source-url", "--json"],
+        },
         "limits": {
             "title": TITLE_LIMIT,
             "author": AUTHOR_LIMIT,
@@ -374,7 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_publish.add_argument(
         "--skip-cover",
         action="store_true",
-        help="Only valid with --dry-run; skip cover PNG generation for fast contract tests",
+        help=argparse.SUPPRESS,
     )
     p_publish.add_argument("--content-source-url", default="", help="Original URL")
     return parser
@@ -403,7 +432,11 @@ def handle(args: argparse.Namespace) -> tuple[str, str, dict[str, Any]]:
         out_dir.mkdir(parents=True, exist_ok=True)
         html_path = out_dir / f"{markdown.stem}.preview.html"
         markdown_text = read_markdown(markdown)
-        html = md2wx.md_to_wx_html(markdown_text, args.theme)
+        title_state = resolve_title(markdown_text, markdown, args.article_title)
+        html = standalone_preview_html(
+            title_state["value"],
+            md2wx.md_to_wx_html(markdown_text, args.theme),
+        )
         html_path.write_text(html, encoding="utf-8")
         data = inspect_article(
             markdown,
@@ -422,6 +455,7 @@ def handle(args: argparse.Namespace) -> tuple[str, str, dict[str, Any]]:
         out_dir.mkdir(parents=True, exist_ok=True)
         article_json = out_dir / "article.json"
         draft_json = out_dir / "draft.json"
+        manifest_json = out_dir / "manifest.json"
         cover_path = None if args.skip_cover else out_dir / "cover.png"
 
         cover_title = args.title.strip()
@@ -451,14 +485,30 @@ def handle(args: argparse.Namespace) -> tuple[str, str, dict[str, Any]]:
             dry_run=args.dry_run,
         )
         code = "DRAFT_DRY_RUN_READY" if args.dry_run else "DRAFT_CREATED"
+        artifacts = {
+            "cover": str(cover_path) if cover_path is not None else None,
+            "article_json": str(article_json),
+            "draft_json": str(draft_json),
+            "manifest_json": str(manifest_json),
+        }
+        manifest = {
+            "code": code,
+            "mode": "dry-run" if args.dry_run else "live",
+            "source_file": str(markdown),
+            "theme": args.theme,
+            "scheme": args.scheme,
+            "cover_title": cover_title,
+            "draft_media_id": draft_media_id,
+            "artifacts": artifacts,
+        }
+        manifest_json.write_text(
+            json.dumps(manifest, ensure_ascii=False),
+            encoding="utf-8",
+        )
         data = {
             "mode": "dry-run" if args.dry_run else "live",
             "draft_media_id": draft_media_id,
-            "artifacts": {
-                "cover": str(cover_path) if cover_path is not None else None,
-                "article_json": str(article_json),
-                "draft_json": str(draft_json),
-            },
+            "artifacts": artifacts,
         }
         return code, "Draft dry-run ready" if args.dry_run else "Draft created", data
 

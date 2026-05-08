@@ -24,8 +24,8 @@ python skills/wechat-publish/scripts/wechat_publish.py publish {INPUT_MD} --titl
 
 - 先用 `capabilities --json` 获取当前可用主题、封面配色和 JSON 契约，不要从文档猜。
 - 发布前优先跑 `inspect {INPUT_MD} --draft --json`。如果 `readiness.draft_ready=false`，按 `checks[].code` 处理，不要继续发布。
-- 用户只要求查看效果时用 `preview`，它只写本地 HTML，不上传图片、不创建草稿。
-- 用户明确要求发布到公众号草稿箱时才用 `publish`。成功后只根据 JSON 中的 `data.draft_media_id` 和 `data.artifacts` 汇报结果。
+- 用户只要求查看效果时用 `preview`，它只写可直接打开的本地 HTML，不上传图片、不创建草稿。
+- 用户明确要求发布到公众号草稿箱时才用 `publish`。成功后只根据 JSON 中的 `data.draft_media_id` 和 `data.artifacts` 汇报结果；`manifest_json` 是本次执行的审计清单。
 - stdout 是唯一机器契约：`success/code/message/data`。不要解析旧脚本的行文本输出。
 - 参数名必须写完整，尤其是 `--out-dir`；CLI 不接受 `--out` 这类缩写。
 
