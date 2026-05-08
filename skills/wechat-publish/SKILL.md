@@ -1,133 +1,56 @@
 ---
 name: wechat-publish
-description: Markdown 转微信公众号排版并发布草稿。不用于：写文章内容、其他平台发布
+description: Markdown 转微信公众号排版并发布草稿。Use this whenever the user asks to convert Markdown to WeChat Official Account HTML, inspect publish readiness, preview local WeChat layout, or create a WeChat draft. 不用于：写文章内容、其他平台发布。
 ---
 
-## 用法
+# wechat-publish
 
-将 Markdown 文件转换为微信公众号格式（100% 内联 CSS），支持 3 种主题，自动处理微信限制（外链转脚注、中英文间距、代码高亮）。可选上传到公众号草稿箱。
-
-## 首选：一键发布草稿
-
-发布到公众号时，优先只执行这一条命令；不要拆成封面、转换、上传多个步骤。
+将 Markdown 转成微信公众号兼容 HTML，可预览或创建草稿箱草稿。所有常规操作只走统一入口：
 
 ```bash
-python skills/wechat-publish/scripts/publish_article.py {INPUT_MD} --title "封面标题" --subtitle "封面副标题" --scheme dark --theme tech-modern --author "爬爬虾" --out-dir {WORKDIR}
+python skills/wechat-publish/scripts/wechat_publish.py capabilities --json
+python skills/wechat-publish/scripts/wechat_publish.py inspect {INPUT_MD} --draft --json
+python skills/wechat-publish/scripts/wechat_publish.py preview {INPUT_MD} --out-dir {WORKDIR} --json
+python skills/wechat-publish/scripts/wechat_publish.py publish {INPUT_MD} --title "封面标题" --subtitle "封面副标题" --scheme dark --theme tech-modern --author "爬爬虾" --out-dir {WORKDIR} --json
 ```
 
-成功后脚本只输出 `draft_media_id=...`、`cover=...`、`article_json=...`、`draft_json=...`。到这里任务完成，直接回复草稿已创建；不要再读取 `article.json`，不要再查找脚本。
-
-离线验证时加 `--dry-run`，不会创建真实草稿：
-```bash
-python skills/wechat-publish/scripts/publish_article.py {INPUT_MD} --title "封面标题" --subtitle "封面副标题" --out-dir {WORKDIR} --dry-run
-```
-
-禁止事项：
-- 禁止使用不存在的 `upload.py` 或 `publish.py`
-- 禁止手写访问令牌、上传封面或 `curl` 草稿接口
-- 禁止绕过发布脚本访问微信接口
-- 禁止读取 `data/tmp/**/skills/**` 里的历史脚本
-- 禁止在发布成功后再读取 `article.json` 做无必要预览
-
-## 拆分调试流程
-
-只有一键脚本失败且用户要求排查时，才使用下面的拆分步骤。
-
-### Step 0: 生成封面图
-
-使用 `shell` 工具执行封面生成脚本：
+离线验收或调试时使用 `--dry-run`，不会创建真实草稿：
 
 ```bash
-python skills/wechat-publish/scripts/cover.py "标题" "副标题" --scheme {SCHEME} --out {OUTPUT_PNG}
+python skills/wechat-publish/scripts/wechat_publish.py publish {INPUT_MD} --title "封面标题" --subtitle "封面副标题" --out-dir {WORKDIR} --dry-run --json
 ```
 
-参数说明：
-- 第一个参数 — 主标题，用 `|` 分行（如 `"第一行|第二行"`）
-- 第二个参数 — 副标题（可选，留空则不显示）
-- `--scheme` — 配色方案：`dark`（默认，深蓝）、`warm`（暖橙）、`green`（绿色）、`purple`（紫色）、`blue`（蓝色）
-- `--out` — 输出 PNG 路径，默认为脚本同目录下 `cover.png`
+## 执行规则
 
-输出尺寸：900×383（微信公众号封面标准尺寸）。
+- 先用 `capabilities --json` 获取当前可用主题、封面配色和 JSON 契约，不要从文档猜。
+- 发布前优先跑 `inspect {INPUT_MD} --draft --json`。如果 `readiness.draft_ready=false`，按 `checks[].code` 处理，不要继续发布。
+- 用户只要求查看效果时用 `preview`，它只写本地 HTML，不上传图片、不创建草稿。
+- 用户明确要求发布到公众号草稿箱时才用 `publish`。成功后只根据 JSON 中的 `data.draft_media_id` 和 `data.artifacts` 汇报结果。
+- stdout 是唯一机器契约：`success/code/message/data`。不要解析旧脚本的行文本输出。
 
-**注意**：封面图不允许使用 emoji，保持干净高级感。
+## 禁止事项
 
-示例：
-```bash
-python skills/wechat-publish/scripts/cover.py "从零到开好|美国怀俄明州公司" "LLC注册 · EIN申请 · Mercury银行开户" --scheme dark --out data/tmp/cover.png
-```
+- 禁止使用不存在的 `upload.py`、`publish.py`。
+- 禁止手写访问令牌、上传封面或 `curl` 微信草稿接口。
+- 禁止绕过 `wechat_publish.py` 直接访问微信接口。
+- 禁止读取 `data/tmp/**/skills/**` 里的历史脚本。
+- 禁止在发布成功后再读取 `article.json` 做无必要预览。
 
-### Step 1: 转换 Markdown 为微信 HTML
+## 常用参数
 
-使用 `shell` 工具执行转换脚本：
-
-```json
-{"command": "python skills/wechat-publish/scripts/md2wx.py {INPUT_FILE} --theme {THEME} --out {OUTPUT_FILE}", "timeout": 30000}
-```
-
-参数说明：
-- `{INPUT_FILE}` — Markdown 文件路径
-- `{THEME}` — 主题名，可选：`tech-modern`（默认，蓝色科技风）、`minimal`（极简灰白）、`sage`（绿色，AgentClaw 品牌色）
-- `{OUTPUT_FILE}` — 输出 HTML 文件路径
-
-示例：
-```bash
-python skills/wechat-publish/scripts/md2wx.py docs/context-compression.md --theme sage --out data/tmp/article.html
-```
-
-如需 JSON 格式输出（含 title + digest + content），加 `--json` 参数：
-```bash
-python skills/wechat-publish/scripts/md2wx.py docs/article.md --theme tech-modern --json --out data/tmp/article.json
-```
-
-### Step 2: 预览（可选）
-
-用 `file_read` 读取输出的 HTML，确认排版正确。也可以把 HTML 内容粘贴到微信公众号后台的编辑器中预览。
-
-### Step 3: 发布到微信公众号草稿箱
-
-只使用发布脚本，不要手写访问令牌、上传封面或 `curl` 草稿接口。脚本会通过反代服务器完成获取访问令牌、上传封面、组装 `articles` JSON 和创建草稿。
-
-```bash
-python skills/wechat-publish/scripts/publish_draft.py {ARTICLE_JSON} --cover {COVER_IMAGE} --author "爬爬虾" --out {DRAFT_JSON}
-```
-
-参数说明：
-- `{ARTICLE_JSON}` — Step 1 使用 `--json` 生成的文件，结构必须是 `title`、`digest`、`content`
-- `{COVER_IMAGE}` — Step 0 生成的封面图
-- `{DRAFT_JSON}` — 保存最终提交给微信的草稿 JSON，便于复查
-
-成功后脚本只输出 `draft_media_id=...` 和 `draft_json=...`。不要输出访问令牌。
-
-离线验证时使用 dry-run，不会访问网络、不会创建真实草稿：
-```bash
-python skills/wechat-publish/scripts/publish_draft.py {ARTICLE_JSON} --thumb-media-id test_thumb --dry-run --out {DRAFT_JSON}
-```
-
-## 主题预览
-
-### tech-modern（默认）
-- 蓝色主色调（#2563eb）
-- 深色代码块（#1e293b 背景）
-- H2 左侧蓝色竖线
-- H1 下方蓝色底线
-
-### minimal
-- 灰白极简风格
-- 浅色代码块（#fafafa 背景）
-- H2 下方浅灰底线
-- 适合长文阅读
-
-### sage（AgentClaw 品牌色）
-- 绿色主色调（#6B7F5E）
-- 深绿代码块（#1A1D17 背景）
-- H2 左侧绿色竖线
-- 与 AgentClaw Web UI 风格一致
+- `--theme`：文章主题，默认 `tech-modern`；可用值以 `capabilities --json` 为准。
+- `--scheme`：封面配色，默认 `dark`；可用值以 `capabilities --json` 为准。
+- `--article-title`：覆盖文章 metadata 标题；不传时取 Markdown 第一个 H1。
+- `--digest`：覆盖摘要；不传时从正文生成，最长 120 字符。
+- `--thumb-media-id`：使用已有微信永久封面素材 ID。
+- `--dry-run`：只生成本地 `article.json` / `draft.json`，不创建真实草稿。
 
 ## 微信限制自动处理
 
-脚本自动处理以下微信平台限制：
-1. **外链 → 脚注**：`[text](url)` 转为 `text[1]` + 文末参考链接列表
-2. **列表 → flex 布局**：原生 `<ul>/<ol>` 不可靠，改用 `<section>` + flex
-3. **中英文间距**：CJK 和 Latin 字符间自动插入空格
-4. **代码块**：`white-space: pre-wrap` 防止溢出
-5. **100% 内联 CSS**：微信会剥离 `<style>` 标签
+脚本自动处理：
+
+1. 外链转脚注，避免微信外链限制。
+2. 列表改成 `<section>` flex 布局，避免原生列表在微信编辑器里失真。
+3. CJK 和 Latin 字符间插入空格。
+4. 代码块使用 `white-space: pre-wrap` 防止横向溢出。
+5. 输出 100% 内联 CSS，避免微信剥离 `<style>`。
