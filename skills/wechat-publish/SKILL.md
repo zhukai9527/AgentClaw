@@ -55,3 +55,4 @@ python skills/wechat-publish/scripts/wechat_publish.py publish {INPUT_MD} --titl
 3. CJK 和 Latin 字符间插入空格。
 4. 代码块使用 `white-space: pre-wrap` 防止横向溢出。
 5. 输出 100% 内联 CSS，避免微信剥离 `<style>`。
+6. 正文自动移除 Markdown 第一个 H1，避免和草稿标题重复。

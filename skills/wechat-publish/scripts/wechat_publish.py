@@ -78,6 +78,25 @@ def clean_inline_markdown(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def markdown_without_first_h1(markdown: str) -> str:
+    lines = markdown.splitlines()
+    result: list[str] = []
+    in_code = False
+    removed = False
+
+    for line in lines:
+        if line.startswith("```"):
+            in_code = not in_code
+            result.append(line)
+            continue
+        if not removed and not in_code and re.match(r"^#\s+.+", line):
+            removed = True
+            continue
+        result.append(line)
+
+    return "\n".join(result)
+
+
 def resolve_title(markdown: str, path: Path, override: str = "") -> dict[str, Any]:
     if override.strip():
         value = override.strip()
@@ -233,7 +252,7 @@ def write_article_json(
     markdown = read_markdown(markdown_path)
     title_state = resolve_title(markdown, markdown_path, title)
     digest_state = resolve_digest(markdown, digest)
-    html = md2wx.md_to_wx_html(markdown, theme)
+    html = md2wx.md_to_wx_html(markdown_without_first_h1(markdown), theme)
     article = {
         "title": title_state["value"],
         "digest": digest_state["value"],
@@ -435,7 +454,7 @@ def handle(args: argparse.Namespace) -> tuple[str, str, dict[str, Any]]:
         title_state = resolve_title(markdown_text, markdown, args.article_title)
         html = standalone_preview_html(
             title_state["value"],
-            md2wx.md_to_wx_html(markdown_text, args.theme),
+            md2wx.md_to_wx_html(markdown_without_first_h1(markdown_text), args.theme),
         )
         html_path.write_text(html, encoding="utf-8")
         data = inspect_article(

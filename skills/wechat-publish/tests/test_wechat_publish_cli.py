@@ -105,6 +105,7 @@ class WechatPublishCliTest(unittest.TestCase):
         self.assertIn('<meta charset="utf-8">', html.lower())
         self.assertIn("<title>测试标题</title>", html)
         self.assertIn("测试标题", html)
+        self.assertNotIn("<h1", html.lower())
 
     def test_publish_dry_run_returns_json_contract_and_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -134,10 +135,16 @@ class WechatPublishCliTest(unittest.TestCase):
             self.assertTrue(Path(data["artifacts"]["manifest_json"]).is_file())
             self.assertIsNone(data["artifacts"]["cover"])
 
+            article_payload = json.loads(
+                Path(data["artifacts"]["article_json"]).read_text(encoding="utf-8")
+            )
             manifest = json.loads(
                 Path(data["artifacts"]["manifest_json"]).read_text(encoding="utf-8")
             )
 
+        self.assertEqual(article_payload["title"], "测试标题")
+        self.assertNotIn("<h1", article_payload["content"].lower())
+        self.assertIn("这是一段用于验收的正文", article_payload["content"])
         self.assertEqual(manifest["mode"], "dry-run")
         self.assertEqual(manifest["code"], "DRAFT_DRY_RUN_READY")
         self.assertEqual(manifest["source_file"], str(article))
