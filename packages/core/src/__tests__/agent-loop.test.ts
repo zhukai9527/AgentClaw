@@ -1436,5 +1436,48 @@ describe("SimpleAgentLoop", () => {
         expect.objectContaining({ error: "llm_max_tokens_truncated" }),
       );
     });
+
+    it("最终合成阶段输出伪工具 XML 时不得通过 response_chunk 泄漏给用户", async () => {
+      const invalidToolMarkup =
+        "<tool_call>\n<function=web_search>\n<parameter=query>AI news today 2026</parameter>\n</function>\n</tool_call>";
+      const invalidChunks: LLMStreamChunk[] = [
+        { type: "text", text: invalidToolMarkup },
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "end_turn",
+        },
+      ];
+      const testProvider = createMockProvider([invalidChunks, invalidChunks]);
+
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("在外网搜索今日AI界新闻生成简报", "conv-invalid-markup"),
+      );
+
+      const streamedText = events
+        .filter((event) => event.type === "response_chunk")
+        .map((event) => (event.data as { text: string }).text)
+        .join("");
+      expect(streamedText).not.toContain("<tool_call>");
+      expect(streamedText).not.toContain("<function=");
+      expect(streamedText).toContain("工具预算已耗尽");
+
+      const completeEvent = events.find((e) => e.type === "response_complete");
+      expect(completeEvent).toBeDefined();
+      const message = (completeEvent!.data as { message: Message }).message;
+      expect(String(message.content)).not.toContain("<tool_call>");
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.objectContaining({ error: "invalid_tool_markup_final" }),
+      );
+    });
   });
 });

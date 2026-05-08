@@ -84,6 +84,7 @@ const RETRYABLE_TOOLS = new Set([
 
 const MAX_RETRIES = 2;
 const RETRY_BASE_DELAY = 2000; // ms
+const INVALID_TOOL_MARKUP_RE = /<\/?tool_call\b|<function=|<\/function>|<parameter=/i;
 
 import { sanitizeString } from "./utils.js";
 /**
@@ -1306,9 +1307,6 @@ export class SimpleAgentLoop implements AgentLoop {
               case "text":
                 if (chunk.text) {
                   fullText += chunk.text;
-                  yield this.createEvent("response_chunk", {
-                    text: chunk.text,
-                  });
                 }
                 break;
               case "tool_use_start":
@@ -1501,9 +1499,7 @@ export class SimpleAgentLoop implements AgentLoop {
 
         if (
           toolCalls.length === 0 &&
-          /<\/?tool_call\b|<function=|<\/function>|<parameter=/i.test(
-            fullText,
-          ) &&
+          INVALID_TOOL_MARKUP_RE.test(fullText) &&
           iterations < this._config.maxIterations
         ) {
           invalidFinalMarkupRetries++;
@@ -1643,6 +1639,11 @@ export class SimpleAgentLoop implements AgentLoop {
             durationMs,
             toolCallCount: totalToolCalls,
           };
+          if (storedText) {
+            yield this.createEvent("response_chunk", {
+              text: storedText,
+            });
+          }
           this.setState("idle");
           yield this.createEvent("response_complete", {
             message,

@@ -20,6 +20,7 @@
 - **P2 工具输出瘦身**：`web_search` 结果硬夹到 5 条，`web_fetch` 默认返回带来源 URL 的短事实卡并保留 `save_as` 完整保存路径，`rss_top` 对相同 feed/topN 做短期缓存；真实 AI 新闻回归约 `11.3K input token / 35.1s`，不再因超限搜索多跑一轮。
 
 ### Fixed
+- **伪工具 XML 流式外泄**：agent loop 不再把未经最终校验的模型文本直接作为 `response_chunk` 推给 WebSocket/IM 渠道；模型在合成阶段输出 `<tool_call>` / `<function=>` 等不可执行标记时，只释放系统兜底后的用户可见文本。
 - **Skill 能力身份参数漂移**：`skill_manage` 不再把显示名 `name` 当作 `skillId`，`write_file` 不再接受隐藏 `fileContent`，`skill_curator` 的 `reason` 参数补齐到 schema；线上 skill 能力回归也改为只认 canonical `skillId`。
 - **线上能力回归日期与工具漂移**：`live-agent-eval` 不再硬编码历史日期，也不再把已不存在的 `execute_code` 当作实时检索工具加分；脚本守卫测试纳入根测试命令。
 - **新闻任务提示日期固化**：AI 新闻任务 runtime hint 不再写死 `2026-05-03`，改为每次 agent loop 运行时按当前本地日期注入。
