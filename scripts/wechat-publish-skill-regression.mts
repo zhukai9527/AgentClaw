@@ -100,6 +100,9 @@ export function evaluateWechatPublishRun(
   if (/(^|\s)--out(\s|=)/.test(allToolText)) {
     failures.push("uses_noncanonical_out_arg");
   }
+  if (/(^|\s)--theme(\s|=)/.test(allToolText)) {
+    failures.push("uses_explicit_theme_for_auto_case");
+  }
   if (
     !allResultText.includes("DRAFT_DRY_RUN_READY") &&
     !allResultText.includes("DRAFT_CREATED")
@@ -167,9 +170,9 @@ async function main(): Promise<void> {
   writeFileSync(
     article,
     [
-      "# 微信发布回归验收",
+      "# 《AI Agent 工程实践》读书笔记",
       "",
-      "这是一篇用于 AgentClaw wechat-publish skill 真实入口回归的短文。",
+      "这篇阅读心得摘录了 API、CLI、代码、配置、部署和工程实践里的关键章节。",
       "",
       "- 必须先加载 skill",
       "- 必须走统一 CLI",
@@ -180,10 +183,10 @@ async function main(): Promise<void> {
 
   const prompt = [
     "请使用 wechat-publish skill 对下面的 Markdown 做微信公众号草稿 dry-run 验收。",
-    "要求：必须先调用 use_skill 加载 wechat-publish；必须使用统一入口 wechat_publish.py；必须加 --dry-run --json；输出目录参数必须写完整 --out-dir，不能写 --out；不要创建真实草稿；不要手写 token/curl；不要调用旧脚本。",
+    "要求：必须先调用 use_skill 加载 wechat-publish；必须使用统一入口 wechat_publish.py；必须加 --dry-run --json；输出目录参数必须写完整 --out-dir，不能写 --out；不要传 --theme，本用例要验证默认 auto 能自动选择主题；不要创建真实草稿；不要手写 token/curl；不要调用旧脚本。",
     `Markdown 文件：${slashPath(article)}`,
     `输出目录：${slashPath(outDir)}`,
-    "完成后用一句中文说明 dry-run 是否成功。",
+    "完成后用一句中文说明 dry-run 是否成功，以及自动选择的主题。",
   ].join("\n");
 
   const session = await ctx.orchestrator.createSession({
@@ -217,15 +220,36 @@ async function main(): Promise<void> {
   const evaluation = evaluateWechatPublishRun(run);
   const draftPath = path.join(outDir, "draft.json");
   const articleJsonPath = path.join(outDir, "article.json");
+  const manifestPath = path.join(outDir, "manifest.json");
   const artifactFailures: string[] = [];
   if (!existsSync(draftPath)) artifactFailures.push("missing_draft_json");
   if (!existsSync(articleJsonPath)) artifactFailures.push("missing_article_json");
+  if (!existsSync(manifestPath)) artifactFailures.push("missing_manifest_json");
   if (existsSync(draftPath)) {
     const draft = JSON.parse(readFileSync(draftPath, "utf-8")) as {
       articles?: Array<{ title?: string }>;
     };
-    if (draft.articles?.[0]?.title !== "微信发布回归验收") {
+    if (draft.articles?.[0]?.title !== "《AI Agent 工程实践》读书笔记") {
       artifactFailures.push("draft_title_mismatch");
+    }
+  }
+  let resolvedTheme: string | undefined;
+  let requestedTheme: string | undefined;
+  if (existsSync(manifestPath)) {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+      theme?: string;
+      theme_selection?: { requested?: string; resolved?: string };
+    };
+    resolvedTheme = manifest.theme_selection?.resolved ?? manifest.theme;
+    requestedTheme = manifest.theme_selection?.requested;
+    if (manifest.theme !== "minimal") {
+      artifactFailures.push("manifest_theme_not_minimal");
+    }
+    if (requestedTheme !== "auto") {
+      artifactFailures.push("manifest_theme_not_auto_requested");
+    }
+    if (resolvedTheme !== "minimal") {
+      artifactFailures.push("manifest_theme_selection_not_minimal");
     }
   }
 
@@ -238,6 +262,9 @@ async function main(): Promise<void> {
     root,
     article: slashPath(article),
     outDir: slashPath(outDir),
+    expectedTheme: "minimal",
+    requestedTheme,
+    resolvedTheme,
     evaluation,
     toolCalls: run.toolCalls,
   };

@@ -31,6 +31,61 @@ TITLE_LIMIT = 64
 AUTHOR_LIMIT = 16
 DIGEST_LIMIT = 120
 JSON_CONTRACT = "success/code/message/data"
+AUTO_THEME = "auto"
+AUTO_THEME_RULES = [
+    {
+        "category": "reading_notes",
+        "theme": "minimal",
+        "label": "reading-note",
+        "decisive_keywords": ["读书笔记", "书摘", "阅读心得", "读后感"],
+        "keywords": [
+            "读书笔记",
+            "书摘",
+            "阅读",
+            "感想",
+            "随笔",
+            "心得",
+            "作者",
+            "章节",
+            "摘录",
+            "金句",
+        ],
+    },
+    {
+        "category": "brand_product",
+        "theme": "sage",
+        "label": "brand/product",
+        "decisive_keywords": ["agentclaw", "产品发布", "品牌", "路线图"],
+        "keywords": [
+            "agentclaw",
+            "产品",
+            "品牌",
+            "发布",
+            "复盘",
+            "路线图",
+            "能力",
+            "公众号运营",
+        ],
+    },
+    {
+        "category": "technical",
+        "theme": "tech-modern",
+        "label": "technical",
+        "decisive_keywords": [],
+        "keywords": [
+            "ai",
+            "agent",
+            "代码",
+            "api",
+            "cli",
+            "工程",
+            "教程",
+            "配置",
+            "部署",
+            "技术分析",
+        ],
+    },
+]
 
 
 class StrictArgumentParser(argparse.ArgumentParser):
@@ -97,6 +152,58 @@ def markdown_without_first_h1(markdown: str) -> str:
     return "\n".join(result)
 
 
+def theme_choices() -> list[str]:
+    return [AUTO_THEME, *sorted(md2wx.THEMES.keys())]
+
+
+def matched_keywords(markdown: str, keywords: list[str]) -> list[str]:
+    text = markdown.lower()
+    return [keyword for keyword in keywords if keyword.lower() in text]
+
+
+def resolve_theme(markdown: str, requested: str) -> dict[str, Any]:
+    if requested != AUTO_THEME:
+        return {
+            "requested": requested,
+            "resolved": requested,
+            "source": "explicit",
+            "reason": f"explicit theme: {requested}",
+        }
+
+    for rule in AUTO_THEME_RULES:
+        matches = matched_keywords(markdown, rule["decisive_keywords"])
+        if matches:
+            return {
+                "requested": AUTO_THEME,
+                "resolved": rule["theme"],
+                "source": "heuristic",
+                "reason": f"matched {rule['label']} keywords: {', '.join(matches)}",
+            }
+
+    best_rule: dict[str, Any] | None = None
+    best_matches: list[str] = []
+    for rule in AUTO_THEME_RULES:
+        matches = matched_keywords(markdown, rule["keywords"])
+        if len(matches) > len(best_matches):
+            best_rule = rule
+            best_matches = matches
+
+    if best_rule is None or not best_matches:
+        return {
+            "requested": AUTO_THEME,
+            "resolved": "tech-modern",
+            "source": "default",
+            "reason": "no heuristic keyword matched; fallback to tech-modern",
+        }
+
+    return {
+        "requested": AUTO_THEME,
+        "resolved": best_rule["theme"],
+        "source": "heuristic",
+        "reason": f"matched {best_rule['label']} keywords: {', '.join(best_matches)}",
+    }
+
+
 def resolve_title(markdown: str, path: Path, override: str = "") -> dict[str, Any]:
     if override.strip():
         value = override.strip()
@@ -161,6 +268,7 @@ def inspect_article(
     thumb_media_id: str = "",
 ) -> dict[str, Any]:
     markdown = read_markdown(markdown_path)
+    theme_selection = resolve_theme(markdown, theme)
     title_state = resolve_title(markdown, markdown_path, title)
     digest_state = resolve_digest(markdown, digest)
     author_state = metadata_field(author, "cli.author", AUTHOR_LIMIT)
@@ -181,13 +289,13 @@ def inspect_article(
                 }
             )
 
-    if theme not in md2wx.THEMES:
+    if theme_selection["resolved"] not in md2wx.THEMES:
         checks.append(
             {
                 "level": "error",
                 "code": "THEME_UNKNOWN",
                 "field": "theme",
-                "message": f"unknown theme: {theme}",
+                "message": f"unknown theme: {theme_selection['resolved']}",
             }
         )
 
@@ -226,7 +334,8 @@ def inspect_article(
             "author": author_state,
             "digest": digest_state,
         },
-        "theme": theme,
+        "theme": theme_selection["resolved"],
+        "theme_selection": theme_selection,
         "cover": {
             "path": cover_path or None,
             "exists": cover_exists,
@@ -338,9 +447,18 @@ def write_draft(
 
 
 def capabilities() -> dict[str, Any]:
+    auto_mapping = {
+        rule["category"]: rule["theme"]
+        for rule in AUTO_THEME_RULES
+    }
     return {
         "commands": ["capabilities", "inspect", "preview", "publish"],
-        "themes": sorted(md2wx.THEMES.keys()),
+        "themes": theme_choices(),
+        "default_theme": AUTO_THEME,
+        "auto_theme": {
+            "source": "heuristic",
+            "mapping": auto_mapping,
+        },
         "cover_schemes": sorted(cover_script.SCHEMES.keys()),
         "json_contract": JSON_CONTRACT,
         "canonical_args": {
@@ -367,7 +485,7 @@ def capabilities() -> dict[str, Any]:
 
 def add_common_article_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("markdown", help="Input Markdown file")
-    parser.add_argument("--theme", default="tech-modern", choices=list(md2wx.THEMES.keys()))
+    parser.add_argument("--theme", default=AUTO_THEME, choices=theme_choices())
     parser.add_argument("--article-title", default="", help="Override article metadata title")
     parser.add_argument("--digest", default="", help="Override article digest")
     parser.add_argument("--author", default="爬爬虾", help="Article author")
@@ -451,10 +569,14 @@ def handle(args: argparse.Namespace) -> tuple[str, str, dict[str, Any]]:
         out_dir.mkdir(parents=True, exist_ok=True)
         html_path = out_dir / f"{markdown.stem}.preview.html"
         markdown_text = read_markdown(markdown)
+        theme_selection = resolve_theme(markdown_text, args.theme)
         title_state = resolve_title(markdown_text, markdown, args.article_title)
         html = standalone_preview_html(
             title_state["value"],
-            md2wx.md_to_wx_html(markdown_without_first_h1(markdown_text), args.theme),
+            md2wx.md_to_wx_html(
+                markdown_without_first_h1(markdown_text),
+                theme_selection["resolved"],
+            ),
         )
         html_path.write_text(html, encoding="utf-8")
         data = inspect_article(
@@ -476,10 +598,11 @@ def handle(args: argparse.Namespace) -> tuple[str, str, dict[str, Any]]:
         draft_json = out_dir / "draft.json"
         manifest_json = out_dir / "manifest.json"
         cover_path = None if args.skip_cover else out_dir / "cover.png"
+        markdown_text = read_markdown(markdown)
+        theme_selection = resolve_theme(markdown_text, args.theme)
 
         cover_title = args.title.strip()
         if not cover_title:
-            markdown_text = read_markdown(markdown)
             cover_title = resolve_title(markdown_text, markdown, args.article_title)[
                 "value"
             ]
@@ -489,7 +612,7 @@ def handle(args: argparse.Namespace) -> tuple[str, str, dict[str, Any]]:
 
         write_article_json(
             markdown,
-            theme=args.theme,
+            theme=theme_selection["resolved"],
             out_path=article_json,
             title=args.article_title,
             digest=args.digest,
@@ -514,7 +637,8 @@ def handle(args: argparse.Namespace) -> tuple[str, str, dict[str, Any]]:
             "code": code,
             "mode": "dry-run" if args.dry_run else "live",
             "source_file": str(markdown),
-            "theme": args.theme,
+            "theme": theme_selection["resolved"],
+            "theme_selection": theme_selection,
             "scheme": args.scheme,
             "cover_title": cover_title,
             "draft_media_id": draft_media_id,
@@ -528,6 +652,7 @@ def handle(args: argparse.Namespace) -> tuple[str, str, dict[str, Any]]:
             "mode": "dry-run" if args.dry_run else "live",
             "draft_media_id": draft_media_id,
             "artifacts": artifacts,
+            "theme_selection": theme_selection,
         }
         return code, "Draft dry-run ready" if args.dry_run else "Draft created", data
 

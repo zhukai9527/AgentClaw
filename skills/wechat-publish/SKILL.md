@@ -11,7 +11,7 @@ description: Markdown 转微信公众号排版并发布草稿。Use this wheneve
 python skills/wechat-publish/scripts/wechat_publish.py capabilities --json
 python skills/wechat-publish/scripts/wechat_publish.py inspect {INPUT_MD} --draft --json
 python skills/wechat-publish/scripts/wechat_publish.py preview {INPUT_MD} --out-dir {WORKDIR} --json
-python skills/wechat-publish/scripts/wechat_publish.py publish {INPUT_MD} --title "封面标题" --subtitle "封面副标题" --scheme dark --theme tech-modern --author "爬爬虾" --out-dir {WORKDIR} --json
+python skills/wechat-publish/scripts/wechat_publish.py publish {INPUT_MD} --title "封面标题" --subtitle "封面副标题" --scheme dark --author "爬爬虾" --out-dir {WORKDIR} --json
 ```
 
 离线验收或调试时使用 `--dry-run`，不会创建真实草稿：
@@ -28,6 +28,7 @@ python skills/wechat-publish/scripts/wechat_publish.py publish {INPUT_MD} --titl
 - 用户明确要求发布到公众号草稿箱时才用 `publish`。成功后只根据 JSON 中的 `data.draft_media_id` 和 `data.artifacts` 汇报结果；`manifest_json` 是本次执行的审计清单。
 - stdout 是唯一机器契约：`success/code/message/data`。不要解析旧脚本的行文本输出。
 - 参数名必须写完整，尤其是 `--out-dir`；CLI 不接受 `--out` 这类缩写。
+- 默认不要为用户猜写科技风主题参数。不传 `--theme` 时 CLI 会使用 `auto`，根据正文把读书笔记/书摘/阅读心得选为 `minimal`，把 AgentClaw/产品/品牌/发布复盘选为 `sage`，把技术教程/API/CLI/部署类文章选为 `tech-modern`。
 
 ## 禁止事项
 
@@ -39,7 +40,7 @@ python skills/wechat-publish/scripts/wechat_publish.py publish {INPUT_MD} --titl
 
 ## 常用参数
 
-- `--theme`：文章主题，默认 `tech-modern`；可用值以 `capabilities --json` 为准。
+- `--theme`：文章主题，默认 `auto`；可用值以 `capabilities --json` 为准。用户明确指定时使用指定主题。
 - `--scheme`：封面配色，默认 `dark`；可用值以 `capabilities --json` 为准。
 - `--article-title`：覆盖文章 metadata 标题；不传时取 Markdown 第一个 H1。
 - `--digest`：覆盖摘要；不传时从正文生成，最长 120 字符。

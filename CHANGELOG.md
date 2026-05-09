@@ -12,6 +12,7 @@
 - **纯文本字幕极速入口**：`bilingual-subtitle` 新增 `--txt-only` 和 `--beam-size`，URL 字幕任务可直接生成无时间戳 `.txt`，最快模板显式使用 `tiny + beam_size=1`，不再先生成 SRT 再用 shell 清洗。
 
 ### Changed
+- **微信公众号主题自动选择**：`wechat_publish.py` 的默认主题改为 `auto`，根据正文确定性选择 `minimal`/`sage`/`tech-modern`，并在 JSON 与 `manifest.json` 写入 `theme_selection` 审计信息；读书笔记、书摘和阅读心得不再因用户只说“发送到公众号”而误用科技风。
 - **微信公众号发布体验增强**：`wechat_publish.py preview` 现在输出可直接打开的完整 HTML 页面；`publish` 写入 `manifest.json` 审计清单；`capabilities` 暴露 canonical 参数列表，并关闭 argparse 参数缩写，避免 `--out` 被隐式当成 `--out-dir`。
 - **默认部署瘦身**：Docker 默认只启动 AgentClaw 核心服务，不再自动启动 SearXNG/Redis，本地搜索改为 `search` profile 和 Settings 配置；默认镜像不再安装 Chromium/CJK 字体，`browser_cdp` 需要显式设置 `AGENTCLAW_ENABLE_BROWSER_CDP=true` 才注册。
 - **overflow 文件读取策略**：`file_read` 对 `overflow_*.txt` 默认只返回短预览，必须通过 `offset` / `length` 做定向范围读取，避免 `execute_code` 大输出被全文读回上下文。

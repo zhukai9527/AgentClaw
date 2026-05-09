@@ -32,16 +32,27 @@ def run_cli(*args: str) -> dict:
 
 class WechatPublishCliTest(unittest.TestCase):
     def make_article(self, root: Path) -> Path:
-        article = root / "article.md"
-        article.write_text(
+        return self.make_article_with_content(
+            root,
+            "测试标题",
             "\n".join(
                 [
-                    "# 测试标题",
-                    "",
                     "这是一段用于验收的正文，包含 AgentClaw 和微信公众号发布。",
                     "",
                     "- 第一项",
                     "- 第二项",
+                ]
+            ),
+        )
+
+    def make_article_with_content(self, root: Path, title: str, body: str) -> Path:
+        article = root / "article.md"
+        article.write_text(
+            "\n".join(
+                [
+                    f"# {title}",
+                    "",
+                    body,
                 ]
             ),
             encoding="utf-8",
@@ -64,7 +75,12 @@ class WechatPublishCliTest(unittest.TestCase):
         self.assertIn("publish", data["commands"])
         self.assertIn("inspect", data["commands"])
         self.assertIn("preview", data["commands"])
+        self.assertIn("auto", data["themes"])
         self.assertIn("tech-modern", data["themes"])
+        self.assertEqual(data["default_theme"], "auto")
+        self.assertEqual(data["auto_theme"]["mapping"]["reading_notes"], "minimal")
+        self.assertEqual(data["auto_theme"]["mapping"]["brand_product"], "sage")
+        self.assertEqual(data["auto_theme"]["mapping"]["technical"], "tech-modern")
         self.assertIn("dark", data["cover_schemes"])
         self.assertEqual(data["json_contract"], "success/code/message/data")
         self.assertIn("--out-dir", data["canonical_args"]["publish"])
@@ -106,6 +122,110 @@ class WechatPublishCliTest(unittest.TestCase):
         self.assertIn("<title>测试标题</title>", html)
         self.assertIn("测试标题", html)
         self.assertNotIn("<h1", html.lower())
+
+    def test_auto_theme_selects_minimal_for_reading_notes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            article = self.make_article_with_content(
+                root,
+                "《纳瓦尔宝典》读书笔记",
+                "\n".join(
+                    [
+                        "今天整理一段书摘和阅读心得。",
+                        "",
+                        "> 金句：自由来自长期主义和判断力。",
+                    ]
+                ),
+            )
+            data = self.assert_success(
+                run_cli(
+                    "publish",
+                    str(article),
+                    "--out-dir",
+                    str(root),
+                    "--dry-run",
+                    "--skip-cover",
+                    "--json",
+                ),
+                "DRAFT_DRY_RUN_READY",
+            )
+            manifest = json.loads(
+                Path(data["artifacts"]["manifest_json"]).read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(data["theme_selection"]["requested"], "auto")
+        self.assertEqual(data["theme_selection"]["resolved"], "minimal")
+        self.assertEqual(data["theme_selection"]["source"], "heuristic")
+        self.assertIn("读书笔记", data["theme_selection"]["reason"])
+        self.assertEqual(manifest["theme"], "minimal")
+        self.assertEqual(manifest["theme_selection"], data["theme_selection"])
+
+    def test_reading_note_genre_overrides_technical_terms(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            article = self.make_article_with_content(
+                Path(tmp),
+                "《AI Agent 工程实践》读书笔记",
+                "这篇阅读心得摘录了 API、CLI、代码、配置、部署和工程实践里的关键章节。",
+            )
+            data = self.assert_success(
+                run_cli("inspect", str(article), "--json"),
+                "INSPECT_READY",
+            )
+
+        self.assertEqual(data["theme"], "minimal")
+        self.assertEqual(data["theme_selection"]["resolved"], "minimal")
+        self.assertIn("读书笔记", data["theme_selection"]["reason"])
+
+    def test_auto_theme_selects_sage_for_agentclaw_brand_posts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            article = self.make_article_with_content(
+                Path(tmp),
+                "AgentClaw 产品发布复盘",
+                "这次品牌公众号发布会介绍 AgentClaw 的产品能力、路线图和运营复盘。",
+            )
+            data = self.assert_success(
+                run_cli("inspect", str(article), "--json"),
+                "INSPECT_READY",
+            )
+
+        self.assertEqual(data["theme"], "sage")
+        self.assertEqual(data["theme_selection"]["requested"], "auto")
+        self.assertEqual(data["theme_selection"]["resolved"], "sage")
+        self.assertEqual(data["theme_selection"]["source"], "heuristic")
+
+    def test_auto_theme_selects_tech_modern_for_technical_articles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            article = self.make_article_with_content(
+                Path(tmp),
+                "CLI API 部署教程",
+                "本文讲解代码实现、API 调用、CLI 参数、配置文件和部署流程。",
+            )
+            data = self.assert_success(
+                run_cli("inspect", str(article), "--json"),
+                "INSPECT_READY",
+            )
+
+        self.assertEqual(data["theme"], "tech-modern")
+        self.assertEqual(data["theme_selection"]["requested"], "auto")
+        self.assertEqual(data["theme_selection"]["resolved"], "tech-modern")
+        self.assertEqual(data["theme_selection"]["source"], "heuristic")
+
+    def test_explicit_theme_overrides_auto_theme_selection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            article = self.make_article_with_content(
+                Path(tmp),
+                "《纳瓦尔宝典》读书笔记",
+                "今天整理一段书摘和阅读心得。",
+            )
+            data = self.assert_success(
+                run_cli("inspect", str(article), "--theme", "sage", "--json"),
+                "INSPECT_READY",
+            )
+
+        self.assertEqual(data["theme"], "sage")
+        self.assertEqual(data["theme_selection"]["requested"], "sage")
+        self.assertEqual(data["theme_selection"]["resolved"], "sage")
+        self.assertEqual(data["theme_selection"]["source"], "explicit")
 
     def test_publish_dry_run_returns_json_contract_and_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:

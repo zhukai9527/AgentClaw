@@ -109,4 +109,30 @@ describe("wechat-publish skill regression evaluator", () => {
     expect(result.passed).toBe(false);
     expect(result.failures).toContain("uses_noncanonical_out_arg");
   });
+
+  it("显式指定主题时无法证明默认 auto 生效", () => {
+    const result = evaluateWechatPublishRun({
+      toolCalls: [
+        { name: "use_skill", input: { name: "wechat-publish" } },
+        {
+          name: "bash",
+          input: {
+            command:
+              "python skills/wechat-publish/scripts/wechat_publish.py publish article.md --theme minimal --out-dir out --dry-run --json",
+          },
+        },
+      ],
+      toolResults: [
+        {
+          name: "bash",
+          isError: false,
+          content:
+            '{"success":true,"code":"DRAFT_DRY_RUN_READY","data":{"theme_selection":{"requested":"minimal","resolved":"minimal"}}}',
+        },
+      ],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.failures).toContain("uses_explicit_theme_for_auto_case");
+  });
 });
