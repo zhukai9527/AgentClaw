@@ -32,6 +32,16 @@ AUTHOR_LIMIT = 16
 DIGEST_LIMIT = 120
 JSON_CONTRACT = "success/code/message/data"
 AUTO_THEME = "auto"
+BOOK_CONTEXT_PATTERNS = [
+    ("这本书", r"这本书"),
+    ("本书", r"本书"),
+    ("全书", r"全书"),
+    ("书中", r"书中"),
+    ("书里", r"书里"),
+    ("书的最后", r"书的最后"),
+    ("一本...书", r"一本[^。\n]{0,30}书"),
+    ("读完", r"读完"),
+]
 AUTO_THEME_RULES = [
     {
         "category": "reading_notes",
@@ -161,6 +171,10 @@ def matched_keywords(markdown: str, keywords: list[str]) -> list[str]:
     return [keyword for keyword in keywords if keyword.lower() in text]
 
 
+def matched_patterns(markdown: str, patterns: list[tuple[str, str]]) -> list[str]:
+    return [label for label, pattern in patterns if re.search(pattern, markdown)]
+
+
 def resolve_theme(markdown: str, requested: str) -> dict[str, Any]:
     if requested != AUTO_THEME:
         return {
@@ -179,6 +193,15 @@ def resolve_theme(markdown: str, requested: str) -> dict[str, Any]:
                 "source": "heuristic",
                 "reason": f"matched {rule['label']} keywords: {', '.join(matches)}",
             }
+
+    book_context_matches = matched_patterns(markdown, BOOK_CONTEXT_PATTERNS)
+    if book_context_matches:
+        return {
+            "requested": AUTO_THEME,
+            "resolved": "minimal",
+            "source": "heuristic",
+            "reason": f"matched book-context patterns: {', '.join(book_context_matches)}",
+        }
 
     best_rule: dict[str, Any] | None = None
     best_matches: list[str] = []
@@ -452,7 +475,7 @@ def capabilities() -> dict[str, Any]:
         for rule in AUTO_THEME_RULES
     }
     return {
-        "commands": ["capabilities", "inspect", "preview", "publish"],
+        "commands": ["capabilities", "inspect", "publish"],
         "themes": theme_choices(),
         "default_theme": AUTO_THEME,
         "auto_theme": {
@@ -462,9 +485,17 @@ def capabilities() -> dict[str, Any]:
         "cover_schemes": sorted(cover_script.SCHEMES.keys()),
         "json_contract": JSON_CONTRACT,
         "canonical_args": {
-            "inspect": ["--draft", "--theme", "--article-title", "--digest", "--author", "--cover", "--thumb-media-id", "--json"],
-            "preview": ["--out-dir", "--theme", "--article-title", "--digest", "--author", "--json"],
-            "publish": ["--out-dir", "--theme", "--article-title", "--digest", "--author", "--title", "--subtitle", "--scheme", "--dry-run", "--thumb-media-id", "--content-source-url", "--json"],
+            "inspect": ["--article-title", "--digest", "--author", "--cover", "--thumb-media-id", "--json"],
+            "publish": ["--out-dir", "--article-title", "--digest", "--author", "--title", "--subtitle", "--scheme", "--dry-run", "--thumb-media-id", "--content-source-url", "--json"],
+        },
+        "explicit_preview": {
+            "command": "preview",
+            "args": ["--out-dir", "--article-title", "--digest", "--author", "--json"],
+            "when": "only when the user asks to preview or explicitly says not to publish",
+        },
+        "explicit_override_args": {
+            "theme": "--theme is only for an explicitly requested theme; omit it for auto selection",
+            "draft_readiness": "--draft is only for inspect when specifically checking draft readiness; never use it with publish",
         },
         "limits": {
             "title": TITLE_LIMIT,
@@ -534,7 +565,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_publish.add_argument("--subtitle", default="", help="Cover subtitle")
     p_publish.add_argument("--scheme", default="dark", choices=list(cover_script.SCHEMES.keys()))
-    p_publish.add_argument("--out-dir", required=True, help="Output directory")
+    p_publish.add_argument("--out-dir", default="", help="Output directory")
     p_publish.add_argument("--dry-run", action="store_true", help="Do not create live draft")
     p_publish.add_argument("--thumb-media-id", default="", help="Existing cover media_id")
     p_publish.add_argument(
@@ -592,7 +623,7 @@ def handle(args: argparse.Namespace) -> tuple[str, str, dict[str, Any]]:
     if args.command == "publish":
         if args.skip_cover and not args.dry_run:
             raise ValueError("--skip-cover is only allowed with --dry-run")
-        out_dir = Path(args.out_dir)
+        out_dir = Path(args.out_dir) if args.out_dir else markdown.parent / "wechat-output"
         out_dir.mkdir(parents=True, exist_ok=True)
         article_json = out_dir / "article.json"
         draft_json = out_dir / "draft.json"

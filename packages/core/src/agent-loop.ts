@@ -458,7 +458,7 @@ type ToolFactInput = {
 };
 
 type TaskToolProfile = {
-  kind: "default" | "news_brief" | "reddit_rss";
+  kind: "default" | "news_brief" | "reddit_rss" | "wechat_publish";
   allowedTools?: Set<string>;
   toolTotalLimits: Record<string, number>;
   webResearchToolLimit: number;
@@ -470,6 +470,29 @@ function buildTaskToolProfile(
   isNewsBriefTask: boolean,
   isAiNewsTask: boolean,
 ): TaskToolProfile {
+  if (/公众号|微信公众号|草稿箱|发布到公众号|发到公众号|发送到公众号|wechat/i.test(inputText)) {
+    return {
+      kind: "wechat_publish",
+      allowedTools: new Set([
+        "use_skill",
+        "web_search",
+        "web_fetch",
+        "file_write",
+        "bash",
+      ]),
+      toolTotalLimits: {
+        use_skill: 2,
+        web_search: 6,
+        web_fetch: 4,
+        file_write: 2,
+        bash: 5,
+      },
+      webResearchToolLimit: 8,
+      hint:
+        "[任务工具边界]当前是微信公众号发布任务：可少量 web_search/web_fetch 补事实，但交付目标是写出 Markdown 并通过 wechat-publish 统一 CLI 发布。研究预算耗尽后禁止继续搜索，必须继续用 file_write 写 Markdown、use_skill 加载 wechat-publish、bash 调用 wechat_publish.py inspect/publish 完成交付；不要只输出阶段性总结。硬边界：没有可发布 Markdown 前不要用 bash；file_write 只写 .md 文章；bash 只允许执行 `cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py capabilities|inspect|publish ... --json`，禁止 preview/convert/help、手写 HTML/Node 转换或查找其他 skill 路径。所有 wechat_publish.py 命令必须从仓库根目录执行，inspect/publish/capabilities 都必须带 --json。如果用户说发布/发送到公众号，写完 Markdown 后必须 inspect，inspect 通过后必须直接 publish 创建草稿，不要停在 preview 或询问是否继续。默认不要传 --theme，publish 子命令不能传 --draft；publish 优先带 --out-dir，漏写时 CLI 会使用 Markdown 同目录的 wechat-output。",
+    };
+  }
+
   if (/reddit|rss|subreddit|子版块/i.test(inputText)) {
     return {
       kind: "reddit_rss",
@@ -1102,6 +1125,22 @@ export class SimpleAgentLoop implements AgentLoop {
     let successfulWebFetchCalls = 0;
     let overflowFileReadCalls = 0;
     const OVERFLOW_FILE_READ_LIMIT = 2;
+    const initialWechatMarkdownPath =
+      inputTextForHeuristics.match(
+        /(?:Markdown\s*文件|Markdown file)[:：]\s*([^\s，,]+)/i,
+      )?.[1] ??
+      inputTextForHeuristics.match(/([\w:/\\.-]+\.md\b)/i)?.[1] ??
+      null;
+    let wechatPublishReadyToPublish = false;
+    let wechatPublishCompleted = false;
+    let wechatPublishHasMarkdown =
+      taskToolProfile.kind === "wechat_publish" &&
+      initialWechatMarkdownPath !== null;
+    let wechatPublishMarkdownPath = initialWechatMarkdownPath
+      ? initialWechatMarkdownPath.replace(/\\/g, "/")
+      : null;
+    let wechatPublishMarkdownCreatedInRun = false;
+    let wechatPublishSkillLoaded = false;
     let forceSynthesisOnly = false;
     let invalidFinalMarkupRetries = 0;
     let consecutiveMaxTokensWithoutTools = 0;
@@ -1237,12 +1276,47 @@ export class SimpleAgentLoop implements AgentLoop {
 
         // Inject _intent field into each tool schema for Intent Tracing.
         // LLM must state its intent before calling a tool → improves explainability.
-        const activeToolDefinitions = forceSynthesisOnly
+        let activeToolDefinitions = forceSynthesisOnly
           ? []
           : filterToolDefinitionsForTask(
               this.toolRegistry.definitions(),
               taskToolProfile,
             );
+        if (
+          taskToolProfile.kind === "wechat_publish" &&
+          !forceSynthesisOnly
+        ) {
+          if (wechatPublishSkillLoaded) {
+            activeToolDefinitions = activeToolDefinitions.filter(
+              (tool) => tool.name !== "use_skill",
+            );
+          }
+          if (wechatPublishReadyToPublish || wechatPublishMarkdownCreatedInRun) {
+            activeToolDefinitions = activeToolDefinitions.filter(
+              (tool) => tool.name === "bash",
+            );
+          } else if (!wechatPublishHasMarkdown) {
+            activeToolDefinitions = activeToolDefinitions.filter(
+              (tool) => tool.name !== "bash",
+            );
+          }
+          activeToolDefinitions = activeToolDefinitions.map((tool) => {
+            if (tool.name !== "bash") return tool;
+            const markdownPath = wechatPublishMarkdownPath
+              ? `"${wechatPublishMarkdownPath}"`
+              : "{INPUT_MD}";
+            const nextCommand = wechatPublishReadyToPublish
+              ? `cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py publish ${markdownPath} --json`
+              : `cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py inspect ${markdownPath} --json`;
+            return {
+              ...tool,
+              description:
+                `WeChat publish task only. Run the next anchored CLI command with --json. ` +
+                `Do not run cat/type/node/python snippets, preview, convert, help, or any other shell command. ` +
+                `Next command shape: ${nextCommand}`,
+            };
+          });
+        }
         const tools = activeToolDefinitions.map((t) => ({
           ...t,
           parameters: {
@@ -1734,10 +1808,131 @@ export class SimpleAgentLoop implements AgentLoop {
               content:
                 `Tool "${effectiveToolName}" is not allowed for ${taskToolProfile.kind} tasks. ` +
                 `Use only: ${Array.from(taskToolProfile.allowedTools).join(", ")}.`,
-              isError: true,
+              isError: taskToolProfile.kind !== "wechat_publish",
             };
             blockedByPolicy = true;
-            forceSynthesisOnly = true;
+            if (taskToolProfile.kind !== "wechat_publish") {
+              forceSynthesisOnly = true;
+            }
+          }
+
+          if (!blockedByPolicy && taskToolProfile.kind === "wechat_publish") {
+            if (effectiveToolName === "use_skill" && wechatPublishSkillLoaded) {
+              result = {
+                content:
+                  "Skipped for wechat_publish tasks: wechat-publish skill is already loaded. Continue with file_write for Markdown or the anchored wechat_publish.py inspect/publish command.",
+                isError: false,
+              };
+              blockedByPolicy = true;
+            }
+            if (effectiveToolName === "bash") {
+              let command =
+                typeof effectiveToolInput.command === "string"
+                  ? effectiveToolInput.command.replace(/\\/g, "/")
+                  : "";
+              const inspectMarkdownMatch = command.match(
+                /wechat_publish\.py["']?\s+inspect\s+(?:"([^"]+)"|'([^']+)'|([^\s]+))/,
+              );
+              const inspectedMarkdownPath =
+                inspectMarkdownMatch?.[1] ??
+                inspectMarkdownMatch?.[2] ??
+                inspectMarkdownMatch?.[3];
+              if (inspectedMarkdownPath?.toLowerCase().endsWith(".md")) {
+                wechatPublishHasMarkdown = true;
+                wechatPublishMarkdownPath = inspectedMarkdownPath.replace(
+                  /\\/g,
+                  "/",
+                );
+              }
+              if (
+                /wechat_publish\.py["']?\s+publish\b/.test(command) &&
+                !/wechat_publish\.py["']?\s+publish\s+(?!--)(?:"[^"]+\.md"|'[^']+\.md'|[^\s]+\.md\b)/i.test(
+                  command,
+                ) &&
+                wechatPublishMarkdownPath
+              ) {
+                const quotedPath = `"${wechatPublishMarkdownPath.replace(/"/g, '\\"')}"`;
+                command = command.replace(
+                  /(wechat_publish\.py["']?\s+publish\b)/,
+                  `$1 ${quotedPath}`,
+                );
+                effectiveToolInput = {
+                  ...effectiveToolInput,
+                  command,
+                };
+              }
+              const isAnchoredWechatCli =
+                command.includes("D:/mycode/agentclaw") &&
+                command.includes("wechat_publish.py");
+              if (!wechatPublishHasMarkdown) {
+                result = {
+                  content:
+                    "Skipped for wechat_publish tasks: write the source Markdown article with file_write first, then run the anchored wechat_publish.py inspect/publish commands with --json. Do not use bash for drafting or content checks.",
+                  isError: false,
+                };
+                blockedByPolicy = true;
+              } else if (!isAnchoredWechatCli) {
+                result = {
+                  content:
+                    "Blocked for wechat_publish tasks: bash may only run the anchored unified CLI, e.g. `cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py inspect|publish ...`. Write the article with file_write as Markdown; do not hand-roll HTML/Node conversion or search for alternate skill paths.",
+                  isError: !wechatPublishMarkdownCreatedInRun,
+                };
+                blockedByPolicy = true;
+              } else if (
+                !/wechat_publish\.py["']?\s+(capabilities|inspect|publish)\b/.test(
+                  command,
+                )
+              ) {
+                result = {
+                  content:
+                    "Skipped for wechat_publish tasks: only capabilities, inspect, and publish subcommands are allowed. Do not run preview/convert/help; continue with `cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py publish ...`.",
+                  isError: false,
+                };
+                blockedByPolicy = true;
+              } else if (!/(^|\s)--json(\s|$)/.test(command)) {
+                result = {
+                  content:
+                    "Skipped for wechat_publish tasks: all wechat_publish.py capabilities/inspect/publish commands must include --json so the runtime can verify code, manifest_json, and theme_selection. Re-run the same anchored CLI command with --json.",
+                  isError: false,
+                };
+                blockedByPolicy = true;
+              } else if (
+                wechatPublishReadyToPublish &&
+                !/wechat_publish\.py["']?\s+publish\b/.test(command)
+              ) {
+                result = {
+                  content:
+                    "Skipped for wechat_publish tasks: inspect already passed. The only allowed next command is `cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py publish ...`.",
+                  isError: false,
+                };
+                blockedByPolicy = true;
+              } else if (
+                /wechat_publish\.py["']?\s+publish\b[^\n]*\s--draft(\s|=|$)/.test(
+                  command,
+                )
+              ) {
+                result = {
+                  content:
+                    "Skipped invalid publish command: --draft is only for inspect and must not be used with publish. Re-run publish without --draft.",
+                  isError: false,
+                };
+                blockedByPolicy = true;
+              }
+            }
+            if (effectiveToolName === "file_write") {
+              const targetPath =
+                typeof effectiveToolInput.path === "string"
+                  ? effectiveToolInput.path.replace(/\\/g, "/").toLowerCase()
+                  : "";
+              if (!targetPath.endsWith(".md")) {
+                result = {
+                  content:
+                    "Blocked for wechat_publish tasks: file_write may only write the source Markdown article (.md). Do not hand-write HTML/JSON artifacts; use wechat_publish.py to convert and publish.",
+                  isError: true,
+                };
+                blockedByPolicy = true;
+              }
+            }
           }
 
           const toolStart = Date.now();
@@ -1839,6 +2034,17 @@ export class SimpleAgentLoop implements AgentLoop {
               console.log(
                 `[agent-loop] Web research tool limit reached: ${webResearchToolCalls}/${WEB_RESEARCH_TOOL_LIMIT}`,
               );
+              if (taskToolProfile.kind === "wechat_publish") {
+                result = {
+                  content:
+                    `You already made ${WEB_RESEARCH_TOOL_LIMIT} web_search/web_fetch call(s). ` +
+                    "Stop researching now. Continue the WeChat publishing task with non-research tools: write the Markdown article, load wechat-publish if needed, run `cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py inspect ...`, then run publish with --out-dir. Do not stop at preview or output only a research summary.",
+                  isError: true,
+                };
+                runtimeHints.push(
+                  "<research_budget_exhausted>Research budget is exhausted for this WeChat publishing task. Web tools are no longer useful; continue with file_write/use_skill/bash to create the article and publish it. Do not stop at a summary.</research_budget_exhausted>",
+                );
+              } else {
               result = {
                 content:
                   `You already made ${WEB_RESEARCH_TOOL_LIMIT} web_search/web_fetch call(s). ` +
@@ -1849,6 +2055,7 @@ export class SimpleAgentLoop implements AgentLoop {
               runtimeHints.push(
                 "<research_budget_exhausted>Research budget is exhausted. No more tools are available. Write the final answer from the gathered facts now.</research_budget_exhausted>",
               );
+              }
             } else if (
               isOverflowFileRead &&
               overflowFileReadCalls > OVERFLOW_FILE_READ_LIMIT
@@ -1945,6 +2152,62 @@ export class SimpleAgentLoop implements AgentLoop {
               tc.id,
               effectiveToolInput,
             );
+          }
+
+          if (
+            taskToolProfile.kind === "wechat_publish" &&
+            result &&
+            !result.isError
+          ) {
+            const content = String(result.content ?? "");
+            if (effectiveToolName === "use_skill") {
+              const skillName = String(
+                effectiveToolInput.name ?? effectiveToolInput.skillId ?? "",
+              ).trim();
+              if (skillName === "wechat-publish") {
+                wechatPublishSkillLoaded = true;
+              }
+            }
+            if (effectiveToolName === "file_write") {
+              const targetPath =
+                typeof effectiveToolInput.path === "string"
+                  ? effectiveToolInput.path.replace(/\\/g, "/").toLowerCase()
+                  : "";
+              if (targetPath.endsWith(".md")) {
+                wechatPublishHasMarkdown = true;
+                wechatPublishMarkdownCreatedInRun = true;
+                runtimeHints.push(
+                  "<wechat_publish_markdown_ready>Markdown source is written. Do not search, rewrite, preview, or use other tools. Next run the anchored wechat_publish.py inspect command with --json.</wechat_publish_markdown_ready>",
+                );
+              }
+            }
+            if (effectiveToolName === "bash") {
+              const command =
+                typeof effectiveToolInput.command === "string"
+                  ? effectiveToolInput.command.replace(/\\/g, "/")
+                  : "";
+              if (
+                /wechat_publish\.py["']?\s+inspect\b/.test(command) &&
+                content.includes('"success": true') &&
+                content.includes('"code": "INSPECT_READY"')
+              ) {
+                wechatPublishReadyToPublish = true;
+                runtimeHints.push(
+                  "<wechat_publish_ready>Inspect succeeded. Do not search, rewrite, preview, send files, or call use_skill again. The next tool call must be the anchored wechat_publish.py publish command with --json.</wechat_publish_ready>",
+                );
+              }
+              if (
+                /wechat_publish\.py["']?\s+publish\b/.test(command) &&
+                (content.includes('"code": "DRAFT_CREATED"') ||
+                  content.includes('"code": "DRAFT_DRY_RUN_READY"'))
+              ) {
+                wechatPublishCompleted = true;
+                forceSynthesisOnly = true;
+                runtimeHints.push(
+                  "<wechat_publish_completed>Publish command succeeded. No more tools are needed. Report code, draft_media_id, manifest_json, and resolved theme.</wechat_publish_completed>",
+                );
+              }
+            }
           }
 
           const toolDurationMs = Date.now() - toolStart;

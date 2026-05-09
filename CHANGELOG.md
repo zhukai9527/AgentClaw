@@ -12,6 +12,9 @@
 - **纯文本字幕极速入口**：`bilingual-subtitle` 新增 `--txt-only` 和 `--beam-size`，URL 字幕任务可直接生成无时间戳 `.txt`，最快模板显式使用 `tiny + beam_size=1`，不再先生成 SRT 再用 shell 清洗。
 
 ### Changed
+- **微信公众号发布默认能力面收敛**：`capabilities.commands` 和 `canonical_args` 默认只暴露 `capabilities/inspect/publish`，`preview` 移到 `explicit_preview`，避免用户已要求发布时 Agent 先跑预览并因漏 `--out-dir` 产生无意义错误。
+- **微信公众号发布 CLI 容错收敛**：`wechat_publish.py publish` 缺省 `--out-dir` 时自动使用 Markdown 同目录的 `wechat-output`，避免漏参触发重试雪崩；`capabilities.canonical_args` 不再把 `--theme` 作为默认发布参数暴露，减少 Agent 绕过 `auto` 主题选择的概率。
+- **微信公众号书籍内容自动选题收敛**：`wechat_publish.py` 的 `auto` 主题识别新增书籍语境规则，能把“这本书/本书/全书/书中/一本书”等书评和书籍提炼内容自动选为 `minimal`；`wechat-publish` 技能说明同步禁止默认场景手写 `--theme`，并明确 `publish` 子命令不可使用 `--draft`。
 - **微信公众号主题自动选择**：`wechat_publish.py` 的默认主题改为 `auto`，根据正文确定性选择 `minimal`/`sage`/`tech-modern`，并在 JSON 与 `manifest.json` 写入 `theme_selection` 审计信息；读书笔记、书摘和阅读心得不再因用户只说“发送到公众号”而误用科技风。
 - **微信公众号发布体验增强**：`wechat_publish.py preview` 现在输出可直接打开的完整 HTML 页面；`publish` 写入 `manifest.json` 审计清单；`capabilities` 暴露 canonical 参数列表，并关闭 argparse 参数缩写，避免 `--out` 被隐式当成 `--out-dir`。
 - **默认部署瘦身**：Docker 默认只启动 AgentClaw 核心服务，不再自动启动 SearXNG/Redis，本地搜索改为 `search` profile 和 Settings 配置；默认镜像不再安装 Chromium/CJK 字体，`browser_cdp` 需要显式设置 `AGENTCLAW_ENABLE_BROWSER_CDP=true` 才注册。
@@ -24,6 +27,13 @@
 - **P2 工具输出瘦身**：`web_search` 结果硬夹到 5 条，`web_fetch` 默认返回带来源 URL 的短事实卡并保留 `save_as` 完整保存路径，`rss_top` 对相同 feed/topN 做短期缓存；真实 AI 新闻回归约 `11.3K input token / 35.1s`，不再因超限搜索多跑一轮。
 
 ### Fixed
+- **微信公众号发布 inspect 后漂移**：公众号发布任务在 `wechat_publish.py inspect` 返回 `INSPECT_READY` 后进入运行时状态机，下一轮只暴露 `bash` 并只允许锚定的 `publish` 命令，防止模型继续搜索、重写文章、调用预览或寻找不存在的 skill 路径。
+- **微信公众号发布前置 bash 漂移**：公众号发布任务在没有 Markdown 源文前不再暴露 `bash`；`file_write` 成功写入 `.md` 后下一轮只暴露 CLI 所需 `bash`，动态提示下一条 inspect/publish 命令，并强制 `capabilities/inspect/publish` 带 `--json`，确保运行时能读取 `manifest_json` 和主题审计。
+- **微信公众号发布参数漂移**：当模型在 `inspect` 通过后调用 `publish` 却漏掉 Markdown 位置参数时，运行时会用刚检查过的 canonical Markdown 路径补齐命令，避免一次 CLI 报错和重复发布尝试。
+- **微信公众号技能重复加载**：`wechat-publish` 加载成功后，后续轮次会从工具面移除 `use_skill`，避免模型在研究和发布之间重复加载同一个技能。
+- **微信公众号发布预览/错误子命令漂移**：公众号发布任务运行时只允许 `wechat_publish.py capabilities|inspect|publish`，会跳过 `preview/convert/help` 和 `publish --draft`，避免模型在用户已要求发布时停在预览或试不存在的转换命令。
+- **微信公众号发布绕过统一 CLI**：公众号发布任务新增运行时硬边界，`bash` 只能执行锚定仓库根目录的 `wechat_publish.py`，`file_write` 只能写 Markdown 源文，阻止 Agent 手写 HTML/Node 转换或查找不存在的 `C:/Users/voroj/skills` 路径。
+- **微信公众号发布真实路径漂移**：`wechat-publish` 技能入口固定为 `cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py ...`，防止 Agent 在 `C:/Users/voroj` 或下载目录执行相对路径后找不到统一 CLI；真实回归 evaluator 同步拦截未锚定仓库根目录的调用。
 - **微信公众号正文标题重复**：`wechat_publish.py` 在预览和发布正文中移除 Markdown 第一个 H1，保留草稿 metadata 标题和封面标题，避免公众号后台显示标题后正文再次出现同名大标题。
 - **伪工具 XML 流式外泄**：agent loop 不再把未经最终校验的模型文本直接作为 `response_chunk` 推给 WebSocket/IM 渠道；模型在合成阶段输出 `<tool_call>` / `<function=>` 等不可执行标记时，只释放系统兜底后的用户可见文本。
 - **Skill 能力身份参数漂移**：`skill_manage` 不再把显示名 `name` 当作 `skillId`，`write_file` 不再接受隐藏 `fileContent`，`skill_curator` 的 `reason` 参数补齐到 schema；线上 skill 能力回归也改为只认 canonical `skillId`。

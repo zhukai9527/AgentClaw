@@ -74,7 +74,8 @@ class WechatPublishCliTest(unittest.TestCase):
 
         self.assertIn("publish", data["commands"])
         self.assertIn("inspect", data["commands"])
-        self.assertIn("preview", data["commands"])
+        self.assertNotIn("preview", data["commands"])
+        self.assertEqual(data["explicit_preview"]["command"], "preview")
         self.assertIn("auto", data["themes"])
         self.assertIn("tech-modern", data["themes"])
         self.assertEqual(data["default_theme"], "auto")
@@ -84,6 +85,7 @@ class WechatPublishCliTest(unittest.TestCase):
         self.assertIn("dark", data["cover_schemes"])
         self.assertEqual(data["json_contract"], "success/code/message/data")
         self.assertIn("--out-dir", data["canonical_args"]["publish"])
+        self.assertNotIn("--theme", data["canonical_args"]["publish"])
         self.assertNotIn("--out", data["canonical_args"]["publish"])
 
     def test_inspect_reports_metadata_readiness_and_checks(self):
@@ -175,6 +177,29 @@ class WechatPublishCliTest(unittest.TestCase):
         self.assertEqual(data["theme"], "minimal")
         self.assertEqual(data["theme_selection"]["resolved"], "minimal")
         self.assertIn("读书笔记", data["theme_selection"]["reason"])
+
+    def test_book_article_context_selects_minimal_without_reading_note_title(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            article = self.make_article_with_content(
+                Path(tmp),
+                "你以为你在理性思考？诺贝尔奖得主说：你99%的决定都是瞎蒙的",
+                "\n".join(
+                    [
+                        "卡尼曼在书的最后说了一句话，我觉得是全书最重要的一句。",
+                        "",
+                        "这不是一本教你怎么思考的书，而是一本让你对自己的思考产生怀疑的书。",
+                    ]
+                ),
+            )
+            data = self.assert_success(
+                run_cli("inspect", str(article), "--json"),
+                "INSPECT_READY",
+            )
+
+        self.assertEqual(data["theme"], "minimal")
+        self.assertEqual(data["theme_selection"]["requested"], "auto")
+        self.assertEqual(data["theme_selection"]["resolved"], "minimal")
+        self.assertIn("book-context", data["theme_selection"]["reason"])
 
     def test_auto_theme_selects_sage_for_agentclaw_brand_posts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -270,6 +295,28 @@ class WechatPublishCliTest(unittest.TestCase):
         self.assertEqual(manifest["source_file"], str(article))
         self.assertEqual(manifest["artifacts"]["draft_json"], data["artifacts"]["draft_json"])
 
+    def test_publish_without_out_dir_uses_default_output_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            article = self.make_article(root)
+            data = self.assert_success(
+                run_cli(
+                    "publish",
+                    str(article),
+                    "--dry-run",
+                    "--skip-cover",
+                    "--json",
+                ),
+                "DRAFT_DRY_RUN_READY",
+            )
+            manifest = json.loads(
+                Path(data["artifacts"]["manifest_json"]).read_text(encoding="utf-8")
+            )
+
+        expected_out_dir = root / "wechat-output"
+        self.assertEqual(Path(data["artifacts"]["manifest_json"]).parent, expected_out_dir)
+        self.assertEqual(manifest["artifacts"]["manifest_json"], data["artifacts"]["manifest_json"])
+
     def test_publish_uses_markdown_h1_as_default_cover_title(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -315,7 +362,7 @@ class WechatPublishCliTest(unittest.TestCase):
             )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("the following arguments are required: --out-dir", result.stderr)
+        self.assertIn("unrecognized arguments: --out", result.stderr)
 
     def test_skip_cover_is_hidden_from_help(self):
         result = subprocess.run(
@@ -332,8 +379,14 @@ class WechatPublishCliTest(unittest.TestCase):
     def test_skill_primary_path_uses_unified_cli(self):
         text = SKILL.read_text(encoding="utf-8")
 
-        self.assertIn("wechat_publish.py publish", text)
-        self.assertIn("wechat_publish.py inspect", text)
+        self.assertIn(
+            "cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py publish",
+            text,
+        )
+        self.assertIn(
+            "cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py inspect",
+            text,
+        )
         self.assertNotIn("publish_article.py {INPUT_MD}", text)
 
 

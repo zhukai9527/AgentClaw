@@ -598,6 +598,626 @@ describe("SimpleAgentLoop", () => {
       expect(fileReadTool.execute).not.toHaveBeenCalled();
     });
 
+    it("公众号发布任务研究预算耗尽后未写 Markdown 时不暴露 bash", async () => {
+      const firstRoundChunks: LLMStreamChunk[] = [];
+      for (let i = 0; i < 7; i++) {
+        firstRoundChunks.push(
+          ...createToolCallChunks(`tc-search-${i}`, "web_search", {
+            query: `清教徒的礼物 ${i}`,
+          }).slice(0, 2),
+        );
+      }
+      firstRoundChunks.push({
+        type: "done",
+        usage: { tokensIn: 10, tokensOut: 5 },
+        model: "mock-model",
+      });
+
+      const captured: string[][] = [];
+      let callIndex = 0;
+      const publishProvider: LLMProvider = {
+        name: "wechat-publish-provider",
+        models: [
+          {
+            id: "mock-model",
+            provider: "mock",
+            name: "Mock",
+            tier: "fast",
+            contextWindow: 4096,
+            supportsTools: true,
+            supportsStreaming: true,
+          },
+        ] as ModelInfo[],
+        chat: vi.fn(),
+        stream: vi.fn(async function* (request: LLMRequest) {
+          captured.push((request.tools ?? []).map((tool) => tool.name));
+          if (callIndex === 0) {
+            callIndex++;
+            yield* firstRoundChunks;
+            return;
+          }
+          callIndex++;
+          yield { type: "text", text: "done" } as LLMStreamChunk;
+          yield {
+            type: "done",
+            usage: { tokensIn: 10, tokensOut: 5 },
+            model: "mock-model",
+          } as LLMStreamChunk;
+        }) as unknown as LLMProvider["stream"],
+      };
+      const testToolRegistry = createMockToolRegistry([
+        createMockTool("web_search"),
+        createMockTool("web_fetch"),
+        createMockTool("use_skill"),
+        createMockTool("file_write"),
+        createMockTool("bash"),
+        createMockTool("send_file"),
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: publishProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "对《清教徒的礼物》这本书提炼并发布到公众号",
+          "conv-wechat-publish-budget",
+        ),
+      );
+
+      expect(captured.length).toBeGreaterThanOrEqual(2);
+      expect(captured[1]).toEqual(
+        expect.arrayContaining(["use_skill", "file_write"]),
+      );
+      expect(captured[1]).not.toContain("bash");
+    });
+
+    it("公众号发布任务加载 wechat-publish 后后续轮次不再暴露 use_skill", async () => {
+      const captured: string[][] = [];
+      let callIndex = 0;
+      const skillProvider: LLMProvider = {
+        name: "wechat-skill-provider",
+        models: [
+          {
+            id: "wechat-skill-model",
+            provider: "mock",
+            name: "Wechat Skill",
+            tier: "fast",
+            contextWindow: 4096,
+            supportsTools: true,
+            supportsStreaming: true,
+          },
+        ] as ModelInfo[],
+        chat: vi.fn(),
+        stream: vi.fn(async function* (request: LLMRequest) {
+          captured.push((request.tools ?? []).map((tool) => tool.name));
+          const currentCall = callIndex++;
+          if (currentCall === 0) {
+            for (const chunk of createToolCallChunks("tc-skill", "use_skill", {
+              name: "wechat-publish",
+            })) {
+              yield chunk;
+            }
+            return;
+          }
+          yield { type: "text", text: "done" } as LLMStreamChunk;
+          yield {
+            type: "done",
+            usage: { tokensIn: 10, tokensOut: 5 },
+            model: "wechat-skill-model",
+          } as LLMStreamChunk;
+        }) as unknown as LLMProvider["stream"],
+      };
+      const loop = new SimpleAgentLoop({
+        provider: skillProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          createMockTool("file_write"),
+          createMockTool("bash"),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "对《清教徒的礼物》这本书提炼并发布到公众号",
+          "conv-wechat-skill-loaded",
+        ),
+      );
+
+      expect(captured[0]).toContain("use_skill");
+      expect(captured[1]).not.toContain("use_skill");
+    });
+
+    it("公众号发布任务应拦截非统一 CLI 的 bash 命令", async () => {
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-bash", "bash", {
+          command: "cd C:/Users/voroj && node convert.js",
+        }),
+        finalChunks,
+      ]);
+      const bashTool = createMockTool("bash", { content: "should not execute" });
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([bashTool]),
+        contextManager,
+        memoryStore,
+      });
+
+      const events = await collectEvents(
+        loop.runStream(
+          "Markdown 文件：C:/Users/voroj/article.md，请发布到公众号",
+          "conv-wechat-bash-policy",
+        ),
+      );
+
+      const toolResult = events.find((event) => event.type === "tool_result")!;
+      const result = (toolResult.data as { result: ToolResult }).result;
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("bash may only run the anchored unified CLI");
+      expect(bashTool.execute).not.toHaveBeenCalled();
+    });
+
+    it("公众号发布任务写完 Markdown 后下一轮只暴露 bash", async () => {
+      const captured: string[][] = [];
+      let callIndex = 0;
+      const writeProvider: LLMProvider = {
+        name: "wechat-write-provider",
+        models: [
+          {
+            id: "wechat-write-model",
+            provider: "mock",
+            name: "Wechat Write",
+            tier: "fast",
+            contextWindow: 4096,
+            supportsTools: true,
+            supportsStreaming: true,
+          },
+        ] as ModelInfo[],
+        chat: vi.fn().mockResolvedValue({
+          message: {
+            id: "msg-wechat-write",
+            role: "assistant",
+            content: "done",
+            createdAt: new Date(),
+          },
+          model: "wechat-write-model",
+          tokensIn: 1,
+          tokensOut: 1,
+          stopReason: "end_turn",
+        } as LLMResponse),
+        stream: vi.fn(async function* (request: LLMRequest) {
+          captured.push((request.tools ?? []).map((tool) => tool.name));
+          const currentCall = callIndex++;
+          if (currentCall === 0) {
+            for (const chunk of createToolCallChunks("tc-write", "file_write", {
+              path: "C:/Users/voroj/article_qingjiaotu.md",
+              content: "这本书讨论了管理与长期主义。",
+            })) {
+              yield chunk;
+            }
+            return;
+          }
+          yield { type: "text", text: "done" } as LLMStreamChunk;
+          yield {
+            type: "done",
+            usage: { tokensIn: 10, tokensOut: 5 },
+            model: "wechat-write-model",
+          } as LLMStreamChunk;
+        }) as unknown as LLMProvider["stream"],
+      };
+      const loop = new SimpleAgentLoop({
+        provider: writeProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("web_search"),
+          createMockTool("use_skill"),
+          createMockTool("file_write"),
+          createMockTool("bash"),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "对《清教徒的礼物》这本书提炼并发布到公众号",
+          "conv-wechat-write-state",
+        ),
+      );
+
+      expect(captured[0]).toEqual(
+        expect.arrayContaining(["web_search", "use_skill", "file_write"]),
+      );
+      expect(captured[0]).not.toContain("bash");
+      expect(captured[1]).toEqual(["bash"]);
+    });
+
+    it("公众号发布任务写完 Markdown 后应跳过非 CLI bash 且不计工具错误", async () => {
+      let callIndex = 0;
+      const catProvider: LLMProvider = {
+        name: "wechat-cat-provider",
+        models: [
+          {
+            id: "wechat-cat-model",
+            provider: "mock",
+            name: "Wechat Cat",
+            tier: "fast",
+            contextWindow: 4096,
+            supportsTools: true,
+            supportsStreaming: true,
+          },
+        ] as ModelInfo[],
+        chat: vi.fn(),
+        stream: vi.fn(async function* () {
+          const currentCall = callIndex++;
+          if (currentCall === 0) {
+            for (const chunk of createToolCallChunks("tc-write", "file_write", {
+              path: "C:/Users/voroj/article_qingjiaotu.md",
+              content: "这本书讨论了管理与长期主义。",
+            })) {
+              yield chunk;
+            }
+            return;
+          }
+          if (currentCall === 1) {
+            for (const chunk of createToolCallChunks("tc-cat", "bash", {
+              command: 'cat "C:/Users/voroj/article_qingjiaotu.md"',
+            })) {
+              yield chunk;
+            }
+            return;
+          }
+          yield { type: "text", text: "done" } as LLMStreamChunk;
+          yield {
+            type: "done",
+            usage: { tokensIn: 10, tokensOut: 5 },
+            model: "wechat-cat-model",
+          } as LLMStreamChunk;
+        }) as unknown as LLMProvider["stream"],
+      };
+      const bashTool = createMockTool("bash", { content: "should not execute" });
+      const loop = new SimpleAgentLoop({
+        provider: catProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("file_write"),
+          bashTool,
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 4 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream(
+          "对《清教徒的礼物》这本书提炼并发布到公众号",
+          "conv-wechat-cat-policy",
+        ),
+      );
+
+      const toolResults = events
+        .filter((event) => event.type === "tool_result")
+        .map((event) => (event.data as { result: ToolResult }).result);
+      expect(toolResults[1].isError).toBe(false);
+      expect(toolResults[1].content).toContain("bash may only run");
+      expect(bashTool.execute).not.toHaveBeenCalled();
+    });
+
+    it("公众号发布任务应跳过 preview 子命令并引导直接 publish", async () => {
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-preview", "bash", {
+          command:
+            "cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py preview article.md --out-dir out --json",
+        }),
+        finalChunks,
+      ]);
+      const bashTool = createMockTool("bash", { content: "should not execute" });
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([bashTool]),
+        contextManager,
+        memoryStore,
+      });
+
+      const events = await collectEvents(
+        loop.runStream(
+          "Markdown 文件：C:/Users/voroj/article.md，请发布到公众号",
+          "conv-wechat-preview-policy",
+        ),
+      );
+
+      const toolResult = events.find((event) => event.type === "tool_result")!;
+      const result = (toolResult.data as { result: ToolResult }).result;
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("only capabilities, inspect, and publish");
+      expect(bashTool.execute).not.toHaveBeenCalled();
+    });
+
+    it("公众号发布任务应跳过未带 --json 的统一 CLI 命令", async () => {
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-inspect-no-json", "bash", {
+          command:
+            "cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py inspect article.md",
+        }),
+        finalChunks,
+      ]);
+      const bashTool = createMockTool("bash", { content: "should not execute" });
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([bashTool]),
+        contextManager,
+        memoryStore,
+      });
+
+      const events = await collectEvents(
+        loop.runStream(
+          "Markdown 文件：C:/Users/voroj/article.md，请发布到公众号",
+          "conv-wechat-json-policy",
+        ),
+      );
+
+      const toolResult = events.find((event) => event.type === "tool_result")!;
+      const result = (toolResult.data as { result: ToolResult }).result;
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("must include --json");
+      expect(bashTool.execute).not.toHaveBeenCalled();
+    });
+
+    it("公众号发布任务应跳过 publish --draft 并引导移除参数", async () => {
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-publish-draft", "bash", {
+          command:
+            "cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py publish article.md --draft --json",
+        }),
+        finalChunks,
+      ]);
+      const bashTool = createMockTool("bash", { content: "should not execute" });
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([bashTool]),
+        contextManager,
+        memoryStore,
+      });
+
+      const events = await collectEvents(
+        loop.runStream(
+          "Markdown 文件：C:/Users/voroj/article.md，请发布到公众号",
+          "conv-wechat-publish-draft-policy",
+        ),
+      );
+
+      const toolResult = events.find((event) => event.type === "tool_result")!;
+      const result = (toolResult.data as { result: ToolResult }).result;
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("--draft is only for inspect");
+      expect(bashTool.execute).not.toHaveBeenCalled();
+    });
+
+    it("公众号发布任务 inspect 通过后下一轮只暴露 publish 所需 bash 工具", async () => {
+      const captured: string[][] = [];
+      let callIndex = 0;
+      const inspectProvider: LLMProvider = {
+        name: "wechat-inspect-provider",
+        models: [
+          {
+            id: "wechat-inspect-model",
+            provider: "mock",
+            name: "Wechat Inspect",
+            tier: "fast",
+            contextWindow: 4096,
+            supportsTools: true,
+            supportsStreaming: true,
+          },
+        ] as ModelInfo[],
+        chat: vi.fn().mockResolvedValue({
+          message: {
+            id: "msg-wechat-inspect",
+            role: "assistant",
+            content: "done",
+            createdAt: new Date(),
+          },
+          model: "wechat-inspect-model",
+          tokensIn: 1,
+          tokensOut: 1,
+          stopReason: "end_turn",
+        } as LLMResponse),
+        stream: vi.fn(async function* (request: LLMRequest) {
+          captured.push((request.tools ?? []).map((tool) => tool.name));
+          const currentCall = callIndex++;
+          if (currentCall === 0) {
+            for (const chunk of createToolCallChunks("tc-inspect", "bash", {
+              command:
+                "cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py inspect article.md --json",
+            })) {
+              yield chunk;
+            }
+            return;
+          }
+          yield { type: "text", text: "done" } as LLMStreamChunk;
+          yield {
+            type: "done",
+            usage: { tokensIn: 10, tokensOut: 5 },
+            model: "wechat-inspect-model",
+          } as LLMStreamChunk;
+        }) as unknown as LLMProvider["stream"],
+      };
+      const bashTool = createMockTool("bash", {
+        content: JSON.stringify(
+          {
+            success: true,
+            code: "INSPECT_READY",
+            message: "Inspect ready",
+            data: {
+              markdown_path: "article.md",
+              theme_selection: { requested: "auto", resolved: "minimal" },
+            },
+          },
+          null,
+          2,
+        ),
+      });
+      const loop = new SimpleAgentLoop({
+        provider: inspectProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("web_search"),
+          createMockTool("use_skill"),
+          createMockTool("file_write"),
+          bashTool,
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "Markdown 文件：C:/Users/voroj/article.md，请发布到公众号",
+          "conv-wechat-inspect-state",
+        ),
+      );
+
+      expect(captured[0]).toEqual(
+        expect.arrayContaining(["web_search", "use_skill", "file_write", "bash"]),
+      );
+      expect(captured[1]).toEqual(["bash"]);
+    });
+
+    it("公众号发布任务应从 inspect 路径补齐 publish 缺失的 Markdown 参数", async () => {
+      const executedCommands: string[] = [];
+      let callIndex = 0;
+      const publishProvider: LLMProvider = {
+        name: "wechat-publish-rewrite-provider",
+        models: [
+          {
+            id: "wechat-publish-rewrite-model",
+            provider: "mock",
+            name: "Wechat Publish Rewrite",
+            tier: "fast",
+            contextWindow: 4096,
+            supportsTools: true,
+            supportsStreaming: true,
+          },
+        ] as ModelInfo[],
+        chat: vi.fn().mockResolvedValue({
+          message: {
+            id: "msg-wechat-publish-rewrite",
+            role: "assistant",
+            content: "done",
+            createdAt: new Date(),
+          },
+          model: "wechat-publish-rewrite-model",
+          tokensIn: 1,
+          tokensOut: 1,
+          stopReason: "end_turn",
+        } as LLMResponse),
+        stream: vi.fn(async function* () {
+          const currentCall = callIndex++;
+          if (currentCall === 0) {
+            for (const chunk of createToolCallChunks("tc-inspect", "bash", {
+              command:
+                "cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py inspect \"C:/Users/voroj/article.md\" --json",
+            })) {
+              yield chunk;
+            }
+            return;
+          }
+          if (currentCall === 1) {
+            for (const chunk of createToolCallChunks("tc-publish", "bash", {
+              command:
+                "cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py publish --out-dir out --dry-run --json",
+            })) {
+              yield chunk;
+            }
+            return;
+          }
+          yield { type: "text", text: "done" } as LLMStreamChunk;
+          yield {
+            type: "done",
+            usage: { tokensIn: 10, tokensOut: 5 },
+            model: "wechat-publish-rewrite-model",
+          } as LLMStreamChunk;
+        }) as unknown as LLMProvider["stream"],
+      };
+      const bashTool: Tool = {
+        ...createMockTool("bash"),
+        execute: vi.fn().mockImplementation(async (input) => {
+          const command = String(input.command ?? "");
+          executedCommands.push(command);
+          if (command.includes(" inspect ")) {
+            return {
+              content: JSON.stringify(
+                { success: true, code: "INSPECT_READY", data: {} },
+                null,
+                2,
+              ),
+            };
+          }
+          return {
+            content: JSON.stringify(
+              { success: true, code: "DRAFT_DRY_RUN_READY", data: {} },
+              null,
+              2,
+            ),
+          };
+        }),
+      };
+      const loop = new SimpleAgentLoop({
+        provider: publishProvider,
+        toolRegistry: createMockToolRegistry([bashTool]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 4 },
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "Markdown 文件：C:/Users/voroj/article.md，请发布到公众号",
+          "conv-wechat-publish-path-rewrite",
+        ),
+      );
+
+      expect(executedCommands[1]).toContain(
+        'wechat_publish.py publish "C:/Users/voroj/article.md" --out-dir out',
+      );
+    });
+
+    it("公众号发布任务应拦截手写 HTML 产物", async () => {
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-file-write", "file_write", {
+          path: "C:/Users/voroj/article_wechat.html",
+          content: "<section>手写 HTML</section>",
+        }),
+        finalChunks,
+      ]);
+      const fileWriteTool = createMockTool("file_write", {
+        content: "should not execute",
+      });
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([fileWriteTool]),
+        contextManager,
+        memoryStore,
+      });
+
+      const events = await collectEvents(
+        loop.runStream(
+          "对《清教徒的礼物》这本书提炼并发布到公众号",
+          "conv-wechat-file-write-policy",
+        ),
+      );
+
+      const toolResult = events.find((event) => event.type === "tool_result")!;
+      const result = (toolResult.data as { result: ToolResult }).result;
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("file_write may only write the source Markdown");
+      expect(fileWriteTool.execute).not.toHaveBeenCalled();
+    });
+
     it("应正确执行工具并将结果传回 LLM", async () => {
       // 第 1 轮：LLM 调用工具
       const toolCallChunks: LLMStreamChunk[] = [
