@@ -543,6 +543,18 @@ function currentLocalDateString(date = new Date()): string {
   return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
+function isAiNewsLikeTask(inputText: string): boolean {
+  const hasAiTopic =
+    /\bAI\b|人工智能|artificial intelligence|machine learning|LLM|大模型/i.test(
+      inputText,
+    );
+  const hasNewsIntent =
+    /新闻|简报|资讯|快讯|日报|周报|动态|最新|今日|今天|近期|本周|这周|news|brief|daily|weekly|roundup|latest|recent/i.test(
+      inputText,
+    );
+  return hasAiTopic && hasNewsIntent;
+}
+
 function filterToolDefinitionsForTask<T extends { name: string }>(
   tools: T[],
   profile: TaskToolProfile,
@@ -655,7 +667,9 @@ function buildSynthesisFallbackResponse(
   const body =
     unique.length > 0
       ? unique.map((line) => `- ${line}`).join("\n")
-      : "- 已达到工具预算，但没有足够可用事实形成可靠摘要。";
+      : /预算|budget|limit/i.test(reason)
+        ? "- 已达到工具预算，但没有足够可用事实形成可靠摘要。"
+        : "- 当前上下文没有足够可用事实形成可靠摘要。";
 
   return [
     heading,
@@ -1021,9 +1035,7 @@ export class SimpleAgentLoop implements AgentLoop {
         "[新闻任务约束]优先在3轮以内完成：第1轮并行 web_search 搜索并筛选，第2轮只在必要时用 web_fetch 抓取少量原文，第3轮必须合成最终答复。只采用高可信来源：官方公告/公司博客/监管机构/学术机构/Reuters/AP/Bloomberg/FT/The Verge/TechCrunch/MIT Technology Review/Stanford HAI等。不要使用Reddit、YouTube、低质量SEO聚合站或个人博客作为事实来源，除非用户明确要求。无法用可信来源交叉确认的新闻点直接跳过或标注未确认。已有搜索结果足够时不要继续抓取原文。",
       );
     }
-    const isAiNewsTask = /\bAI\b|news|brief|artificial intelligence/i.test(
-      inputTextForHeuristics,
-    );
+    const isAiNewsTask = isAiNewsLikeTask(inputTextForHeuristics);
     if (isAiNewsTask) {
       runtimeHints.push(
         `[news-task] Today is ${currentLocalDateString()}. Finish in about 3 LLM turns. Use parallel web_search first, then web_fetch only for missing key facts, then final answer. Prefer primary/trusted sources only: official company blogs, regulator/government/university sources, Reuters, AP, Bloomberg, FT, The Verge, TechCrunch, MIT Technology Review, Stanford HAI. Explicitly reject Reddit, YouTube, Yahoo Finance, SEO aggregators, random blogs, and unsourced claims. Recent news only: if the item is not from today or the last 7 days, include it only when it is clearly still developing and mark the exact date. Output no more than 5 high-confidence items. Do not fetch raw pages when snippets already contain enough facts.`,
@@ -1533,7 +1545,7 @@ export class SimpleAgentLoop implements AgentLoop {
             messages,
             allSentFiles,
             fallbackSnippets,
-            "工具预算已耗尽，模型仍尝试继续调用工具",
+            "当前阶段不再允许继续调用工具，模型仍尝试继续调用工具",
           );
         }
 
@@ -1590,7 +1602,7 @@ export class SimpleAgentLoop implements AgentLoop {
               messages,
               allSentFiles,
               fallbackSnippets,
-              "工具预算已耗尽，模型仍输出了不可执行的工具标记",
+              "模型输出了不可执行的工具标记",
             );
             storedText = fullText;
           } else {

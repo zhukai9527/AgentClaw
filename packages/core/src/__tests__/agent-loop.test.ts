@@ -572,6 +572,37 @@ describe("SimpleAgentLoop", () => {
       }
     });
 
+    it("AI 深度分析任务不应被误判为新闻简报任务", async () => {
+      const captured: string[][] = [];
+      const analysisProvider = createToolCaptureProvider(captured);
+      const testToolRegistry = createMockToolRegistry([
+        createMockTool("web_search"),
+        createMockTool("web_fetch"),
+        createMockTool("file_read"),
+        createMockTool("file_write"),
+        createMockTool("send_file"),
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: analysisProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "仔细研究 给出你的观点，进行 AI 和电的全面对比分析和预测。多用表格对比。",
+          "conv-ai-analysis",
+        ),
+      );
+
+      expect(captured[0]).toContain("file_read");
+      expect(captured[0]).toContain("web_search");
+      expect(captured[0]).toContain("web_fetch");
+      expect(captured[0]).toContain("file_write");
+      expect(captured[0]).toContain("send_file");
+    });
+
     it("Reddit RSS 任务首轮只暴露 rss_top 和文件发送工具", async () => {
       const captured: string[][] = [];
       const rssProvider = createToolCaptureProvider(captured);
@@ -2185,12 +2216,14 @@ describe("SimpleAgentLoop", () => {
         .join("");
       expect(streamedText).not.toContain("<tool_call>");
       expect(streamedText).not.toContain("<function=");
-      expect(streamedText).toContain("工具预算已耗尽");
+      expect(streamedText).toContain("不可执行的工具标记");
+      expect(streamedText).not.toContain("工具预算已耗尽");
 
       const completeEvent = events.find((e) => e.type === "response_complete");
       expect(completeEvent).toBeDefined();
       const message = (completeEvent!.data as { message: Message }).message;
       expect(String(message.content)).not.toContain("<tool_call>");
+      expect(String(message.content)).not.toContain("工具预算已耗尽");
       expect(memoryStore.addTrace).toHaveBeenCalledWith(
         expect.objectContaining({ error: "invalid_tool_markup_final" }),
       );
