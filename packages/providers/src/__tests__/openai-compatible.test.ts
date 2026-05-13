@@ -9,12 +9,14 @@ import type { LLMStreamChunk, Message } from "@agentclaw/types";
 // 存储 mock 返回值，测试中可随时修改
 let mockCreateResponse: unknown = null;
 let mockStreamResponse: AsyncIterable<unknown> | null = null;
+let mockCreateParams: Record<string, unknown>[] = [];
 
 vi.mock("openai", () => {
   class MockOpenAI {
     chat = {
       completions: {
         create: vi.fn(async (params: Record<string, unknown>) => {
+          mockCreateParams.push(params);
           if (params.stream) {
             // 返回异步可迭代对象
             return mockStreamResponse;
@@ -51,6 +53,7 @@ describe("OpenAICompatibleProvider", () => {
   beforeEach(() => {
     mockCreateResponse = null;
     mockStreamResponse = null;
+    mockCreateParams = [];
     provider = new OpenAICompatibleProvider({
       apiKey: "test-key",
       baseURL: "https://api.test.com/v1",
@@ -522,6 +525,59 @@ describe("OpenAICompatibleProvider", () => {
       expect(response.message).toBeDefined();
     });
 
+    it("应回传助手消息的 reasoning_content 以兼容 MiMo 工具历史", async () => {
+      mockCreateResponse = {
+        choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 50, completion_tokens: 10 },
+      };
+
+      const messages: Message[] = [
+        {
+          id: "msg-1",
+          role: "user",
+          content: "列目录",
+          createdAt: new Date(),
+        },
+        {
+          id: "msg-2",
+          role: "assistant",
+          content: [
+            { type: "text", text: "我看看" },
+            {
+              type: "tool_use",
+              id: "call-1",
+              name: "bash",
+              input: { command: "ls" },
+            },
+          ],
+          reasoningContent: "用户要列目录，需要调用 bash。",
+          createdAt: new Date(),
+        },
+        {
+          id: "msg-3",
+          role: "tool",
+          content: [
+            {
+              type: "tool_result",
+              toolUseId: "call-1",
+              content: "file.txt",
+            },
+          ],
+          createdAt: new Date(),
+        },
+      ];
+
+      await provider.chat({ messages });
+
+      const sentMessages = mockCreateParams[0].messages as Array<
+        Record<string, unknown>
+      >;
+      expect(sentMessages[1]).toMatchObject({
+        role: "assistant",
+        reasoning_content: "用户要列目录，需要调用 bash。",
+      });
+    });
+
     it("应正确转换工具定义格式", async () => {
       mockCreateResponse = {
         choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
@@ -634,6 +690,66 @@ describe("OpenAICompatibleProvider", () => {
       const textChunks = chunks.filter((c) => c.type === "text");
       expect(textChunks).toHaveLength(1);
       expect(textChunks[0].text).toBe("思考中...");
+    });
+
+    it("stream 应在 done chunk 保留 reasoning_content 但不作为 think=false 可见文本", async () => {
+      const thinkOffProvider = new OpenAICompatibleProvider({
+        apiKey: "test-key",
+        baseURL: "https://api.test.com/v1",
+        defaultModel: "mimo-v2.5-pro",
+        providerName: "custom-3",
+        extraBody: { think: false },
+      });
+      const sseChunks = [
+        {
+          choices: [
+            {
+              delta: { reasoning_content: "隐藏思考" },
+              finish_reason: null,
+            },
+          ],
+        },
+        {
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: "call-1",
+                    function: { name: "bash", arguments: "{\"command\":\"pwd\"}" },
+                    type: "function",
+                  },
+                ],
+              },
+              finish_reason: null,
+            },
+          ],
+        },
+        {
+          choices: [{ delta: {}, finish_reason: "tool_calls" }],
+        },
+        {
+          choices: [{ delta: {} }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        },
+      ];
+
+      mockStreamResponse = createAsyncIterable(sseChunks);
+
+      const chunks: LLMStreamChunk[] = [];
+      for await (const chunk of thinkOffProvider.stream({
+        messages: [
+          { id: "1", role: "user", content: "pwd", createdAt: new Date() },
+        ],
+      })) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks.filter((c) => c.type === "text")).toHaveLength(0);
+      expect(chunks.find((c) => c.type === "done")).toMatchObject({
+        reasoningContent: "隐藏思考",
+      });
     });
   });
 });

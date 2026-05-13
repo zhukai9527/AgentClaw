@@ -146,6 +146,12 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
 
     const choice = response.choices[0];
     const contentBlocks = this.convertResponseMessage(choice.message);
+    const responseExtra = choice.message as unknown as Record<
+      string,
+      string | null | undefined
+    >;
+    const reasoningContent =
+      responseExtra.reasoning_content ?? responseExtra.reasoning ?? undefined;
     const tokensIn = response.usage?.prompt_tokens ?? 0;
     const tokensOut = response.usage?.completion_tokens ?? 0;
     const usageAny = response.usage as unknown as
@@ -160,6 +166,7 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
       content: contentBlocks,
       createdAt: new Date(),
       model,
+      reasoningContent: reasoningContent || undefined,
       tokensIn,
       tokensOut,
       cacheReadTokens,
@@ -206,6 +213,7 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
     let tokensOut = 0;
     let cacheReadTokens = 0;
     let finishReason: string | null = null;
+    let reasoningContent = "";
 
     for await (const chunk of stream) {
       // Extract usage from the final chunk (sent when stream_options.include_usage is true)
@@ -230,6 +238,11 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
 
       // Text content — also check "reasoning" field for thinking-mode models
       const deltaExtra = delta as unknown as Record<string, string>;
+      const deltaReasoningContent =
+        deltaExtra.reasoning_content || deltaExtra.reasoning || "";
+      if (deltaReasoningContent) {
+        reasoningContent += deltaReasoningContent;
+      }
       const deltaText =
         this.extraBody?.think === false
           ? delta.content || ""
@@ -275,6 +288,7 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
         cacheReadTokens: cacheReadTokens || undefined,
       },
       model,
+      reasoningContent: reasoningContent || undefined,
       stopReason: this.mapFinishReason(finishReason),
     };
   }
@@ -512,8 +526,21 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
   private convertAssistantMessage(
     msg: Message,
   ): OpenAI.ChatCompletionAssistantMessageParam {
+    const attachReasoningContent = <T extends Record<string, unknown>>(
+      payload: T,
+    ): T => {
+      if (msg.reasoningContent) {
+        (payload as Record<string, unknown>).reasoning_content =
+          msg.reasoningContent;
+      }
+      return payload;
+    };
+
     if (typeof msg.content === "string") {
-      return { role: "assistant", content: msg.content };
+      return attachReasoningContent({
+        role: "assistant",
+        content: msg.content,
+      }) as OpenAI.ChatCompletionAssistantMessageParam;
     }
 
     // Build assistant message with optional tool_calls
@@ -525,10 +552,13 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
     const text = textParts.map((b) => (b as { text: string }).text).join("");
 
     if (toolUseParts.length === 0) {
-      return { role: "assistant", content: text || null };
+      return attachReasoningContent({
+        role: "assistant",
+        content: text || null,
+      }) as OpenAI.ChatCompletionAssistantMessageParam;
     }
 
-    return {
+    return attachReasoningContent({
       role: "assistant",
       content: text || null,
       tool_calls: toolUseParts.map((t) => ({
@@ -539,7 +569,7 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
           arguments: JSON.stringify(t.input),
         },
       })),
-    };
+    }) as OpenAI.ChatCompletionAssistantMessageParam;
   }
 
   private convertToolResultMessages(

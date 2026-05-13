@@ -45,6 +45,8 @@ export interface Message {
   createdAt: Date;
   /** Model that generated this message (for assistant messages) */
   model?: string;
+  /** Provider-specific hidden reasoning that must be replayed for some OpenAI-compatible APIs */
+  reasoningContent?: string;
   /** Token usage */
   tokensIn?: number;
   tokensOut?: number;

@@ -288,6 +288,21 @@ describe("SQLiteMemoryStore — 对话轮次", () => {
     expect(turns[0].durationMs).toBe(1200);
     expect(turns[0].toolCallCount).toBe(2);
   });
+
+  it("addTurn 应保存 assistant reasoningContent 供工具历史回传", async () => {
+    await store.addTurn(
+      "conv-1",
+      makeTurn({
+        id: "t-reasoning",
+        role: "assistant",
+        content: "我看看",
+        reasoningContent: "用户要列目录，需要调用 bash。",
+      }),
+    );
+
+    const turns = await store.getHistory("conv-1");
+    expect(turns[0].reasoningContent).toBe("用户要列目录，需要调用 bash。");
+  });
 });
 
 describe("SQLiteMemoryStore — 记忆 CRUD", () => {

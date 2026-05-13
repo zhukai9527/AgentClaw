@@ -973,8 +973,8 @@ export class SQLiteMemoryStore implements MemoryStore {
 
     this.db
       .prepare(
-        `INSERT INTO turns (id, conversation_id, role, content, tool_calls, tool_results, model, tokens_in, tokens_out, duration_ms, tool_call_count, trace_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO turns (id, conversation_id, role, content, tool_calls, tool_results, reasoning_content, model, tokens_in, tokens_out, duration_ms, tool_call_count, trace_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         turn.id || randomUUID(),
@@ -983,6 +983,7 @@ export class SQLiteMemoryStore implements MemoryStore {
         turn.content,
         turn.toolCalls ?? null,
         turn.toolResults ?? null,
+        turn.reasoningContent ?? null,
         turn.model ?? null,
         turn.tokensIn ?? null,
         turn.tokensOut ?? null,
@@ -2499,6 +2500,7 @@ interface TurnRow {
   content: string;
   tool_calls: string | null;
   tool_results: string | null;
+  reasoning_content: string | null;
   model: string | null;
   tokens_in: number | null;
   tokens_out: number | null;
@@ -3024,6 +3026,7 @@ function rowToConversationTurn(row: TurnRow): ConversationTurn {
     content: row.content,
     toolCalls: row.tool_calls ?? undefined,
     toolResults: row.tool_results ?? undefined,
+    reasoningContent: row.reasoning_content ?? undefined,
     model: row.model ?? undefined,
     tokensIn: row.tokens_in ?? undefined,
     tokensOut: row.tokens_out ?? undefined,

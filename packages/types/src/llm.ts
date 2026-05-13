@@ -55,6 +55,8 @@ export interface LLMStreamChunk {
   };
   /** Model ID — present on "done" chunks */
   model?: string;
+  /** Provider-specific hidden reasoning to store and replay, not display */
+  reasoningContent?: string;
   /** Stop reason — present on "done" chunks */
   stopReason?: "end_turn" | "tool_use" | "max_tokens" | "stop_sequence";
 }

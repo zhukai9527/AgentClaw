@@ -557,6 +557,7 @@ export interface ConversationTurn {
   content: string;
   toolCalls?: string; // JSON
   toolResults?: string; // JSON
+  reasoningContent?: string;
   model?: string;
   tokensIn?: number;
   tokensOut?: number;

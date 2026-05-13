@@ -16,6 +16,7 @@ import type {
   Tool,
   ToolExecutionContext,
   ToolResult,
+  ConversationTurn,
 } from "@agentclaw/types";
 import type { ToolRegistryImpl } from "@agentclaw/tools";
 
@@ -377,6 +378,46 @@ describe("SimpleAgentLoop", () => {
       // trace 应记录 max_iterations_reached 错误
       expect(memoryStore.addTrace).toHaveBeenCalledWith(
         expect.objectContaining({ error: "max_iterations_reached" }),
+      );
+    });
+
+    it("LLM stream 错误应保留真实错误而不是误报最大迭代次数", async () => {
+      const failingProvider: LLMProvider = {
+        name: "failing-provider",
+        models: [
+          {
+            id: "mimo-v2.5-pro",
+            provider: "custom-3",
+            name: "MiMo",
+            tier: "flagship",
+            contextWindow: 1_048_576,
+            supportsTools: true,
+            supportsStreaming: true,
+          },
+        ],
+        chat: vi.fn(),
+        stream: vi.fn(async function* () {
+          throw new Error("[custom-3/mimo-v2.5-pro] 400 Param Incorrect");
+        }) as unknown as LLMProvider["stream"],
+      };
+      const loop = new SimpleAgentLoop({
+        provider: failingProvider,
+        toolRegistry,
+        contextManager,
+        memoryStore,
+      });
+
+      const events = await collectEvents(loop.runStream("?", "conv-llm-error"));
+      const completeEvent = events.find((e) => e.type === "response_complete");
+      const message = (completeEvent!.data as { message: Message }).message;
+
+      expect(message.content).toContain("模型调用失败");
+      expect(message.content).toContain("400 Param Incorrect");
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: "llm_stream_error",
+          response: expect.stringContaining("400 Param Incorrect"),
+        }),
       );
     });
   });
@@ -1301,6 +1342,61 @@ describe("SimpleAgentLoop", () => {
       const message = (completeEvent!.data as { message: Message }).message;
       expect(message.tokensIn).toBe(90); // 30 + 60
       expect(message.tokensOut).toBe(40); // 15 + 25
+    });
+
+    it("中间 assistant 工具调用轮次应保存 reasoningContent", async () => {
+      const toolCallChunks = [
+        { type: "text", text: "我看看" },
+        {
+          type: "tool_use_start",
+          toolUse: {
+            id: "tc-shell",
+            name: "bash",
+            input: "",
+          },
+        },
+        {
+          type: "tool_use_delta",
+          toolUse: {
+            id: "tc-shell",
+            name: "",
+            input: "{\"command\":\"pwd\"}",
+          },
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 30, tokensOut: 15 },
+          model: "mock-model",
+          reasoningContent: "用户要求查看当前目录，需要调用 bash。",
+        },
+      ] as LLMStreamChunk[];
+      const finalChunks: LLMStreamChunk[] = [
+        { type: "text", text: "当前目录是..." },
+        {
+          type: "done",
+          usage: { tokensIn: 60, tokensOut: 25 },
+          model: "mock-model",
+        },
+      ];
+      const testProvider = createMockProvider([toolCallChunks, finalChunks]);
+      const bashTool = createMockTool("bash", { content: "/repo" });
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([bashTool]),
+        contextManager,
+        memoryStore,
+      });
+
+      await collectEvents(loop.runStream("pwd", "conv-reasoning"));
+
+      const assistantTurns = (
+        memoryStore.addTurn as ReturnType<typeof vi.fn>
+      ).mock.calls
+        .map((call: unknown[]) => call[1] as ConversationTurn)
+        .filter((turn) => turn.role === "assistant");
+      expect(assistantTurns[0].reasoningContent).toBe(
+        "用户要求查看当前目录，需要调用 bash。",
+      );
     });
 
     it("工具执行失败时应记录 isError 并传回 LLM", async () => {

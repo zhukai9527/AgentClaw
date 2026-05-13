@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS turns (
   content TEXT NOT NULL,
   tool_calls TEXT,
   tool_results TEXT,
+  reasoning_content TEXT,
   model TEXT,
   tokens_in INTEGER,
   tokens_out INTEGER,
@@ -388,6 +389,7 @@ export function initDatabase(dbPath: string): DbAdapter {
     "INTEGER DEFAULT 0",
   );
   addColumnIfMissing(db, "traces", "cache_read_tokens", "INTEGER DEFAULT 0");
+  addColumnIfMissing(db, "turns", "reasoning_content", "TEXT");
 
   // 进化账本：为已有 skill_changes 表补齐审计关联字段
   addColumnIfMissing(db, "skill_changes", "evolution_run_id", "TEXT");

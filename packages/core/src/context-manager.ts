@@ -687,6 +687,7 @@ ${transcript}`;
         content: blocks,
         createdAt: turn.createdAt,
         model: turn.model,
+        reasoningContent: turn.reasoningContent,
       };
     }
 
@@ -794,6 +795,7 @@ ${transcript}`;
       content,
       createdAt: turn.createdAt,
       model: turn.model,
+      reasoningContent: turn.reasoningContent,
     };
   }
 

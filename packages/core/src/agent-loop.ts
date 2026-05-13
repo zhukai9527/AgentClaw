@@ -1108,6 +1108,7 @@ export class SimpleAgentLoop implements AgentLoop {
     let useSkillRollbacks = 0;
     let consecutiveErrors = 0;
     let lastFullText = ""; // Keep last LLM text for fallback response
+    let lastStreamErrorMessage: string | undefined;
     let todoItems: Array<{ text: string; done: boolean }> = [];
     let todoAutoIndex = 0; // Next item to auto-check
     let firstUseSkillCounted = false;
@@ -1268,6 +1269,7 @@ export class SimpleAgentLoop implements AgentLoop {
 
         // Stream LLM response
         let fullText = "";
+        let iterReasoningContent = "";
         const pendingToolCalls: Map<
           number,
           { id: string; name: string; args: string }
@@ -1415,6 +1417,9 @@ export class SimpleAgentLoop implements AgentLoop {
                 if (chunk.model) {
                   usedModel = chunk.model;
                 }
+                if (chunk.reasoningContent) {
+                  iterReasoningContent = chunk.reasoningContent;
+                }
                 if (chunk.stopReason === "max_tokens") {
                   console.warn(
                     `[agent-loop] LLM output truncated (max_tokens reached at ${this._config.maxTokens} tokens)`,
@@ -1430,6 +1435,7 @@ export class SimpleAgentLoop implements AgentLoop {
           console.error(
             `[agent-loop] LLM stream error: ${streamError.message}`,
           );
+          lastStreamErrorMessage = streamError.message;
           yield this.createEvent("error", { error: streamError.message });
 
           // Report to router for error classification & model cooldown
@@ -1673,6 +1679,7 @@ export class SimpleAgentLoop implements AgentLoop {
             role: "assistant",
             content: storedText,
             model: usedModel,
+            reasoningContent: iterReasoningContent || undefined,
             tokensIn: totalTokensIn,
             tokensOut: totalTokensOut,
             cacheCreationTokens: totalCacheCreationTokens || undefined,
@@ -1732,10 +1739,11 @@ export class SimpleAgentLoop implements AgentLoop {
           id: generateId(),
           conversationId: convId,
           role: "assistant",
-          content: storedText,
-          toolCalls: JSON.stringify(toolCalls),
-          model: usedModel,
-          tokensIn: iterTokensIn,
+            content: storedText,
+            toolCalls: JSON.stringify(toolCalls),
+            model: usedModel,
+            reasoningContent: iterReasoningContent || undefined,
+            tokensIn: iterTokensIn,
           tokensOut: iterTokensOut,
           traceId: trace.id,
           createdAt: assistantTurnCreatedAt,
@@ -2765,23 +2773,12 @@ export class SimpleAgentLoop implements AgentLoop {
       const durationMs = Date.now() - startTime;
       const wasAborted = this.aborted;
 
-      // Persist trace
-      trace.model = usedModel;
-      trace.tokensIn = totalTokensIn;
-      trace.tokensOut = totalTokensOut;
-      trace.durationMs = durationMs;
-      trace.error = wasAborted ? "user_aborted" : "max_iterations_reached";
-      try {
-        await this.memoryStore.addTrace(trace);
-        tracePersistedInLoop = true;
-      } catch (e) {
-        console.error("[agent-loop] Failed to persist trace:", e);
-      }
-
       // Store a final assistant turn with cumulative usage stats.
       // For abort: empty content. For max iterations: generate failure summary via LLM.
       let fallbackContent = "";
-      if (!wasAborted) {
+      if (lastStreamErrorMessage) {
+        fallbackContent = `模型调用失败：${lastStreamErrorMessage}`;
+      } else if (!wasAborted) {
         // Try to generate a structured failure summary
         try {
           const toolSummary = trace.steps
@@ -2820,6 +2817,26 @@ export class SimpleAgentLoop implements AgentLoop {
           fallbackContent = lastFullText || MAX_ITERATIONS_MESSAGE;
         }
       }
+
+      // Persist trace after fallback content is known so UI/debugging shows the
+      // real terminal reason instead of masking provider errors as iteration caps.
+      trace.model = usedModel;
+      trace.tokensIn = totalTokensIn;
+      trace.tokensOut = totalTokensOut;
+      trace.durationMs = durationMs;
+      trace.response = fallbackContent;
+      trace.error = wasAborted
+        ? "user_aborted"
+        : lastStreamErrorMessage
+          ? "llm_stream_error"
+          : "max_iterations_reached";
+      try {
+        await this.memoryStore.addTrace(trace);
+        tracePersistedInLoop = true;
+      } catch (e) {
+        console.error("[agent-loop] Failed to persist trace:", e);
+      }
+
       const fallbackTurn: ConversationTurn = {
         id: generateId(),
         conversationId: convId,
