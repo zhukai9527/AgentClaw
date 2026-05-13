@@ -38,6 +38,7 @@ function loadSiteConfig(): SiteConfig {
     ],
     loginWallKeywords: [
       "安全验证", "请登录", "登录后", "请先登录",
+      "当前环境异常", "完成验证后即可继续访问", "requiring CAPTCHA",
       "login required", "sign in to", "please log in", "access denied",
     ],
     noisePatterns: [
@@ -74,6 +75,30 @@ const SPA_DOMAINS = new Set(siteConfig.spaDomains);
 
 /** 登录墙关键词——命中任一则提示用户需要登录态 */
 const LOGIN_WALL_KEYWORDS = siteConfig.loginWallKeywords;
+
+/** 微信公众号文章直连能拿到正文，Jina Reader 经常只返回微信验证页 */
+function isWeixinArticleHost(hostname: string): boolean {
+  return hostname === "mp.weixin.qq.com";
+}
+
+function normalizeText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function isBlockedContent(content: string): boolean {
+  const lower = content.toLowerCase();
+  if (LOGIN_WALL_KEYWORDS.some((kw) => lower.includes(kw.toLowerCase()))) {
+    return true;
+  }
+
+  const compact = content.replace(/\s+/g, "");
+  return (
+    compact.includes("当前环境异常") ||
+    compact.includes("完成验证后即可继续访问") ||
+    (compact.includes("环境异常") && compact.includes("去验证")) ||
+    lower.includes("requiring captcha")
+  );
+}
 
 /** Check if hostname resolves to a private/internal address (SSRF protection) */
 function isPrivateHost(hostname: string): boolean {
@@ -203,6 +228,28 @@ function htmlToMarkdown(html: string, _url?: string): string {
   return cleanMarkdown(md);
 }
 
+function weixinArticleHtmlToMarkdown(html: string): string | null {
+  try {
+    const { document } = parseHTML(html);
+    const contentEl = document.querySelector("#js_content");
+    const text = normalizeText(contentEl?.textContent ?? "");
+    if (!contentEl || text.length < 20) {
+      return null;
+    }
+
+    const titleText = normalizeText(
+      document.querySelector("#activity-name")?.textContent ??
+        document.querySelector("meta[property='og:title']")?.getAttribute("content") ??
+        document.querySelector("title")?.textContent ??
+        "",
+    );
+    const title = titleText ? `# ${titleText}\n\n` : "";
+    return cleanMarkdown(title + turndown.turndown(contentEl.innerHTML));
+  } catch {
+    return null;
+  }
+}
+
 export const webFetchTool: Tool = {
   name: "web_fetch",
   description:
@@ -301,10 +348,19 @@ export const webFetchTool: Tool = {
           content = body;
         }
       } else if (contentType.includes("text/html")) {
-        // 优先 Jina Reader（Markdown 质量更高），失败 fallback 本地 Readability
-        const jina = await tryJinaReader(url);
-        content = jina ?? htmlToMarkdown(body);
-        if (jina) strategy = "jina";
+        const nativeContent = isWeixinArticleHost(parsedUrl.hostname)
+          ? (weixinArticleHtmlToMarkdown(body) ?? htmlToMarkdown(body))
+          : htmlToMarkdown(body);
+
+        // 优先 Jina Reader（Markdown 质量更高），但微信公众号直连正文更可靠，且 Jina
+        // 对微信常返回“环境异常/验证码”页面，不能把它当成功内容。
+        if (isWeixinArticleHost(parsedUrl.hostname)) {
+          content = nativeContent;
+        } else {
+          const jina = await tryJinaReader(url);
+          content = jina ?? nativeContent;
+          if (jina) strategy = "jina";
+        }
 
         // SPA 自动回退：已知 SPA 域名直接走 Playwright；其他站点内容极少时也降级
         // Jina 已成功且内容充足时跳过 Playwright
@@ -321,23 +377,31 @@ export const webFetchTool: Tool = {
           }
         }
 
-        // 登录墙检测（对 native 和 playwright 结果都生效）
-        if (
-          LOGIN_WALL_KEYWORDS.some((kw) =>
-            content.toLowerCase().includes(kw.toLowerCase()),
-          )
-        ) {
-          strategy = "login_wall";
-          content +=
-            "\n\n[注意] 此页面需要登录态才能访问完整内容。建议使用 browser 技能（利用用户真实浏览器登录状态），或 agent-browser 技能（自动匹配已保存的登录态）。";
-        }
       } else {
         // Plain text or other text formats
         content = body;
       }
 
+      // 验证页/登录墙必须在保存和自动发送前硬拦截，避免把错误页面交付给用户。
+      if (!isJsonResponse && isBlockedContent(content)) {
+        strategy = "login_wall";
+        return {
+          content:
+            `无法抓取完整内容：${url} 需要验证或登录态。` +
+            "请使用 browser/Chrome 登录态抓取，或在验证完成后重试。",
+          isError: true,
+          metadata: {
+            url,
+            strategy,
+            status: response.status,
+            contentType,
+            blocked: true,
+          },
+        };
+      }
+
       // ── save_as: write content to file directly (skip LLM rewriting) ──
-      if (saveAs && strategy !== "login_wall") {
+      if (saveAs) {
         const workDir =
           context?.workDir ??
           join(resolve(process.cwd(), "data", "tmp"), `fetch_${Date.now()}`);
@@ -481,6 +545,8 @@ async function tryJinaReader(url: string): Promise<string | null> {
     const text = (await resp.text()).trim();
     // Jina 返回空或极短内容时视为失败
     if (text.length < 100) return null;
+    // Jina 自身遇到验证码/环境异常时，回退本机直连内容，不把验证页当成功正文。
+    if (isBlockedContent(text)) return null;
     return text;
   } catch {
     return null;

@@ -12,6 +12,7 @@
   ],
   "loginWallKeywords": [
     "安全验证", "请登录", "登录后", "请先登录",
+    "当前环境异常", "完成验证后即可继续访问", "requiring CAPTCHA",
     "login required", "sign in to", "please log in", "access denied"
   ],
   "noisePatterns": [

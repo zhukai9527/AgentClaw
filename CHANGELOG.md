@@ -27,6 +27,7 @@
 - **P2 工具输出瘦身**：`web_search` 结果硬夹到 5 条，`web_fetch` 默认返回带来源 URL 的短事实卡并保留 `save_as` 完整保存路径，`rss_top` 对相同 feed/topN 做短期缓存；真实 AI 新闻回归约 `11.3K input token / 35.1s`，不再因超限搜索多跑一轮。
 
 ### Fixed
+- **微信公众号 web_fetch 验证页误发**：`web_fetch` 对 `mp.weixin.qq.com` 改为本机直连提取 `#js_content`，不再优先走 Jina Reader；Jina 或最终内容出现“当前环境异常/完成验证后即可继续访问/CAPTCHA”时会硬拦截保存和 `auto_send`，避免把微信验证页当正文发送。
 - **微信公众号发布 inspect 后漂移**：公众号发布任务在 `wechat_publish.py inspect` 返回 `INSPECT_READY` 后进入运行时状态机，下一轮只暴露 `bash` 并只允许锚定的 `publish` 命令，防止模型继续搜索、重写文章、调用预览或寻找不存在的 skill 路径。
 - **微信公众号发布前置 bash 漂移**：公众号发布任务在没有 Markdown 源文前不再暴露 `bash`；`file_write` 成功写入 `.md` 后下一轮只暴露 CLI 所需 `bash`，动态提示下一条 inspect/publish 命令，并强制 `capabilities/inspect/publish` 带 `--json`，确保运行时能读取 `manifest_json` 和主题审计。
 - **微信公众号发布参数漂移**：当模型在 `inspect` 通过后调用 `publish` 却漏掉 Markdown 位置参数时，运行时会用刚检查过的 canonical Markdown 路径补齐命令，避免一次 CLI 报错和重复发布尝试。
