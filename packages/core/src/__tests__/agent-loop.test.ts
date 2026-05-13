@@ -284,6 +284,49 @@ describe("SimpleAgentLoop", () => {
       expect(message.model).toBe("mock-model");
     });
 
+    it("纯文本回复应按 provider 文本 chunk 增量产生 response_chunk", async () => {
+      const chunkA = "甲".repeat(120);
+      const chunkB = "乙".repeat(120);
+      const chunkC = "丙".repeat(120);
+      const testProvider = createMockProvider([
+        [
+          { type: "text", text: chunkA },
+          { type: "text", text: chunkB },
+          { type: "text", text: chunkC },
+          {
+            type: "done",
+            usage: { tokensIn: 50, tokensOut: 120 },
+            model: "mock-model",
+          },
+        ],
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry,
+        contextManager,
+        memoryStore,
+      });
+
+      const events = await collectEvents(
+        loop.runStream("请输出一段长文本", "conv-streaming-text"),
+      );
+
+      const responseChunks = events
+        .filter((event) => event.type === "response_chunk")
+        .map((event) => (event.data as { text: string }).text);
+      expect(responseChunks.length).toBeGreaterThan(1);
+      expect(responseChunks.join("")).toBe(`${chunkA}${chunkB}${chunkC}`);
+
+      const firstChunkIndex = events.findIndex(
+        (event) => event.type === "response_chunk",
+      );
+      const completeIndex = events.findIndex(
+        (event) => event.type === "response_complete",
+      );
+      expect(firstChunkIndex).toBeGreaterThanOrEqual(0);
+      expect(firstChunkIndex).toBeLessThan(completeIndex);
+    });
+
     it("应将用户消息和助手回复存入 memoryStore", async () => {
       const loop = new SimpleAgentLoop({
         provider,

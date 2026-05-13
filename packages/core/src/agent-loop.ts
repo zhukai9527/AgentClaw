@@ -85,6 +85,49 @@ const RETRYABLE_TOOLS = new Set([
 const MAX_RETRIES = 2;
 const RETRY_BASE_DELAY = 2000; // ms
 const INVALID_TOOL_MARKUP_RE = /<\/?tool_call\b|<function=|<\/function>|<parameter=/i;
+const RESPONSE_STREAM_GUARD_CHARS = 64;
+
+function createSafeResponseStreamBuffer(): {
+  append: (text: string) => string | null;
+  remainingFor: (finalText: string) => string;
+  readonly blocked: boolean;
+} {
+  let pending = "";
+  let emitted = "";
+  let blocked = false;
+
+  return {
+    append(text: string): string | null {
+      if (blocked || !text) return null;
+
+      pending += text;
+      if (INVALID_TOOL_MARKUP_RE.test(pending)) {
+        blocked = true;
+        pending = "";
+        return null;
+      }
+
+      if (pending.length <= RESPONSE_STREAM_GUARD_CHARS) return null;
+
+      const safeText = pending.slice(0, -RESPONSE_STREAM_GUARD_CHARS);
+      pending = pending.slice(-RESPONSE_STREAM_GUARD_CHARS);
+      emitted += safeText;
+      return safeText;
+    },
+
+    remainingFor(finalText: string): string {
+      if (!emitted) return finalText;
+      if (finalText.startsWith(emitted)) {
+        return finalText.slice(emitted.length);
+      }
+      return finalText;
+    },
+
+    get blocked(): boolean {
+      return blocked;
+    },
+  };
+}
 
 import { sanitizeString } from "./utils.js";
 /**
@@ -1387,6 +1430,7 @@ export class SimpleAgentLoop implements AgentLoop {
         // 流异常捕获：网络断开/API 错误时仍需保留 token 统计和 trace
         let streamError: Error | undefined;
         let llmStopReason: string | undefined;
+        const responseStream = createSafeResponseStreamBuffer();
         try {
           for await (const chunk of stream) {
             if (this.aborted) break;
@@ -1395,6 +1439,12 @@ export class SimpleAgentLoop implements AgentLoop {
               case "text":
                 if (chunk.text) {
                   fullText += chunk.text;
+                  const safeText = responseStream.append(chunk.text);
+                  if (safeText && pendingToolCalls.size === 0) {
+                    yield this.createEvent("response_chunk", {
+                      text: safeText,
+                    });
+                  }
                 }
                 break;
               case "tool_use_start":
@@ -1732,9 +1782,10 @@ export class SimpleAgentLoop implements AgentLoop {
             durationMs,
             toolCallCount: totalToolCalls,
           };
-          if (storedText) {
+          const remainingText = responseStream.remainingFor(storedText);
+          if (remainingText) {
             yield this.createEvent("response_chunk", {
-              text: storedText,
+              text: remainingText,
             });
           }
           this.setState("idle");
