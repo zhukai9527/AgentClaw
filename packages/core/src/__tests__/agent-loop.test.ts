@@ -2271,5 +2271,89 @@ describe("SimpleAgentLoop", () => {
         expect.objectContaining({ error: "invalid_tool_markup_final" }),
       );
     });
+
+    it("合成阶段首次输出伪工具 XML 时应重试生成最终答复", async () => {
+      const makeToolCallChunks = (
+        id: string,
+        name: string,
+        input: Record<string, unknown>,
+      ): LLMStreamChunk[] => [
+        { type: "tool_use_start", toolUse: { id, name, input: "" } },
+        {
+          type: "tool_use_delta",
+          toolUse: { id, name: "", input: JSON.stringify(input) },
+        },
+      ];
+      const firstRoundChunks: LLMStreamChunk[] = [];
+      for (let i = 0; i < 4; i++) {
+        firstRoundChunks.push(
+          ...makeToolCallChunks(`tc-fetch-${i}`, "web_fetch", {
+            url: `https://example.com/news-${i}`,
+            max_chars: 4000,
+          }),
+        );
+      }
+      firstRoundChunks.push({
+        type: "done",
+        usage: { tokensIn: 100, tokensOut: 40 },
+        model: "mock-model",
+        stopReason: "tool_use",
+      });
+
+      const invalidToolMarkup =
+        "<tool_call>\n<function=web_search>\n<parameter=query>more AI news</parameter>\n</function>\n</tool_call>";
+      const finalAnswer = "主人，今日 AI 简报：OpenAI 发布广告平台；Meta 推进 agentic AI。";
+      const testProvider = createMockProvider([
+        firstRoundChunks,
+        [
+          { type: "text", text: invalidToolMarkup },
+          {
+            type: "done",
+            usage: { tokensIn: 120, tokensOut: 30 },
+            model: "mock-model",
+            stopReason: "end_turn",
+          },
+        ],
+        [
+          { type: "text", text: finalAnswer },
+          {
+            type: "done",
+            usage: { tokensIn: 130, tokensOut: 35 },
+            model: "mock-model",
+            stopReason: "end_turn",
+          },
+        ],
+      ]);
+
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("web_fetch", {
+            content:
+              "OpenAI launches self-serve advertising platform for ChatGPT.\nMeta reportedly develops advanced agentic AI assistant.",
+          }),
+          createMockTool("web_search"),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("在外网搜索今日AI界新闻生成简报", "conv-invalid-markup-retry"),
+      );
+
+      const streamedText = events
+        .filter((event) => event.type === "response_chunk")
+        .map((event) => (event.data as { text: string }).text)
+        .join("");
+      expect(streamedText).toContain(finalAnswer);
+      expect(streamedText).not.toContain("<tool_call>");
+      expect(streamedText).not.toContain("不可执行的工具标记");
+      expect(testProvider.stream).toHaveBeenCalledTimes(3);
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.not.objectContaining({ error: "invalid_tool_markup_final" }),
+      );
+    });
   });
 });

@@ -1645,7 +1645,7 @@ export class SimpleAgentLoop implements AgentLoop {
           iterations < this._config.maxIterations
         ) {
           invalidFinalMarkupRetries++;
-          if (invalidFinalMarkupRetries >= 2 || forceSynthesisOnly) {
+          if (invalidFinalMarkupRetries >= 2) {
             forcedStopReason = "invalid_tool_markup_final";
             fullText = buildSynthesisFallbackResponse(
               inputTextForHeuristics,
