@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { registerSessionRoutes } from "../routes/sessions.js";
 import { registerConfigRoutes } from "../routes/config.js";
 import { registerToolRoutes } from "../routes/tools.js";
+import { registerPreviewRoutes } from "../routes/preview.js";
 import type { AppContext } from "../bootstrap.js";
 
 /**
@@ -428,5 +429,72 @@ describe("Tool 路由", () => {
       eventType: "online_regression",
       success: true,
     });
+  });
+});
+
+describe("Preview 路由", () => {
+  let app: FastifyInstance;
+  let dataTmpDir: string;
+
+  beforeEach(async () => {
+    dataTmpDir = mkdtempSync(path.join(tmpdir(), "agentclaw-preview-"));
+    app = Fastify({ logger: false });
+    (registerPreviewRoutes as any)(app, dataTmpDir, {
+      markdownPdfRenderer: async ({ html }: { html: string }) =>
+        Buffer.from(`PDF:${html.includes("<h1>Report</h1>")}`),
+    });
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    rmSync(dataTmpDir, { recursive: true, force: true });
+  });
+
+  it("从 Markdown 预览 HTML 导出 PDF", async () => {
+    mkdirSync(path.join(dataTmpDir, "session-1"));
+    writeFileSync(
+      path.join(dataTmpDir, "session-1", "report.md"),
+      "# Report\n\n正文",
+      "utf-8",
+    );
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/preview/session-1/report.md.pdf",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("application/pdf");
+    expect(res.headers["content-disposition"]).toContain(
+      'attachment; filename="report.pdf"',
+    );
+    expect(res.body).toBe("PDF:true");
+  });
+
+  it("不把非 Markdown 的 .pdf 后缀误判为导出", async () => {
+    mkdirSync(path.join(dataTmpDir, "session-1"));
+    writeFileSync(path.join(dataTmpDir, "session-1", "report.txt"), "text");
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/preview/session-1/report.txt.pdf",
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toContain("File not found");
+  });
+
+  it("不把普通 PDF 预览路径误判为 Markdown 导出", async () => {
+    mkdirSync(path.join(dataTmpDir, "session-1"));
+    writeFileSync(path.join(dataTmpDir, "session-1", "report.pdf"), "pdf");
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/preview/session-1/report.pdf",
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("Unsupported format: .pdf");
   });
 });

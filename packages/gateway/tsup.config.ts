@@ -31,6 +31,7 @@ export default defineConfig({
     "silk-wasm",
     "opencc-js",
     "pdf-parse",
+    "playwright-core",
     "@mozilla/readability",
     "linkedom",
     "turndown",

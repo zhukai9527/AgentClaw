@@ -1781,6 +1781,13 @@
   background: var(--accent-subtle-bg, rgba(107, 127, 94, 0.1));
 }
 
+.preview-panel-pdf-btn {
+  width: 38px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
 .preview-panel-body {
   flex: 1;
   position: relative;

@@ -112,6 +112,7 @@ interface PreviewFile {
   href: string;
   filename: string;
   downloadHref?: string;
+  pdfHref?: string;
 }
 
 const PreviewContext = createContext<(file: PreviewFile) => void>(() => {});
@@ -314,17 +315,19 @@ function HtmlPreviewCard({
   href,
   filename,
   downloadHref,
+  pdfHref,
 }: {
   href: string;
   filename: string;
   downloadHref?: string;
+  pdfHref?: string;
 }) {
   const { t } = useTranslation();
   const openPreview = useContext(PreviewContext);
   return (
     <div
       className="html-preview-card"
-      onClick={() => openPreview({ href, filename, downloadHref })}
+      onClick={() => openPreview({ href, filename, downloadHref, pdfHref })}
     >
       <span className="html-preview-icon">&#9654;</span>
       <span className="html-preview-name">{filename}</span>
@@ -342,7 +345,7 @@ function PreviewPanel({
 }) {
   const { t } = useTranslation();
   const { theme } = useTheme();
-  const { href, filename, downloadHref } = file;
+  const { href, filename, downloadHref, pdfHref } = file;
   // Binary files: no source view or copy
   const isBinary =
     /\.(pptx?|xlsx?|xls|pdf|docx?|zip|rar|7z|tar|gz|bz2|exe|dll|so|dylib|png|jpe?g|gif|bmp|webp|ico|svg|mp[34]|wav|ogg|flac|m4a|avi|mov|mkv|webm)$/i.test(
@@ -516,6 +519,16 @@ function PreviewPanel({
             title={t("chat.download")}
           >
             <IconDownload size={16} />
+          </a>
+        )}
+        {pdfHref && (
+          <a
+            href={pdfHref}
+            download
+            className="preview-panel-btn preview-panel-pdf-btn"
+            title="导出 PDF"
+          >
+            PDF
           </a>
         )}
         <a
@@ -760,11 +773,13 @@ const mdComponents = {
       // Markdown / Office documents: route through /preview/ for server rendering
       if (/\.(md|docx|pptx|xlsx|xls|csv)$/i.test(href)) {
         const previewHref = href.replace(/^\/files\//, "/preview/");
+        const pdfHref = /\.md$/i.test(href) ? `${previewHref}.pdf` : undefined;
         return (
           <HtmlPreviewCard
             href={previewHref}
             filename={filename}
             downloadHref={href}
+            pdfHref={pdfHref}
           />
         );
       }

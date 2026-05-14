@@ -50,6 +50,89 @@ function setCache(filePath: string, entry: CacheEntry): void {
   cache.set(filePath, entry);
 }
 
+/* ── Markdown PDF export ───────────────────────────── */
+
+interface MarkdownPdfRenderContext {
+  html: string;
+  filePath: string;
+  baseUrl: string;
+}
+
+type MarkdownPdfRenderer = (
+  context: MarkdownPdfRenderContext,
+) => Promise<Buffer>;
+
+interface PreviewRouteOptions {
+  markdownPdfRenderer?: MarkdownPdfRenderer;
+}
+
+const CHROMIUM_PATHS = [
+  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+  "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+];
+
+function findChromiumExecutable(): string | null {
+  const envPath =
+    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
+    process.env.CHROME_EXECUTABLE_PATH ||
+    process.env.CHROMIUM_EXECUTABLE_PATH;
+  if (envPath && existsSync(envPath)) return envPath;
+
+  for (const p of CHROMIUM_PATHS) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+
+function withBaseHref(html: string, baseUrl: string): string {
+  const base = `<base href="${baseUrl.replace(/\/$/, "")}/">`;
+  return html.replace("<head>", `<head>\n${base}`);
+}
+
+async function renderMarkdownPdf({
+  html,
+  baseUrl,
+}: MarkdownPdfRenderContext): Promise<Buffer> {
+  const executablePath = findChromiumExecutable();
+  if (!executablePath) {
+    throw new Error(
+      "No Chromium executable found. Set CHROME_EXECUTABLE_PATH to enable PDF export.",
+    );
+  }
+
+  const { chromium } = await import("playwright-core");
+  const browser = await chromium.launch({
+    executablePath,
+    headless: true,
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(withBaseHref(html, baseUrl), {
+      waitUntil: "networkidle",
+    });
+    return await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: {
+        top: "16mm",
+        right: "14mm",
+        bottom: "18mm",
+        left: "14mm",
+      },
+    });
+  } finally {
+    await browser.close();
+  }
+}
+
 /* ── HTML wrapper ───────────────────────────────────── */
 
 function wrapHtml(title: string, body: string, extraStyles = ""): string {
@@ -79,6 +162,13 @@ function wrapHtml(title: string, body: string, extraStyles = ""): string {
   th { background: #f6f8fa; font-weight: 600; }
   img { max-width: 100%; border-radius: 6px; }
   a { color: #2563eb; }
+  @media print {
+    body { max-width: none; padding: 0; color: #111; background: #fff; }
+    h1, h2, h3 { break-after: avoid; page-break-after: avoid; }
+    table, pre, blockquote, img { break-inside: avoid; page-break-inside: avoid; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    a { color: #111; text-decoration: underline; }
+  }
   @media (prefers-color-scheme: dark) {
     body { background: #1a1a2e; color: #e0e0e0; }
     pre { background: #16213e; }
@@ -316,6 +406,7 @@ const CONVERTERS: Record<string, Converter> = {
 export function registerPreviewRoutes(
   app: FastifyInstance,
   dataTmpDir: string,
+  options: PreviewRouteOptions = {},
 ): void {
   if (SOFFICE) {
     console.log("[preview] LibreOffice found:", SOFFICE);
@@ -324,9 +415,12 @@ export function registerPreviewRoutes(
   }
 
   app.get("/preview/*", async (request, reply) => {
-    const relPath = decodeURIComponent(
+    const rawRelPath = decodeURIComponent(
       (request.params as { "*": string })["*"],
     );
+    const isPdfExport = rawRelPath.toLowerCase().endsWith(".md.pdf");
+    const relPath = isPdfExport ? rawRelPath.slice(0, -4) : rawRelPath;
+
     // Security: block path traversal
     if (relPath.includes("..")) {
       return reply.code(400).send("Invalid path");
@@ -339,6 +433,9 @@ export function registerPreviewRoutes(
 
     const ext = extname(filePath).toLowerCase();
     const converter = CONVERTERS[ext];
+    if (isPdfExport && ext !== ".md") {
+      return reply.code(400).send(`Unsupported PDF export format: ${ext}`);
+    }
     if (!converter) {
       return reply.code(400).send(`Unsupported format: ${ext}`);
     }
@@ -346,6 +443,41 @@ export function registerPreviewRoutes(
     const stat = statSync(filePath);
     if (stat.size > MAX_FILE_SIZE) {
       return reply.code(413).send("File too large for preview (max 20MB)");
+    }
+
+    if (isPdfExport) {
+      const mtime = stat.mtimeMs;
+      const cacheKey = `${filePath}#pdf`;
+      let cached = getCached(cacheKey, mtime);
+      if (!cached) {
+        const html = (await convertMarkdown(filePath)).data.toString("utf-8");
+        const protocol =
+          (request.headers["x-forwarded-proto"] as string | undefined) ??
+          request.protocol;
+        const host = request.headers.host ?? "localhost";
+        const renderer = options.markdownPdfRenderer ?? renderMarkdownPdf;
+        const pdf = await renderer({
+          html,
+          filePath,
+          baseUrl: `${protocol}://${host}`,
+        });
+        cached = {
+          data: pdf,
+          contentType: "application/pdf",
+          mtime,
+        };
+        setCache(cacheKey, cached);
+      }
+
+      const pdfName = `${basename(filePath, ext)}.pdf`;
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        "content-type": cached.contentType,
+        "content-length": cached.data.length.toString(),
+        "content-disposition": `attachment; filename="${encodeURIComponent(pdfName)}"`,
+      });
+      reply.raw.end(cached.data);
+      return;
     }
 
     // Check cache
