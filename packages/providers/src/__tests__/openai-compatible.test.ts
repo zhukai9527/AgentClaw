@@ -578,6 +578,82 @@ describe("OpenAICompatibleProvider", () => {
       });
     });
 
+    it("MiMo 老会话缺失 reasoning_content 时应移除无效工具历史", async () => {
+      const mimoProvider = new OpenAICompatibleProvider({
+        apiKey: "test-key",
+        baseURL: "https://token-plan-cn.xiaomimimo.com/v1",
+        defaultModel: "mimo-v2.5-pro",
+        providerName: "custom-3",
+      });
+      mockCreateResponse = {
+        choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 50, completion_tokens: 10 },
+      };
+
+      const messages: Message[] = [
+        {
+          id: "msg-1",
+          role: "user",
+          content: "列目录",
+          createdAt: new Date(),
+        },
+        {
+          id: "msg-2",
+          role: "assistant",
+          content: [
+            { type: "text", text: "我看看" },
+            {
+              type: "tool_use",
+              id: "legacy-call-1",
+              name: "bash",
+              input: { command: "ls" },
+            },
+          ],
+          createdAt: new Date(),
+        },
+        {
+          id: "msg-3",
+          role: "tool",
+          content: [
+            {
+              type: "tool_result",
+              toolUseId: "legacy-call-1",
+              content: "file.txt",
+            },
+          ],
+          createdAt: new Date(),
+        },
+        {
+          id: "msg-4",
+          role: "user",
+          content: "继续",
+          createdAt: new Date(),
+        },
+      ];
+
+      await mimoProvider.chat({ messages });
+
+      const sentMessages = mockCreateParams[0].messages as Array<
+        Record<string, unknown>
+      >;
+      expect(sentMessages).not.toContainEqual(
+        expect.objectContaining({
+          role: "assistant",
+          tool_calls: expect.any(Array),
+        }),
+      );
+      expect(sentMessages).not.toContainEqual(
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "legacy-call-1",
+        }),
+      );
+      expect(sentMessages).toContainEqual({
+        role: "assistant",
+        content: "我看看",
+      });
+    });
+
     it("应正确转换工具定义格式", async () => {
       mockCreateResponse = {
         choices: [{ message: { content: "ok" }, finish_reason: "stop" }],

@@ -136,6 +136,7 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
     const messages = this.convertMessages(
       request.messages,
       request.systemPrompt,
+      model,
     );
 
     const response = await this.client.chat.completions.create({
@@ -193,6 +194,7 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
     const messages = this.convertMessages(
       request.messages,
       request.systemPrompt,
+      model,
     );
 
     let stream;
@@ -334,6 +336,7 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
     const messages = this.convertMessages(
       request.messages,
       request.systemPrompt,
+      request.model ?? this.defaultModel,
     );
     // Convert OpenAI message format to Ollama native format
     const ollamaMessages = messages.map((m) => ({
@@ -459,8 +462,12 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
   private convertMessages(
     messages: Message[],
     systemPrompt?: string,
+    model?: string,
   ): OpenAI.ChatCompletionMessageParam[] {
     const result: OpenAI.ChatCompletionMessageParam[] = [];
+    const omitToolResultIds = new Set<string>();
+    const requiresReasoningReplay =
+      this.requiresReasoningContentOnAssistantMessages(model);
 
     // Add system prompt if present
     if (systemPrompt) {
@@ -475,15 +482,35 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
         const userContent = this.convertUserContent(msg.content);
         result.push({ role: "user", content: userContent });
       } else if (msg.role === "assistant") {
-        const assistantMsg = this.convertAssistantMessage(msg);
-        result.push(assistantMsg);
+        const assistantMsg = requiresReasoningReplay
+          ? this.convertAssistantMessageForReasoningReplay(
+              msg,
+              omitToolResultIds,
+            )
+          : this.convertAssistantMessage(msg);
+        if (assistantMsg) result.push(assistantMsg);
       } else if (msg.role === "tool") {
-        const toolMsgs = this.convertToolResultMessages(msg);
+        const toolMsgs = this.convertToolResultMessages(msg).filter(
+          (toolMsg) =>
+            !omitToolResultIds.has(
+              (toolMsg as unknown as { tool_call_id: string }).tool_call_id,
+            ),
+        );
         result.push(...toolMsgs);
       }
     }
 
     return result;
+  }
+
+  private requiresReasoningContentOnAssistantMessages(model?: string): boolean {
+    const normalizedModel = (model ?? this.defaultModel).toLowerCase();
+    const normalizedBaseURL = this.baseURL?.toLowerCase() ?? "";
+    return (
+      normalizedModel.includes("mimo-v2.5") ||
+      normalizedModel.includes("mimo-v2-pro") ||
+      normalizedBaseURL.includes("xiaomimimo.com")
+    );
   }
 
   /**
@@ -570,6 +597,37 @@ export class OpenAICompatibleProvider extends BaseLLMProvider {
         },
       })),
     }) as OpenAI.ChatCompletionAssistantMessageParam;
+  }
+
+  private convertAssistantMessageForReasoningReplay(
+    msg: Message,
+    omitToolResultIds: Set<string>,
+  ): OpenAI.ChatCompletionAssistantMessageParam | undefined {
+    if (typeof msg.content === "string") {
+      return this.convertAssistantMessage(msg);
+    }
+
+    const toolUseParts = msg.content.filter(
+      (b): b is ToolUseContent => b.type === "tool_use",
+    );
+    if (toolUseParts.length === 0 || msg.reasoningContent) {
+      return this.convertAssistantMessage(msg);
+    }
+
+    for (const toolUse of toolUseParts) {
+      omitToolResultIds.add(toolUse.id);
+    }
+
+    const text = msg.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { text: string }).text)
+      .join("");
+    if (!text) return undefined;
+
+    return {
+      role: "assistant",
+      content: text,
+    };
   }
 
   private convertToolResultMessages(

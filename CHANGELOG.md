@@ -1,5 +1,10 @@
 # 更新日志
 
+## [1.5.28] - 2026-05-15
+
+### Fixed
+- **MiMo 老会话工具历史 400**：当旧会话中历史 assistant 工具调用缺少 `reasoning_content` 时，OpenAI-compatible provider 会在发送给小米 MiMo 前移除这段不可回放的工具调用及对应 tool result，同时保留可见 assistant 文本，避免用户必须新开会话才能继续使用 Mimo。
+
 ## [1.5.27] - 2026-05-15
 
 ### Added
