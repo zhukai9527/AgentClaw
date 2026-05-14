@@ -770,18 +770,20 @@ function buildTaskToolProfile(
       allowedTools: new Set([
         "use_skill",
         "bash",
+        "claude_code",
         "file_write",
         "send_file",
       ]),
       toolTotalLimits: {
         use_skill: 2,
         bash: 8,
+        claude_code: 2,
         file_write: 3,
         send_file: 2,
       },
       webResearchToolLimit: 0,
       hint:
-        `[任务工具边界]当前是普通 PPTX 生成任务：不要调用 recall、glob、grep、file_read、web_search、web_fetch 或 claude_code 做额外研究/委托。直接 use_skill pptx；如果要写 Python 生成脚本，必须先用 file_write 把脚本写入会话工作目录，再用 bash 运行 python，禁止运行尚不存在的 create_deck.py/create_pptx.py。生成 deck 后，必须用这个 verifier 绝对路径验证：python "${resolveBundledPptxVerifierPath().replace(/\\/g, "/")}" "<会话工作目录>/output.pptx" --out-dir "<会话工作目录>/previews" --require-text --json；然后 send_file 发送验证通过的 .pptx。只有用户明确要求基于仓库/代码/文件研究时，才允许项目读取工具。`,
+        `[任务工具边界]当前是普通 PPTX 生成任务：不要调用 recall、glob、grep、file_read、web_search、web_fetch 做额外研究。直接 use_skill pptx；复杂 deck 可直接调用 claude_code 工具在会话工作目录生成，不要用 bash 运行 claude/claude-code；如果自己写 Python 生成脚本，必须先用 file_write 把脚本写入会话工作目录，再用 bash 运行 python，禁止运行尚不存在的 create_deck.py/create_pptx.py。生成 deck 后，必须用这个 verifier 绝对路径验证：python "${resolveBundledPptxVerifierPath().replace(/\\/g, "/")}" "<会话工作目录>/output.pptx" --out-dir "<会话工作目录>/previews" --require-text --json；然后 send_file 发送验证通过的 .pptx。只有用户明确要求基于仓库/代码/文件研究时，才允许项目读取工具。`,
     };
   }
 
@@ -2275,6 +2277,28 @@ export class SimpleAgentLoop implements AgentLoop {
                 };
                 blockedByPolicy = true;
               }
+            }
+          }
+
+          if (
+            !blockedByPolicy &&
+            effectiveToolName === "bash" &&
+            (pptxSkillLoaded || isPptxGenerationTask)
+          ) {
+            const command =
+              typeof effectiveToolInput.command === "string"
+                ? effectiveToolInput.command.replace(/\\/g, "/")
+                : "";
+            if (
+              /(^|\s|["'`])claude(?:\.cmd|\.exe)?(?:\s|$)/i.test(command) ||
+              /tools\/claude-code|claude-code/i.test(command)
+            ) {
+              result = {
+                content:
+                  "Blocked for PPTX tasks: do not run Claude Code through bash. Use the structured claude_code tool directly with cwd set to the session work directory, then run verify_pptx.py --json and send_file the verified deck.",
+                isError: true,
+              };
+              blockedByPolicy = true;
             }
           }
 

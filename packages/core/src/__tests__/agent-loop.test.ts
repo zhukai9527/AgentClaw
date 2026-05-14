@@ -639,7 +639,7 @@ describe("SimpleAgentLoop", () => {
       );
 
       expect(captured[0]).toEqual(
-        expect.arrayContaining(["use_skill", "bash", "send_file"]),
+        expect.arrayContaining(["use_skill", "bash", "claude_code", "send_file"]),
       );
       expect(captured[0]).not.toContain("recall");
       expect(captured[0]).not.toContain("glob");
@@ -647,7 +647,35 @@ describe("SimpleAgentLoop", () => {
       expect(captured[0]).not.toContain("file_read");
       expect(captured[0]).not.toContain("web_search");
       expect(captured[0]).not.toContain("web_fetch");
-      expect(captured[0]).not.toContain("claude_code");
+    });
+
+    it("PPTX 任务禁止用 bash 绕过 claude_code 工具", async () => {
+      const bashTool = createMockTool("bash", { content: "should not run" });
+      const loop = new SimpleAgentLoop({
+        provider: createMockProvider([
+          createToolCallChunks("tc-bash", "bash", {
+            command:
+              "cd D:/mycode/agentclaw && node -e \"require('./tools/claude-code')\"",
+          }),
+          finalChunks,
+        ]),
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          bashTool,
+          createMockTool("claude_code"),
+          createMockTool("file_write"),
+          createMockTool("send_file"),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 2 },
+      });
+
+      await collectEvents(
+        loop.runStream("生成本活动的PPT，拉赞助用的，目标清晰。", "conv-pptx-no-bash-claude"),
+      );
+
+      expect(bashTool.execute).not.toHaveBeenCalled();
     });
 
     it("明确要求基于仓库研究的 PPTX 任务保留项目读取工具", async () => {
