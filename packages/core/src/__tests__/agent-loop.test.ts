@@ -569,6 +569,70 @@ describe("SimpleAgentLoop", () => {
       expect(captured[0]).not.toContain("bash");
     });
 
+    it("新闻类 PPTX 任务研究后仍可使用 PPTX 生成工具", async () => {
+      const captured: string[][] = [];
+      const newsProvider = createToolCaptureProvider(captured);
+      const testToolRegistry = createMockToolRegistry([
+        createMockTool("web_search"),
+        createMockTool("web_fetch"),
+        createMockTool("use_skill"),
+        createMockTool("bash"),
+        createMockTool("claude_code"),
+        createMockTool("glob"),
+        createMockTool("send_file"),
+        createMockTool("file_write"),
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: newsProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 1 },
+      });
+
+      await collectEvents(
+        loop.runStream("搜索最近 AI 新闻并生成 PPTX", "conv-news-pptx-tools"),
+      );
+
+      expect(captured[0]).toEqual(
+        expect.arrayContaining([
+          "web_search",
+          "web_fetch",
+          "use_skill",
+          "bash",
+          "claude_code",
+          "send_file",
+        ]),
+      );
+      expect(captured[0]).not.toContain("file_write");
+    });
+
+    it("仅提供 PPT 素材且明确先不生成时不触发 PPTX 交付守卫", async () => {
+      const captured: string[][] = [];
+      const provider = createToolCaptureProvider(captured);
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          createMockTool("bash"),
+          createMockTool("send_file"),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "以下是要做成PPT的素材，收到后先不用生成：三页结构。",
+          "conv-pptx-source-only",
+        ),
+      );
+
+      expect(provider.stream).toHaveBeenCalledTimes(1);
+      expect(captured).toHaveLength(1);
+    });
+
     it("AI 新闻任务 runtime hint 必须使用当前日期", async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-05-08T00:00:00.000Z"));
@@ -876,6 +940,176 @@ describe("SimpleAgentLoop", () => {
       expect(result.isError).toBe(true);
       expect(result.content).toContain("bash may only run the anchored unified CLI");
       expect(bashTool.execute).not.toHaveBeenCalled();
+    });
+
+    it("PPTX 任务不得发送未通过 verifier 的 deck", async () => {
+      const sendFileTool = createMockTool("send_file", {
+        content: "should not execute",
+        autoComplete: true,
+      });
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-skill", "use_skill", { name: "pptx" }),
+        createToolCallChunks("tc-send", "send_file", { path: "deck.pptx" }),
+        finalChunks,
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          sendFileTool,
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 4 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("生成一个 PPTX 并发送", "conv-pptx-unverified", {}),
+      );
+
+      const blockedResult = events
+        .filter((event) => event.type === "tool_result")
+        .map((event) => (event.data as { result: ToolResult }).result)
+        .find((result) => result.content.includes("PPTX delivery"));
+      expect(blockedResult?.isError).toBe(true);
+      expect(blockedResult?.content).toContain("ok:true");
+      expect(sendFileTool.execute).not.toHaveBeenCalled();
+    });
+
+    it("PPTX 任务允许发送会话目录内已验证的 deck", async () => {
+      const convId = "conv-pptx-verified";
+      const workDir = resolve(process.cwd(), "data", "tmp", convId).replace(
+        /\\/g,
+        "/",
+      );
+      const deckPath = `${workDir}/deck.pptx`;
+      const bashTool = createMockTool("bash", {
+        content: JSON.stringify({ ok: true, pptx: deckPath }),
+      });
+      const sendFileTool = createMockTool("send_file", {
+        content: "File sent",
+        autoComplete: true,
+      });
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-skill", "use_skill", { name: "pptx" }),
+        createToolCallChunks("tc-verify", "bash", {
+          command: `python D:/mycode/agentclaw/skills/pptx/scripts/verify_pptx.py "${deckPath}" --json`,
+        }),
+        createToolCallChunks("tc-send", "send_file", { path: deckPath }),
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          bashTool,
+          sendFileTool,
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 4 },
+      });
+
+      await collectEvents(loop.runStream("生成一个 PPTX 并发送", convId, {}));
+
+      expect(sendFileTool.execute).toHaveBeenCalledWith(
+        { path: deckPath },
+        expect.objectContaining({ workDir }),
+      );
+    });
+
+    it("PPTX 任务不得发送会话目录外的已验证 deck", async () => {
+      const deckPath = "C:/Users/voroj/Desktop/deck.pptx";
+      const bashTool = createMockTool("bash", {
+        content: JSON.stringify({ ok: true, pptx: deckPath }),
+      });
+      const sendFileTool = createMockTool("send_file", {
+        content: "should not execute",
+        autoComplete: true,
+      });
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-skill", "use_skill", { name: "pptx" }),
+        createToolCallChunks("tc-verify", "bash", {
+          command: `python D:/mycode/agentclaw/skills/pptx/scripts/verify_pptx.py "${deckPath}" --json`,
+        }),
+        createToolCallChunks("tc-send", "send_file", { path: deckPath }),
+        finalChunks,
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          bashTool,
+          sendFileTool,
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("生成一个 PPTX 并发送", "conv-pptx-outside-workdir", {}),
+      );
+
+      const blockedResult = events
+        .filter((event) => event.type === "tool_result")
+        .map((event) => (event.data as { result: ToolResult }).result)
+        .find((result) => result.content.includes("outside the session"));
+      expect(blockedResult?.isError).toBe(true);
+      expect(sendFileTool.execute).not.toHaveBeenCalled();
+    });
+
+    it("PPTX 任务被拦截后不得空回复已生成，应继续验证并发送", async () => {
+      const convId = "conv-pptx-recover-after-block";
+      const workDir = resolve(process.cwd(), "data", "tmp", convId).replace(
+        /\\/g,
+        "/",
+      );
+      const deckPath = `${workDir}/output.pptx`;
+      const bashTool = createMockTool("bash", {
+        content: JSON.stringify({ ok: true, pptx: deckPath }),
+      });
+      const sendFileTool = createMockTool("send_file", {
+        content: "File sent",
+        autoComplete: true,
+      });
+      const emptyFinal: LLMStreamChunk[] = [
+        {
+          type: "done",
+          usage: { tokensIn: 20, tokensOut: 1 },
+          model: "mock-model",
+          stopReason: "end_turn",
+        },
+      ];
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-skill", "use_skill", { name: "pptx" }),
+        createToolCallChunks("tc-send-before-verify", "send_file", {
+          path: deckPath,
+        }),
+        emptyFinal,
+        createToolCallChunks("tc-verify", "bash", {
+          command: `python D:/mycode/agentclaw/skills/pptx/scripts/verify_pptx.py "${deckPath}" --json`,
+        }),
+        createToolCallChunks("tc-send", "send_file", { path: deckPath }),
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          bashTool,
+          sendFileTool,
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 6 },
+      });
+
+      await collectEvents(loop.runStream("生成一个 PPTX 并发送", convId, {}));
+
+      expect(sendFileTool.execute).toHaveBeenCalledTimes(1);
+      expect(sendFileTool.execute).toHaveBeenCalledWith(
+        { path: deckPath },
+        expect.objectContaining({ workDir }),
+      );
     });
 
     it("公众号发布任务写完 Markdown 后下一轮只暴露 bash", async () => {

@@ -352,6 +352,29 @@ describe("P0 skill management tools", () => {
     expect(usages[1]).toMatchObject({ skillId: "unknown", success: false });
   });
 
+  it("resolves workdir and verifier placeholders when loading pptx skill", async () => {
+    writeSkill(
+      "pptx",
+      "Run python \"{VERIFY_PPTX}\" \"{WORKDIR}/deck.pptx\" from {REPO_ROOT} with {SKILLS_DIR}.",
+    );
+    const context = {
+      ...createContext(),
+      workDir: "D:/agentclaw/data/tmp/conv-placeholder",
+    };
+
+    const result = await useSkillTool.execute({ name: "pptx" }, context);
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toContain(
+      path
+        .join(skillsDir, "pptx", "scripts", "verify_pptx.py")
+        .replace(/\\/g, "/"),
+    );
+    expect(result.content).toContain("D:/agentclaw/data/tmp/conv-placeholder");
+    expect(result.content).not.toContain("{VERIFY_PPTX}");
+    expect(result.content).not.toContain("{WORKDIR}");
+  });
+
   it("curator dry-run reports stale and structurally weak skills without moving files", async () => {
     writeSkill("stale", "No headings here.\n");
     writeSkill("missing-sections", "Only prose.\n");

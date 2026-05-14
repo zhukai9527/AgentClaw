@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   AgentLoop,
   AgentState,
   AgentConfig,
@@ -23,6 +23,8 @@ import type {
 import type { ToolRegistryImpl } from "@agentclaw/tools";
 import { generateId } from "@agentclaw/providers";
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   writeFileSync,
   readFileSync,
@@ -38,7 +40,9 @@ import {
   restoreString,
   type ObfuscationMap,
 } from "./env-obfuscator.js";
-import { join, basename } from "node:path";
+import { join, basename, isAbsolute, relative, resolve } from "node:path";
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Shared iteration budget between parent and child agents.
@@ -86,6 +90,91 @@ const MAX_RETRIES = 2;
 const RETRY_BASE_DELAY = 2000; // ms
 const INVALID_TOOL_MARKUP_RE = /<\/?tool_call\b|<function=|<\/function>|<parameter=/i;
 const RESPONSE_STREAM_GUARD_CHARS = 64;
+
+function normalizeComparablePath(filePath: string, baseDir?: string): string {
+  const trimmed = filePath.trim().replace(/\\/g, "/");
+  if (!trimmed) return "";
+  const resolved = isAbsolute(trimmed)
+    ? resolve(trimmed)
+    : resolve(baseDir ?? process.cwd(), trimmed);
+  return resolved.replace(/\\/g, "/").toLowerCase();
+}
+
+function isPathInside(candidate: string, parent: string): boolean {
+  const rel = relative(resolve(parent), resolve(candidate));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+function extractVerifiedPptxPaths(content: string): string[] {
+  const start = content.indexOf("{");
+  const end = content.lastIndexOf("}");
+  if (start < 0 || end <= start) return [];
+  try {
+    const parsed = JSON.parse(content.slice(start, end + 1)) as Record<
+      string,
+      unknown
+    >;
+    if (parsed.ok !== true || typeof parsed.pptx !== "string") return [];
+    return [parsed.pptx];
+  } catch {
+    return [];
+  }
+}
+
+async function verifyPptxForDelivery(input: {
+  pptxPath: string;
+  workDir: string;
+  skillsDir?: string;
+}): Promise<{ ok: boolean; content: string; verifiedPaths: string[] }> {
+  const verifierPath = join(
+    resolve(input.skillsDir ?? "skills"),
+    "pptx",
+    "scripts",
+    "verify_pptx.py",
+  );
+  const outDir = join(input.workDir, "previews");
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      "python",
+      [
+        verifierPath,
+        input.pptxPath,
+        "--out-dir",
+        outDir,
+        "--require-text",
+        "--json",
+      ],
+      {
+        timeout: 180_000,
+        maxBuffer: 10 * 1024 * 1024,
+        encoding: "utf8",
+        windowsHide: true,
+        env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
+      },
+    );
+    const content = [stdout, stderr].filter(Boolean).join("\n").trim();
+    return {
+      ok: extractVerifiedPptxPaths(content).length > 0,
+      content,
+      verifiedPaths: extractVerifiedPptxPaths(content),
+    };
+  } catch (error) {
+    const err = error as {
+      stdout?: string | Buffer;
+      stderr?: string | Buffer;
+      message?: string;
+    };
+    const content = [
+      err.stdout ? String(err.stdout) : "",
+      err.stderr ? String(err.stderr) : "",
+      err.message ?? "",
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+    return { ok: false, content, verifiedPaths: [] };
+  }
+}
 
 function createSafeResponseStreamBuffer(): {
   append: (text: string) => string | null;
@@ -512,6 +601,7 @@ function buildTaskToolProfile(
   inputText: string,
   isNewsBriefTask: boolean,
   isAiNewsTask: boolean,
+  isPptxGenerationTask = false,
 ): TaskToolProfile {
   if (/公众号|微信公众号|草稿箱|发布到公众号|发到公众号|发送到公众号|wechat/i.test(inputText)) {
     return {
@@ -549,20 +639,37 @@ function buildTaskToolProfile(
   if (isNewsBriefTask || isAiNewsTask) {
     return {
       kind: "news_brief",
-      allowedTools: new Set([
-        "web_search",
-        "web_fetch",
-        "file_write",
-        "send_file",
-      ]),
-      toolTotalLimits: {
-        web_search: 3,
-        web_fetch: 3,
-        file_write: 1,
-        send_file: 1,
-      },
+      allowedTools: isPptxGenerationTask
+        ? new Set([
+            "web_search",
+            "web_fetch",
+            "use_skill",
+            "bash",
+            "claude_code",
+            "glob",
+            "send_file",
+          ])
+        : new Set(["web_search", "web_fetch", "file_write", "send_file"]),
+      toolTotalLimits: isPptxGenerationTask
+        ? {
+            web_search: 3,
+            web_fetch: 3,
+            use_skill: 2,
+            bash: 8,
+            claude_code: 2,
+            glob: 3,
+            send_file: 2,
+          }
+        : {
+            web_search: 3,
+            web_fetch: 3,
+            file_write: 1,
+            send_file: 1,
+          },
       webResearchToolLimit: 6,
-      hint: "[任务工具边界]当前是新闻简报任务：最多 3 次 web_search + 3 次 web_fetch，优先搜索，抓取只补关键事实；不要读取 observation；最终每条新闻必须附来源 URL。",
+      hint: isPptxGenerationTask
+        ? "[任务工具边界]当前是新闻类 PPTX 任务：最多 3 次 web_search + 3 次 web_fetch 获取事实；研究结束后必须继续用 use_skill 加载 pptx，随后在会话工作目录生成、verify_pptx --json 验证并 send_file 发送 PPTX。不要停在新闻总结。"
+        : "[任务工具边界]当前是新闻简报任务：最多 3 次 web_search + 3 次 web_fetch，优先搜索，抓取只补关键事实；不要读取 observation；最终每条新闻必须附来源 URL。",
     };
   }
 
@@ -1073,6 +1180,18 @@ export class SimpleAgentLoop implements AgentLoop {
     const isNewsBriefTask = /新闻|简报|news|brief/i.test(
       inputTextForHeuristics,
     );
+    const isPptxMention =
+      /\b(pptx|ppt|powerpoint)\b|PPT|幻灯片|演示文稿|slide deck|presentation deck/i.test(
+        inputTextForHeuristics,
+      );
+    const isPptxGenerationTask =
+      isPptxMention &&
+      /生成|制作|做成|创建|导出|发送|发给|直接|produce|create|make|build|export|send/i.test(
+        inputTextForHeuristics,
+      ) &&
+      !/不用生成|先不用生成|不要生成|别生成|无需生成|不用做|先别做/i.test(
+        inputTextForHeuristics,
+      );
     if (isNewsBriefTask) {
       runtimeHints.push(
         "[新闻任务约束]优先在3轮以内完成：第1轮并行 web_search 搜索并筛选，第2轮只在必要时用 web_fetch 抓取少量原文，第3轮必须合成最终答复。只采用高可信来源：官方公告/公司博客/监管机构/学术机构/Reuters/AP/Bloomberg/FT/The Verge/TechCrunch/MIT Technology Review/Stanford HAI等。不要使用Reddit、YouTube、低质量SEO聚合站或个人博客作为事实来源，除非用户明确要求。无法用可信来源交叉确认的新闻点直接跳过或标注未确认。已有搜索结果足够时不要继续抓取原文。",
@@ -1093,6 +1212,7 @@ export class SimpleAgentLoop implements AgentLoop {
       inputTextForHeuristics,
       isNewsBriefTask,
       isAiNewsTask,
+      isPptxGenerationTask,
     );
     if (taskToolProfile.hint) {
       runtimeHints.push(taskToolProfile.hint);
@@ -1197,8 +1317,11 @@ export class SimpleAgentLoop implements AgentLoop {
       : null;
     let wechatPublishMarkdownCreatedInRun = false;
     let wechatPublishSkillLoaded = false;
+    let pptxSkillLoaded = false;
+    const verifiedPptxPaths = new Set<string>();
     let forceSynthesisOnly = false;
     let invalidFinalMarkupRetries = 0;
+    let pptxMissingDeliveryRetries = 0;
     let consecutiveMaxTokensWithoutTools = 0;
     let forcedStopReason: string | undefined;
     const fallbackSnippets: string[] = [];
@@ -1645,6 +1768,16 @@ export class SimpleAgentLoop implements AgentLoop {
           iterations < this._config.maxIterations
         ) {
           invalidFinalMarkupRetries++;
+          if (
+            isPptxGenerationTask &&
+            allSentFiles.every((f) => !/\.pptx$/i.test(f.filename)) &&
+            invalidFinalMarkupRetries < 3
+          ) {
+            runtimeHints.push(
+              "[PPTX任务继续]上一轮输出了不可执行的伪工具标记。工具仍可用；不要输出 XML/tool_call/function/parameter 文本。下一步必须用结构化工具调用：use_skill pptx（如未加载）、claude_code/bash 生成 deck、verify_pptx.py --json 验证、send_file 发送验证通过的 .pptx。",
+            );
+            continue;
+          }
           if (invalidFinalMarkupRetries >= 2) {
             forcedStopReason = "invalid_tool_markup_final";
             fullText = buildSynthesisFallbackResponse(
@@ -1659,6 +1792,22 @@ export class SimpleAgentLoop implements AgentLoop {
             forceSynthesisOnly = true;
             runtimeHints.push(
               "[SYSTEM] Your last output was invalid tool-call markup rendered as text. Tools are not available now. Do not output XML/tool_call/function/parameter tags. Write the final user-facing answer directly in Chinese from the facts already gathered.",
+            );
+            continue;
+          }
+        }
+
+        if (
+          toolCalls.length === 0 &&
+          (isPptxGenerationTask || pptxSkillLoaded) &&
+          allSentFiles.every((f) => !/\.pptx$/i.test(f.filename)) &&
+          !forcedStopReason &&
+          iterations < this._config.maxIterations
+        ) {
+          pptxMissingDeliveryRetries++;
+          if (pptxMissingDeliveryRetries <= 2) {
+            runtimeHints.push(
+              `[PPTX任务未完成]还没有发送任何 .pptx 文件。不要回复“已生成”。下一步必须在 ${sessionTmpDir} 运行 verifier：python "${join(resolve(context?.skillsDir ?? "skills"), "pptx", "scripts", "verify_pptx.py").replace(/\\/g, "/")}" "${sessionTmpDir}/output.pptx" --out-dir "${sessionTmpDir}/previews" --require-text --json；只有 ok:true 后才能 send_file。`,
             );
             continue;
           }
@@ -2006,6 +2155,78 @@ export class SimpleAgentLoop implements AgentLoop {
             }
           }
 
+          if (
+            !blockedByPolicy &&
+            effectiveToolName === "send_file" &&
+            (pptxSkillLoaded || isPptxGenerationTask)
+          ) {
+            const requestedPath =
+              typeof effectiveToolInput.path === "string"
+                ? effectiveToolInput.path
+                : "";
+            if (/\.pptx$/i.test(requestedPath.trim())) {
+              const resolvedRequestedPath = isAbsolute(requestedPath)
+                ? resolve(requestedPath)
+                : resolve(context?.workDir ?? process.cwd(), requestedPath);
+              const normalizedRequestedPath = normalizeComparablePath(
+                requestedPath,
+                context?.workDir,
+              );
+              const inWorkDir =
+                context?.workDir &&
+                isPathInside(normalizedRequestedPath, context.workDir);
+              if (!inWorkDir) {
+                result = {
+                  content:
+                    `Blocked for PPTX delivery: the verified deck is outside the session work directory. Copy it into ${context?.workDir}, re-run verify_pptx.py on the copied file, then send that verified in-session .pptx.`,
+                  isError: true,
+                };
+                blockedByPolicy = true;
+              } else if (
+                !verifiedPptxPaths.has(normalizedRequestedPath) &&
+                context?.workDir &&
+                existsSync(resolvedRequestedPath)
+              ) {
+                const verification = await verifyPptxForDelivery({
+                  pptxPath: resolvedRequestedPath,
+                  workDir: context.workDir,
+                  skillsDir: context.skillsDir,
+                });
+                for (const pptxPath of verification.verifiedPaths) {
+                  verifiedPptxPaths.add(
+                    normalizeComparablePath(pptxPath, context.workDir),
+                  );
+                }
+                if (!verification.ok) {
+                  result = {
+                    content:
+                      "Blocked for PPTX delivery: automatic verify_pptx.py --json failed, so the deck was not sent.\n" +
+                      verification.content.slice(0, 3000),
+                    isError: true,
+                  };
+                  blockedByPolicy = true;
+                } else {
+                  runtimeHints.push(
+                    `<pptx_verified>${resolvedRequestedPath.replace(/\\/g, "/")}</pptx_verified>`,
+                  );
+                }
+              } else if (!verifiedPptxPaths.has(normalizedRequestedPath)) {
+                const verifierPath = join(
+                  resolve(context?.skillsDir ?? "skills"),
+                  "pptx",
+                  "scripts",
+                  "verify_pptx.py",
+                ).replace(/\\/g, "/");
+                result = {
+                  content:
+                    `Blocked for PPTX delivery: do not send a .pptx until the bundled verifier has reported ok:true for that exact file. Run \`python "${verifierPath}" "${context?.workDir}/deck.pptx" --out-dir "${context?.workDir}/previews" --require-text --json\`, then call send_file for the verified file.`,
+                  isError: true,
+                };
+                blockedByPolicy = true;
+              }
+            }
+          }
+
           const toolStart = Date.now();
           const toolContext: ToolExecutionContext = {
             ...context,
@@ -2115,6 +2336,16 @@ export class SimpleAgentLoop implements AgentLoop {
                 runtimeHints.push(
                   "<research_budget_exhausted>Research budget is exhausted for this WeChat publishing task. Web tools are no longer useful; continue with file_write/use_skill/bash to create the article and publish it. Do not stop at a summary.</research_budget_exhausted>",
                 );
+              } else if (isPptxGenerationTask) {
+                result = {
+                  content:
+                    `You already made ${WEB_RESEARCH_TOOL_LIMIT} web_search/web_fetch call(s). ` +
+                    "Stop researching now. Continue the PPTX task with non-research tools: use_skill pptx, generate the deck in the session work directory, run verify_pptx.py with --json, then send_file the verified .pptx.",
+                  isError: true,
+                };
+                runtimeHints.push(
+                  "<pptx_research_budget_exhausted>Research budget is exhausted. Do not search or fetch again. Continue with use_skill pptx, deck generation, verify_pptx.py --json, and send_file.</pptx_research_budget_exhausted>",
+                );
               } else {
               result = {
                 content:
@@ -2155,6 +2386,7 @@ export class SimpleAgentLoop implements AgentLoop {
               if (
                 taskToolProfile.kind === "reddit_rss" ||
                 (taskToolProfile.kind === "news_brief" &&
+                  !isPptxGenerationTask &&
                   (effectiveToolName === "web_fetch" ||
                     successfulWebFetchCalls >= 2))
               ) {
@@ -2276,6 +2508,31 @@ export class SimpleAgentLoop implements AgentLoop {
                 forceSynthesisOnly = true;
                 runtimeHints.push(
                   "<wechat_publish_completed>Publish command succeeded. No more tools are needed. Report code, draft_media_id, manifest_json, and resolved theme.</wechat_publish_completed>",
+                );
+              }
+            }
+          }
+
+          if (result && !result.isError) {
+            if (effectiveToolName === "use_skill") {
+              const skillName = String(
+                effectiveToolInput.name ?? effectiveToolInput.skillId ?? "",
+              ).trim();
+              if (skillName === "pptx") {
+                pptxSkillLoaded = true;
+              }
+            }
+            for (const pptxPath of extractVerifiedPptxPaths(
+              String(result.content ?? ""),
+            )) {
+              const normalized = normalizeComparablePath(
+                pptxPath,
+                context?.workDir,
+              );
+              if (normalized) {
+                verifiedPptxPaths.add(normalized);
+                runtimeHints.push(
+                  `<pptx_verified>${pptxPath.replace(/\\/g, "/")}</pptx_verified>`,
                 );
               }
             }
@@ -2683,6 +2940,21 @@ export class SimpleAgentLoop implements AgentLoop {
         // Drain sentFiles from context into accumulator (dedup by URL)
         if (context?.sentFiles && context.sentFiles.length > 0) {
           for (const f of context.sentFiles) {
+            if (
+              isPptxGenerationTask &&
+              !/\.(pptx|pdf|png|jpe?g)$/i.test(f.filename)
+            ) {
+              continue;
+            }
+            if (
+              isPptxGenerationTask &&
+              /\.pptx$/i.test(f.filename) &&
+              !verifiedPptxPaths.has(
+                normalizeComparablePath(f.filename, sessionTmpDir),
+              )
+            ) {
+              continue;
+            }
             if (!allSentFiles.some((e) => e.url === f.url)) {
               allSentFiles.push(f);
             }

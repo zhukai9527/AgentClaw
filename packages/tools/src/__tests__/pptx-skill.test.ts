@@ -31,7 +31,8 @@ describe("pptx skill production workflow", () => {
       "anti-slop",
       "960pt × 540pt",
       "text must be wrapped",
-      "python skills/pptx/scripts/verify_pptx.py",
+      'python "{VERIFY_PPTX}"',
+      "claude_code",
       "Do not send the PPTX",
     ];
 

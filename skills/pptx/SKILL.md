@@ -10,10 +10,10 @@ Build the deck, verify the saved `.pptx`, then deliver it. Keep the interaction 
 ## Default fast path
 
 1. Resolve source material.
-2. Generate the deck in the current workspace or the explicit `[工作目录]`.
+2. Generate the deck in `{WORKDIR}`. Substantial decks should use `claude_code` with cwd `{WORKDIR}` instead of a long inline `bash`/XML-style tool call.
 3. Run:
    ```powershell
-   python skills/pptx/scripts/verify_pptx.py output.pptx --out-dir output_previews --require-text --json
+   python "{VERIFY_PPTX}" "{WORKDIR}/output.pptx" --out-dir "{WORKDIR}/output_previews" --require-text --json
    ```
 4. Send the PPTX only if verification exits 0. Do not send the PPTX when verification fails.
 
@@ -65,13 +65,15 @@ Apply these anti-slop checks before verification:
 - Do not call nonexistent preview scripts. The verifier in this skill is the preview/inspection entry.
 - Do not treat one LibreOffice PNG as full-deck preview; PPTX preview must be PDF render or per-slide/page output.
 - Do not deliver if `verify_pptx.py` reports `ok: false`.
+- Do not run `verify_pptx.py` without `--json`; non-JSON `ok=True report=...` output is not enough for delivery.
+- Do not send a `.pptx` from outside `{WORKDIR}`; copy it into `{WORKDIR}` and re-run verification first.
 
 ## Verification
 
 Run the bundled verifier on every generated or edited deck:
 
 ```powershell
-python skills/pptx/scripts/verify_pptx.py path/to/deck.pptx --out-dir path/to/previews --require-text --json
+python "{VERIFY_PPTX}" "{WORKDIR}/deck.pptx" --out-dir "{WORKDIR}/previews" --require-text --json
 ```
 
 Use `--require-preview` when visual quality was the point of the task. If preview tooling is unavailable, the verifier reports that limitation; only deliver without preview when the user asked for a quick/internal deck.

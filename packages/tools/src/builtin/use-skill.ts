@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { join, resolve } from "node:path";
 import type { Tool, ToolResult, ToolExecutionContext } from "@agentclaw/types";
 import { shellInfo } from "./shell.js";
 
@@ -63,6 +64,10 @@ function runCommand(
       },
     );
   });
+}
+
+function toInstructionPath(path: string): string {
+  return path.replace(/\\/g, "/");
 }
 
 export const useSkillTool: Tool = {
@@ -142,6 +147,18 @@ export const useSkillTool: Tool = {
         : "";
 
     let instructions = skill.instructions;
+    const skillsDir = resolve(context?.skillsDir ?? "skills");
+    const repoRoot = process.cwd();
+    const verifierPath = join(
+      skillsDir,
+      "pptx",
+      "scripts",
+      "verify_pptx.py",
+    );
+    instructions = instructions
+      .replaceAll("{REPO_ROOT}", toInstructionPath(repoRoot))
+      .replaceAll("{SKILLS_DIR}", toInstructionPath(skillsDir))
+      .replaceAll("{VERIFY_PPTX}", toInstructionPath(verifierPath));
     // Replace {WORKDIR} placeholder with actual per-trace working directory
     if (context?.workDir) {
       instructions = instructions.replaceAll("{WORKDIR}", context.workDir);
