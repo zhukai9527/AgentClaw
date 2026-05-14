@@ -7,6 +7,7 @@ import type {
   ToolExecutionContext,
   LLMProvider,
   MemoryStore,
+  MemoryType,
   AgentConfig,
   AgentProfile,
 } from "@agentclaw/types";
@@ -267,7 +268,11 @@ export class SimpleOrchestrator implements Orchestrator {
     const mergedContext: ToolExecutionContext = {
       ...context,
       memoryNamespace,
-      saveMemory: async (content, type) => {
+      saveMemory: async (
+        content: string,
+        type?: MemoryType,
+        metadata?: Record<string, unknown>,
+      ) => {
         const memType = type ?? "fact";
         // Dedup: skip if a similar memory already exists (within same namespace)
         const similar = await memoryStore.findSimilar(
@@ -287,6 +292,7 @@ export class SimpleOrchestrator implements Orchestrator {
             type: memType,
             content,
             importance: 0.8,
+            metadata,
           },
           memoryNamespace,
         );

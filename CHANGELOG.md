@@ -3,6 +3,8 @@
 ## [Unreleased] - 2026-05-03
 
 ### Added
+- **Agent 记忆 L1 provenance**：后台记忆抽取现在把 conversation/trace 来源、source turn/step、sceneName、confidence 和 L1 layer 写入 memory metadata，避免长期记忆成为无来源事实池，并为后续受控 recall 和 scene/persona 铺路。
+- **工具输出 offload active hint**：大工具输出进入 Observation Store 后，agent loop 会在下一轮注入 `active_tool_offload` 摘要，并在工具结果 metadata 中记录 `resultRef`、`nodeId`、`taskId` 和 `replaceabilityScore`，让长任务少读 overflow、必要时再定向回读原始观察。
 - **微信公众号发布统一 CLI 契约**：`wechat-publish` 新增 `wechat_publish.py`，提供 `capabilities/inspect/preview/publish` 四个子命令和 `success/code/message/data` JSON envelope；`SKILL.md` 收敛为只走统一入口，避免 Agent 继续拆步骤或解析旧脚本行文本。
 - **微信公众号发布真实入口回归**：新增 `scripts/wechat-publish-skill-regression.mts`，从真实 Agent session 验证 `use_skill`、统一 CLI、dry-run 产物、无旧脚本、无直接微信 API 和无参数缩写漂移；根测试命令纳入对应 evaluator 单测。
 - **一键安装脚本**：新增 `scripts/install.sh`，支持 Linux、macOS 和 Termux 交互式安装，自动检查基础依赖、配置模型 Provider/API Key、构建并启动服务，让默认路径直接进入 Web 对话。

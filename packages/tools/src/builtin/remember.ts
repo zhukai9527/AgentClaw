@@ -133,9 +133,21 @@ export const rememberTool: Tool = {
     }
 
     try {
+      const metadata: Record<string, unknown> = {
+        layer: "L1",
+        source: "remember_tool",
+        sceneName: "explicit_memory",
+        confidence: 1,
+      };
+      if (context.conversationId) {
+        metadata.conversationId = context.conversationId;
+      }
+      if (context.traceId) metadata.traceId = context.traceId;
+
       await context.saveMemory(
         content,
         type as "identity" | "fact" | "preference" | "entity" | "episodic",
+        metadata,
       );
       return {
         content: `Remembered: ${content}`,

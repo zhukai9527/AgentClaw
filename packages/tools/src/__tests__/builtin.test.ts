@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createBuiltinTools } from "../builtin/index.js";
 
 describe("createBuiltinTools — 内置工具创建", () => {
@@ -99,6 +99,42 @@ describe("createBuiltinTools — 内置工具创建", () => {
       const tools = createBuiltinTools({});
 
       expect(tools).toHaveLength(CORE_TOOL_NAMES.length);
+    });
+  });
+
+  describe("remember", () => {
+    it("应把显式记忆保存为带来源的 L1 metadata", async () => {
+      const remember = createBuiltinTools({ memory: true }).find(
+        (tool) => tool.name === "remember",
+      )!;
+      const saveMemory = vi.fn().mockResolvedValue(undefined);
+
+      const result = await remember.execute(
+        {
+          content: "用户偏好 PPTX 交付前先看预览图。",
+          type: "preference",
+        },
+        {
+          saveMemory,
+          conversationId: "conv-remember",
+          traceId: "trace-remember",
+          memoryNamespace: "default",
+        },
+      );
+
+      expect(result.isError).toBe(false);
+      expect(saveMemory).toHaveBeenCalledWith(
+        "用户偏好 PPTX 交付前先看预览图。",
+        "preference",
+        {
+          layer: "L1",
+          source: "remember_tool",
+          conversationId: "conv-remember",
+          traceId: "trace-remember",
+          sceneName: "explicit_memory",
+          confidence: 1,
+        },
+      );
     });
   });
 

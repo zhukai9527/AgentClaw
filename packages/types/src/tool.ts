@@ -66,6 +66,7 @@ export interface ToolExecutionContext {
   saveMemory?: (
     content: string,
     type?: "identity" | "fact" | "preference" | "entity" | "episodic",
+    metadata?: Record<string, unknown>,
   ) => Promise<void>;
   /** Task scheduler for recurring tasks (provided by orchestrator) */
   scheduler?: {

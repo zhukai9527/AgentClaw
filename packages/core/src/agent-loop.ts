@@ -402,12 +402,32 @@ const OVERFLOW_THRESHOLD = 8_000;
 /** How many chars of the original output to keep as an inline preview */
 const OVERFLOW_PREVIEW_CHARS = 1_500;
 
+interface ToolOffloadInfo {
+  toolName: string;
+  resultRef: string;
+  nodeId: string;
+  taskId: string;
+  rawPath: string;
+  rawChars: number;
+  promptChars: number;
+  savedChars: number;
+  replaceabilityScore: number;
+}
+
+function buildActiveToolOffloadHint(info: ToolOffloadInfo): string {
+  return (
+    `<active_tool_offload nodeId=${info.nodeId} resultRef=${info.resultRef} replaceabilityScore=${info.replaceabilityScore}/10 tool=${info.toolName}>` +
+    `Large ${info.toolName} output is offloaded for the current task. Use the preview already in context; call observation_read on ${info.resultRef} only when an exact missing detail is required. rawChars=${info.rawChars}; savedChars=${info.savedChars}; rawPath=${info.rawPath}` +
+    "</active_tool_offload>"
+  );
+}
+
 /**
  * Overflow mode: when a tool's output exceeds OVERFLOW_THRESHOLD, save the
  * full content to a temp file and replace result.content with a preview +
  * file reference.  This turns "truncation → data loss" into "deferred access".
  *
- * Returns the overflow file path if overflow was applied, null otherwise.
+ * Returns offload metadata if overflow was applied, null otherwise.
  */
 async function applyOverflow(
   result: {
@@ -421,7 +441,7 @@ async function applyOverflow(
   traceId: string,
   stepId: string,
   toolInput?: Record<string, unknown>,
-): Promise<string | null> {
+): Promise<ToolOffloadInfo | null> {
   // Don't overflow errors (usually short and important) or short outputs
   if (result.isError || result.content.length <= OVERFLOW_THRESHOLD)
     return null;
@@ -480,16 +500,22 @@ async function applyOverflow(
   const cleanPreview =
     lastNL > OVERFLOW_PREVIEW_CHARS * 0.5 ? preview.slice(0, lastNL) : preview;
 
-  const observationRef = observationId
-    ? `observation://${observationId}`
-    : "observation://unavailable";
+  const makeObservationRef = (id?: string) =>
+    id ? `observation://${id}` : "observation://unavailable";
   const rawRef = filePath ?? "raw file unavailable";
-  const buildSummary = (promptChars: number): string => {
+  const nodeId = stepId;
+  const taskId = traceId;
+  const replaceabilityScore = 8;
+  const buildSummary = (promptChars: number, resultRef: string): string => {
     const savedChars = Math.max(0, totalChars - promptChars);
     return (
       cleanPreview +
       "\n\n... [tool output stored as observation]\n" +
-      `observation: ${observationRef}\n` +
+      `observation: ${resultRef}\n` +
+      `resultRef: ${resultRef}\n` +
+      `nodeId: ${nodeId}\n` +
+      `taskId: ${taskId}\n` +
+      `replaceabilityScore: ${replaceabilityScore}/10\n` +
       `rawPath: ${rawRef}\n` +
       `rawChars: ${totalChars}\n` +
       `promptChars: ${promptChars}\n` +
@@ -497,10 +523,11 @@ async function applyOverflow(
       "Preview is usually enough. Use observation_read for the full observation only when a specific missing fact is required."
     );
   };
-  let finalContent = buildSummary(0);
-  finalContent = buildSummary(finalContent.length);
-  const promptChars = finalContent.length;
-  const savedChars = Math.max(0, totalChars - promptChars);
+  let resultRef = makeObservationRef(observationId);
+  let finalContent = buildSummary(0, resultRef);
+  finalContent = buildSummary(finalContent.length, resultRef);
+  let promptChars = finalContent.length;
+  let savedChars = Math.max(0, totalChars - promptChars);
 
   if (!reusableObservation) {
     const observationInput: ObservationInput = {
@@ -514,6 +541,9 @@ async function applyOverflow(
       facts: [],
       metadata: {
         overflow: true,
+        nodeId,
+        taskId,
+        replaceabilityScore,
         rawPath: rawRef,
         originalLength: totalChars,
         originalLines: totalLines,
@@ -524,11 +554,12 @@ async function applyOverflow(
     };
     const observation = await memoryStore.addObservation(observationInput);
     observationId = observation.id;
-    finalContent = finalContent.replace(
-      "observation://unavailable",
-      `observation://${observationId}`,
-    );
   }
+  resultRef = makeObservationRef(observationId);
+  finalContent = buildSummary(0, resultRef);
+  finalContent = buildSummary(finalContent.length, resultRef);
+  promptChars = finalContent.length;
+  savedChars = Math.max(0, totalChars - promptChars);
 
   result.content = finalContent;
 
@@ -540,9 +571,23 @@ async function applyOverflow(
   result.metadata.originalLength = totalChars;
   result.metadata.originalLines = totalLines;
   result.metadata.observationId = observationId;
+  result.metadata.resultRef = resultRef;
+  result.metadata.nodeId = nodeId;
+  result.metadata.taskId = taskId;
+  result.metadata.replaceabilityScore = replaceabilityScore;
   result.metadata.contentHash = contentHash;
 
-  return filePath ?? null;
+  return {
+    toolName,
+    resultRef,
+    nodeId,
+    taskId,
+    rawPath: rawRef,
+    rawChars: totalChars,
+    promptChars,
+    savedChars,
+    replaceabilityScore,
+  };
 }
 
 /**
@@ -2446,7 +2491,7 @@ export class SimpleAgentLoop implements AgentLoop {
               );
             }
 
-            await applyOverflow(
+            const offloadInfo = await applyOverflow(
               result!,
               effectiveToolName,
               ensureSessionTmpDir,
@@ -2455,6 +2500,9 @@ export class SimpleAgentLoop implements AgentLoop {
               tc.id,
               effectiveToolInput,
             );
+            if (offloadInfo) {
+              runtimeHints.push(buildActiveToolOffloadHint(offloadInfo));
+            }
           }
 
           if (

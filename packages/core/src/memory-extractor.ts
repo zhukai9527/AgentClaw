@@ -21,6 +21,8 @@ interface ExtractedMemory {
   type: MemoryType;
   content: string;
   importance: number;
+  sceneName?: string;
+  confidence?: number;
 }
 
 const EXTRACTION_PROMPT = `从对话中提取值得永久记住的用户信息。极度精简，白名单模式——只允许提取以下四类，其他一律不记。
@@ -33,9 +35,21 @@ const EXTRACTION_PROMPT = `从对话中提取值得永久记住的用户信息�
 
 判断标准：信息必须是用户自己说的或用户亲身经历的。来自搜索、抓取、新闻、第三方网页的内容，无论多有价值，都不是用户的记忆，不提取。
 
-输出 JSON 数组：{"type": "fact|preference|entity|episodic", "content": "...", "importance": 0.0-1.0}
+输出 JSON 数组：{"type": "fact|preference|entity|episodic", "content": "...", "importance": 0.0-1.0, "scene_name": "简短场景名", "confidence": 0.0-1.0}
 无内容则返回：[]
 用中文写 content。`;
+
+function clamp01(value: unknown, fallback: number): number {
+  return Math.max(
+    0,
+    Math.min(1, typeof value === "number" ? value : fallback),
+  );
+}
+
+function readSceneName(value: Record<string, unknown>): string | undefined {
+  const raw = value.scene_name !== undefined ? value.scene_name : value.sceneName;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+}
 
 export class MemoryExtractor {
   private provider: LLMProvider;
@@ -122,7 +136,12 @@ export class MemoryExtractor {
         .map((m) => ({
           type: m.type as MemoryType,
           content: m.content,
-          importance: Math.max(0, Math.min(1, m.importance ?? 0.5)),
+          importance: clamp01(m.importance, 0.5),
+          sceneName: readSceneName(m as unknown as Record<string, unknown>),
+          confidence: clamp01(
+            (m as unknown as Record<string, unknown>).confidence,
+            0.7,
+          ),
         }));
     } catch {
       // LLM call or JSON parse failed — skip silently
@@ -170,11 +189,23 @@ export class MemoryExtractor {
         continue;
       }
 
+      const sourceTurnIds = turns
+        .filter((turn) => turn.role === "user" || turn.role === "assistant")
+        .map((turn) => turn.id);
       await this.memoryStore.add({
         type: memory.type,
         content: memory.content,
         importance: memory.importance,
         sourceTurnId: turns[turns.length - 1]?.id,
+        metadata: {
+          layer: "L1",
+          source: "conversation",
+          conversationId,
+          sourceTurnIds,
+          sceneName: memory.sceneName,
+          confidence:
+            typeof memory.confidence === "number" ? memory.confidence : 0.7,
+        },
       });
       stored++;
     }
@@ -209,8 +240,10 @@ export class MemoryExtractor {
         // Find the preceding tool_call
         const idx = steps.indexOf(s);
         const call = idx > 0 ? steps[idx - 1] : null;
-        const toolName = (call?.name as string) ?? "unknown";
-        const errorContent = String(s.content ?? "").slice(0, 300);
+        const toolName = typeof call?.name === "string" ? call.name : "unknown";
+        const errorSource =
+          s.content !== undefined && s.content !== null ? s.content : "";
+        const errorContent = String(errorSource).slice(0, 300);
         return `- ${toolName}: ${errorContent}`;
       })
       .join("\n");
@@ -262,11 +295,24 @@ export class MemoryExtractor {
         .replace(/```json?\s*/g, "")
         .replace(/```\s*/g, "")
         .trim();
-      const lessons: Array<{ content: string; importance: number }> =
-        JSON.parse(text);
+      const lessons: Array<{
+        content: string;
+        importance: number;
+        scene_name?: string;
+        sceneName?: string;
+        confidence?: number;
+      }> = JSON.parse(text);
 
       if (!Array.isArray(lessons)) return 0;
 
+      const sourceStepIds = toolErrors
+        .map((step) => {
+          const id = step.id;
+          if (typeof id === "string") return id;
+          const toolUseId = step.toolUseId;
+          return typeof toolUseId === "string" ? toolUseId : undefined;
+        })
+        .filter((id): id is string => Boolean(id));
       let stored = 0;
       for (const lesson of lessons) {
         if (!lesson.content) continue;
@@ -283,7 +329,16 @@ export class MemoryExtractor {
           {
             type: "episodic",
             content: lesson.content,
-            importance: Math.max(0, Math.min(1, lesson.importance ?? 0.7)),
+            importance: clamp01(lesson.importance, 0.7),
+            metadata: {
+              layer: "L1",
+              source: "trace",
+              traceId: trace.id,
+              conversationId: trace.conversationId,
+              sourceStepIds,
+              sceneName: readSceneName(lesson),
+              confidence: clamp01(lesson.confidence, 0.7),
+            },
           },
           namespace,
         );

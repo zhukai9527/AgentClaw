@@ -1816,6 +1816,9 @@ describe("SimpleAgentLoop", () => {
         originalLength: largeContent.length,
         originalLines: 260,
         observationId: "obs-1",
+        resultRef: "observation://obs-1",
+        nodeId: "tc-big",
+        replaceabilityScore: 8,
       });
       expect(result.metadata?.overflowPath).toEqual(
         expect.stringContaining("overflow_web_fetch_"),
@@ -1832,6 +1835,66 @@ describe("SimpleAgentLoop", () => {
       expect(String(traceToolResult?.content)).not.toContain(
         largeContent.slice(3000, 3600),
       );
+    });
+
+    it("大工具输出后下一轮上下文应带 active task offload 摘要", async () => {
+      const capturedMessages: Message[][] = [];
+      let callIndex = 0;
+      const largeContent = `${"important result line\n".repeat(500)}tail`;
+      const offloadAwareProvider: LLMProvider = {
+        name: "offload-aware-provider",
+        models: [
+          {
+            id: "offload-aware-model",
+            provider: "mock",
+            name: "Offload Aware",
+            tier: "fast",
+            contextWindow: 4096,
+            supportsTools: true,
+            supportsStreaming: true,
+          },
+        ] as ModelInfo[],
+        chat: vi.fn().mockResolvedValue({
+          message: {
+            id: "msg-offload",
+            role: "assistant",
+            content: "done",
+            createdAt: new Date(),
+          },
+          model: "offload-aware-model",
+          tokensIn: 1,
+          tokensOut: 1,
+          stopReason: "end_turn",
+        } as LLMResponse),
+        stream: vi.fn(async function* (request: LLMRequest) {
+          capturedMessages.push(request.messages);
+          const chunks =
+            callIndex === 0
+              ? createToolCallChunks("tc-offload", "web_fetch", {
+                  url: "https://example.com/long",
+                })
+              : finalChunks;
+          callIndex++;
+          for (const chunk of chunks) yield chunk;
+        }) as unknown as LLMProvider["stream"],
+      };
+      const fetchTool = createMockTool("web_fetch", { content: largeContent });
+      const loop = new SimpleAgentLoop({
+        provider: offloadAwareProvider,
+        toolRegistry: createMockToolRegistry([fetchTool]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      await collectEvents(loop.runStream("fetch long page", "conv-obs"));
+
+      expect(capturedMessages.length).toBeGreaterThanOrEqual(2);
+      const secondPrompt = JSON.stringify(capturedMessages[1]);
+      expect(secondPrompt).toContain("<active_tool_offload ");
+      expect(secondPrompt).toContain("nodeId=tc-offload");
+      expect(secondPrompt).toContain("resultRef=observation://obs-1");
+      expect(secondPrompt).toContain("replaceabilityScore=8/10");
     });
 
     it("相同 contentHash 的大输出应复用已有 observation 且不重复写 raw", async () => {
