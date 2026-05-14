@@ -12,6 +12,7 @@
 - **纯文本字幕极速入口**：`bilingual-subtitle` 新增 `--txt-only` 和 `--beam-size`，URL 字幕任务可直接生成无时间戳 `.txt`，最快模板显式使用 `tiny + beam_size=1`，不再先生成 SRT 再用 shell 清洗。
 
 ### Changed
+- **PPTX 技能升级为设计先行流程**：`pptx` skill 从 `python-pptx` API 片段升级为 HTML-first / 可编辑约束 / 品牌资产 / two-slide showcase / anti-slop / 预览验收的生产流程，并保留 `python-pptx` 作为快速编辑和朴素内部门槛路径。
 - **微信公众号发布默认能力面收敛**：`capabilities.commands` 和 `canonical_args` 默认只暴露 `capabilities/inspect/publish`，`preview` 移到 `explicit_preview`，避免用户已要求发布时 Agent 先跑预览并因漏 `--out-dir` 产生无意义错误。
 - **微信公众号发布 CLI 容错收敛**：`wechat_publish.py publish` 缺省 `--out-dir` 时自动使用 Markdown 同目录的 `wechat-output`，避免漏参触发重试雪崩；`capabilities.canonical_args` 不再把 `--theme` 作为默认发布参数暴露，减少 Agent 绕过 `auto` 主题选择的概率。
 - **微信公众号书籍内容自动选题收敛**：`wechat_publish.py` 的 `auto` 主题识别新增书籍语境规则，能把“这本书/本书/全书/书中/一本书”等书评和书籍提炼内容自动选为 `minimal`；`wechat-publish` 技能说明同步禁止默认场景手写 `--theme`，并明确 `publish` 子命令不可使用 `--draft`。

@@ -1,194 +1,155 @@
 ---
 name: pptx
-description: 创建和编辑 PPT 演示文稿。不用于：Word 文档（用 docx）、PDF
+description: Use when the user asks to create, edit, improve, redesign, beautify, or inspect PowerPoint decks, PPT files, slide decks, keynotes, or .pptx deliverables. Prefer this skill for presentation work that must produce a real PPTX file, especially when visual quality, editable text, brand assets, charts, or export verification matter. Do not use for Word documents or PDFs.
 ---
 
-All output files go to the working directory (工作目录). Use `file_write` to create the Python script, then `shell` to execute it.
+# PPTX Deck Production
 
-## Step 0: Install dependency (first time only)
-```json
-{"command": "pip install python-pptx", "timeout": 60000}
+Create PowerPoint decks as designed presentation artifacts, not as `python-pptx` API demos. The default goal is a deck that looks intentionally designed, keeps important text editable, and has been rendered or inspected before delivery.
+
+## Choose the production path
+
+Use the highest-quality path the request allows:
+
+| User need | Path | Result |
+| --- | --- | --- |
+| "Make it beautiful", "keynote", product launch, brand deck, pitch, public-facing slides | HTML-first | Design in HTML/CSS, render previews, then export or rebuild to PPTX |
+| Editable PPTX is mandatory | Editable-constrained | Follow the editable PPTX constraints from the first slide; avoid effects that cannot become PowerPoint objects |
+| Quick internal deck, simple edit, append slides, fix text/table/chart | Python-pptx fallback | Use native `python-pptx` objects with a restrained design system |
+| Existing deck visual refresh | Inspect first | Read the deck, render/convert previews when available, then patch the source PPTX |
+
+If the user did not specify editability, optimize for visual quality and provide a PPTX plus PNG/PDF previews when possible. If the deck must remain heavily editable, tell the user that some web-only visual effects will be simplified.
+
+Do not vendor or copy third-party slide engines into this repo without checking their license. You may use public design ideas such as HTML-first workflow, asset intake, showcase-first iteration, and anti-slop gates.
+
+## Design intake
+
+Before generating a substantial deck, capture enough context to avoid generic slides:
+
+1. Audience and use: live talk, investor pitch, report, class, social carousel, internal status, sales leave-behind.
+2. Slide count and density: live decks should usually be lighter; leave-behinds can carry more tables and notes.
+3. Brand/source assets: logo, product renders, UI screenshots, brand guidelines, colors, fonts, existing site, previous decks.
+4. Required format: PPTX only, HTML plus PPTX, PDF, speaker notes, or all of the above.
+5. Current facts: if product specs, market data, people, laws, prices, or recent events matter, verify them before using them.
+
+For branded decks, create or update a short `brand-spec.md` in the deck workspace. Include logo paths, product/UI image paths, color tokens, font choices, and no-go rules. Logo, product images, and UI screenshots matter more than guessed colors.
+
+## HTML-first deck workflow
+
+Use this for design-heavy decks and for any deck where the user complained about ugly output.
+
+1. Create a writable deck workspace with `slides/`, `assets/`, `previews/`, and optional `brand-spec.md`.
+2. Build a two-slide showcase before the whole deck when the deck has 5+ slides. Pick the cover plus the most different content slide. The phrase "two-slide showcase" means these two slides establish typography, palette, spacing, imagery, and page grammar before bulk generation.
+3. Author slides at 16:9 with a stable canvas. Prefer `960pt × 540pt`, `1280px × 720px`, or `13.333in × 7.5in`. Keep one clear job per slide.
+4. Use real assets as first-class visuals. Do not replace a product, brand, person, interface, or chart with generic icons, CSS silhouettes, decorative SVGs, or stock-like filler.
+5. Render PNG previews for the showcase, inspect them, then continue the full deck. After the full deck, render PNG previews for every slide.
+6. Export or rebuild to PPTX only after the visual grammar is stable.
+
+Visual grammar beats template repetition. Keep consistent margins, type scale, colors, and motif behavior, but vary composition: full-bleed image, open type, chart-first slide, comparison, quote, timeline, section divider, artifact screenshot, or closing CTA.
+
+## Editable PPTX constraints
+
+When users need editable text and shapes in PowerPoint, the design source must obey PowerPoint's object model from the start:
+
+- Use `960pt × 540pt` or equivalent 16:9 dimensions.
+- All visible text must be wrapped in semantic text elements in HTML (`p`, `h1`-`h6`, `li`) or native PowerPoint text boxes. The phrase "text must be wrapped" is a hard gate.
+- Put fills, borders, and shadows on container shapes, not directly on text elements.
+- Use real image elements or native picture shapes for images. Do not rely on CSS `background-image` if the converter cannot map it.
+- Avoid CSS gradients, web components, canvas art, complex SVG decorations, blend modes, and layout tricks that cannot become editable PPTX objects.
+- Leave extra text slack. PowerPoint font metrics differ from browser metrics; tight titles and chips will wrap or clip.
+- Use native editable charts/tables when the relationship is chartable. Do not fake ordinary charts from boxes unless the visual relationship cannot be represented by native chart/table objects.
+
+If a finished HTML visual cannot be exported as editable PPTX cleanly, prefer PDF/PNG for visual fidelity and create a simplified editable PPTX only if the user still needs it.
+
+## Design quality gates
+
+Apply these anti-slop checks before delivery:
+
+- No generic purple-blue gradients, emoji icons, random blobs, fake device silhouettes, stock SVG humans, or repeated "title + three rounded cards" unless the user explicitly asked for that style.
+- No text-dense slides pretending to be presentation slides. Split dense material or move detail into speaker notes/appendix.
+- No important text below presentation-readable size: body usually 18-28 pt, callouts 24+ pt, chart labels 12-16 pt minimum depending on density.
+- No large empty cards used as a substitute for composition. Use open typography, a real visual, chart, table, or diagram.
+- No placeholder imagery in final output unless honestly labeled and approved.
+- No default Office chart/table styling. Set fonts, fills, line weights, gridlines, legends, labels, and emphasis deliberately.
+- No overlap, clipping, off-slide content, or low-contrast text over busy imagery.
+
+## Python-pptx fallback
+
+Use `python-pptx` for direct PPTX creation, existing deck edits, or constrained internal decks. Install only if missing:
+
+```powershell
+python -m pip install python-pptx
 ```
 
-## Create a presentation
+Prefer blank slides and named geometry helpers over built-in placeholder layouts. Use a small design system:
 
 ```python
-# file_write: {WORKDIR}/_script.py
 from pptx import Presentation
-from pptx.util import Inches, Pt, Cm, Emu
+from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
-from pptx.enum.chart import XL_CHART_TYPE
-
-prs = Presentation()
-prs.slide_width = Inches(13.333)   # 16:9 widescreen
-prs.slide_height = Inches(7.5)
-
-# ========== Slide 1: Title Slide ==========
-slide_layout = prs.slide_layouts[0]  # Title Slide layout
-slide = prs.slides.add_slide(slide_layout)
-slide.shapes.title.text = "演示文稿标题"
-slide.placeholders[1].text = "副标题 — 2024年度汇报"
-
-# ========== Slide 2: Title + Content ==========
-slide_layout = prs.slide_layouts[1]  # Title and Content layout
-slide = prs.slides.add_slide(slide_layout)
-slide.shapes.title.text = "项目概览"
-
-tf = slide.placeholders[1].text_frame
-tf.text = "第一个要点"
-p = tf.add_paragraph()
-p.text = "第二个要点"
-p.level = 0
-p = tf.add_paragraph()
-p.text = "子要点（缩进）"
-p.level = 1
-p = tf.add_paragraph()
-p.text = "第三个要点"
-p.level = 0
-
-# ========== Slide 3: Blank slide with custom textbox ==========
-slide = prs.slides.add_slide(prs.slide_layouts[6])  # Blank layout
-
-# Add text box
-from pptx.util import Inches
-txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1.5))
-tf = txBox.text_frame
-tf.word_wrap = True
-p = tf.paragraphs[0]
-p.text = "自定义文本框内容"
-p.font.size = Pt(24)
-p.font.bold = True
-p.font.color.rgb = RGBColor(0x1A, 0x5C, 0xB0)
-p.alignment = PP_ALIGN.CENTER
-
-# Add a second text box for body
-txBox2 = slide.shapes.add_textbox(Inches(1), Inches(3), Inches(11), Inches(3))
-tf2 = txBox2.text_frame
-tf2.word_wrap = True
-tf2.paragraphs[0].text = "这里是详细说明内容。可以包含多行文字。"
-tf2.paragraphs[0].font.size = Pt(16)
-
-# ========== Slide 4: Table ==========
-slide = prs.slides.add_slide(prs.slide_layouts[6])
-title_box = slide.shapes.add_textbox(Inches(1), Inches(0.3), Inches(8), Inches(0.8))
-title_box.text_frame.paragraphs[0].text = "数据表格"
-title_box.text_frame.paragraphs[0].font.size = Pt(28)
-title_box.text_frame.paragraphs[0].font.bold = True
-
-rows, cols = 4, 3
-table_shape = slide.shapes.add_table(rows, cols, Inches(2), Inches(1.5), Inches(9), Inches(3))
-table = table_shape.table
-
-# Header
-for i, h in enumerate(["项目", "Q1", "Q2"]):
-    cell = table.cell(0, i)
-    cell.text = h
-    for paragraph in cell.text_frame.paragraphs:
-        paragraph.font.bold = True
-        paragraph.font.size = Pt(14)
-
-# Data
-data = [["产品A", "120万", "150万"], ["产品B", "80万", "95万"], ["产品C", "200万", "230万"]]
-for r, row_data in enumerate(data, 1):
-    for c, val in enumerate(row_data):
-        table.cell(r, c).text = val
-
-# ========== Slide 5: Image (if available) ==========
-# slide = prs.slides.add_slide(prs.slide_layouts[6])
-# slide.shapes.add_picture("{WORKDIR}/image.png", Inches(1), Inches(1), width=Inches(8))
-
-prs.save("{WORKDIR}/output.pptx")
-print("OK: {WORKDIR}/output.pptx")
-```
-
-Then execute:
-```json
-{"command": "python {WORKDIR}/_script.py", "timeout": 30000}
-```
-
-## Read / analyze an existing presentation
-
-```python
-# file_write: {WORKDIR}/_script.py
-from pptx import Presentation
-
-prs = Presentation("{WORKDIR}/input.pptx")  # <-- replace with actual path
-
-print(f"Total slides: {len(prs.slides)}")
-print(f"Slide size: {prs.slide_width} x {prs.slide_height}")
-
-for i, slide in enumerate(prs.slides):
-    print(f"\n--- Slide {i+1} (layout: {slide.slide_layout.name}) ---")
-    for shape in slide.shapes:
-        print(f"  [{shape.shape_type}] name={shape.name}, pos=({shape.left},{shape.top}), size=({shape.width},{shape.height})")
-        if shape.has_text_frame:
-            for para in shape.text_frame.paragraphs:
-                print(f"    text: {para.text}")
-        if shape.has_table:
-            for row in shape.table.rows:
-                print(f"    row: {' | '.join(cell.text for cell in row.cells)}")
-```
-
-## Add a chart to a slide
-
-```python
-# file_write: {WORKDIR}/_script.py
-from pptx import Presentation
-from pptx.chart.data import CategoryChartData
-from pptx.enum.chart import XL_CHART_TYPE
-from pptx.util import Inches
 
 prs = Presentation()
 prs.slide_width = Inches(13.333)
 prs.slide_height = Inches(7.5)
+
+W, H = 13.333, 7.5
+INK = RGBColor(0x18, 0x1A, 0x1F)
+MUTED = RGBColor(0x5B, 0x61, 0x6B)
+PAPER = RGBColor(0xF7, 0xF4, 0xEE)
+ACCENT = RGBColor(0x2F, 0x7D, 0x6D)
+
+def add_text(slide, text, x, y, w, h, size, color=INK, bold=False, align=PP_ALIGN.LEFT):
+    box = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+    tf = box.text_frame
+    tf.clear()
+    tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+    tf.word_wrap = True
+    tf.vertical_anchor = MSO_ANCHOR.TOP
+    p = tf.paragraphs[0]
+    p.text = text
+    p.alignment = align
+    run = p.runs[0]
+    run.font.name = "Aptos"
+    run.font.size = Pt(size)
+    run.font.bold = bold
+    run.font.color.rgb = color
+    return box
+
 slide = prs.slides.add_slide(prs.slide_layouts[6])
+slide.background.fill.solid()
+slide.background.fill.fore_color.rgb = PAPER
 
-chart_data = CategoryChartData()
-chart_data.categories = ["Q1", "Q2", "Q3", "Q4"]
-chart_data.add_series("产品A", (120, 150, 180, 200))
-chart_data.add_series("产品B", (80, 95, 110, 130))
+add_text(slide, "Quarterly Product Narrative", 0.75, 0.7, 8.6, 0.9, 34, bold=True)
+add_text(slide, "One sharp claim per slide. Use real evidence, not filler.", 0.78, 1.55, 7.4, 0.45, 15, MUTED)
+shape = slide.shapes.add_shape(1, Inches(0.78), Inches(2.25), Inches(3.2), Inches(0.05))
+shape.fill.solid()
+shape.fill.fore_color.rgb = ACCENT
 
-chart = slide.shapes.add_chart(
-    XL_CHART_TYPE.COLUMN_CLUSTERED,
-    Inches(1), Inches(1), Inches(10), Inches(5.5),
-    chart_data
-).chart
-
-chart.has_legend = True
-chart.legend.include_in_layout = False
-
-prs.save("{WORKDIR}/chart_pptx.pptx")
-print("OK: {WORKDIR}/chart_pptx.pptx")
+prs.save("output.pptx")
 ```
 
-## Insert an image into a specific slide
+For charts, use native `add_chart` and then style axes, labels, legend, and colors. For tables, increase row height, remove heavy borders, use quiet rules, and emphasize one comparison instead of filling every cell with equal visual weight.
 
-```python
-from pptx import Presentation
-from pptx.util import Inches
+## Editing existing decks
 
-prs = Presentation("{WORKDIR}/existing.pptx")
-slide = prs.slides[0]  # first slide, change index as needed
-slide.shapes.add_picture("{WORKDIR}/image.png", Inches(1), Inches(2), width=Inches(6))
-prs.save("{WORKDIR}/existing_with_image.pptx")
-print("OK")
-```
+1. Read the deck with `python-pptx`; list slide count, size, layouts, shape names, text, tables, charts, and media.
+2. Render or convert to previews if LibreOffice is available:
+   ```powershell
+   soffice --headless --convert-to pdf --outdir previews input.pptx
+   ```
+3. Patch only the requested slides or the minimum shared theme objects needed.
+4. Preserve existing user content unless the request is a rewrite.
+5. Save to a new file unless the user explicitly asked to overwrite.
 
-## Common slide layouts
-| Index | Name | Use for |
-|-------|------|---------|
-| 0 | Title Slide | 封面页 |
-| 1 | Title and Content | 标题 + 正文要点 |
-| 2 | Section Header | 章节分隔页 |
-| 5 | Title Only | 只有标题，内容自由排版 |
-| 6 | Blank | 完全空白，手动添加所有元素 |
+## Verification
 
-## Rules
-- ALWAYS use bash shell (default), never PowerShell.
-- Default slide size: 16:9 widescreen (13.333 x 7.5 inches). Set explicitly.
-- Output path: `{WORKDIR}/xxx.pptx`. Use descriptive filenames.
-- For user-uploaded files, read from the path the user provides.
-- After generating the file, use `send_file` to deliver it to the user.
-- Keep Chinese content as-is. Do NOT translate.
-- For many slides, build a loop — do NOT copy-paste the same code for each slide.
+Before final response:
+
+1. Confirm the PPTX file exists and can be opened by `python-pptx`.
+2. Inspect slide count, dimensions, and non-empty text objects.
+3. Render PNG previews or a PDF when tooling is available. Use LibreOffice headless for PPTX-to-PDF, then convert PDF pages to PNG if possible.
+4. Inspect every preview at readable size. Check cover quality, hierarchy, text fit, asset rendering, chart/table styling, and footer/source fit.
+5. Report what was verified: PPTX path, preview paths, commands run, and any unresolved limitations.
+
+If preview rendering is unavailable, say so clearly and compensate with package inspection: slide dimensions, shape count, text extraction, image count, and chart/table presence.
