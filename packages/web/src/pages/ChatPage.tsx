@@ -12,6 +12,7 @@ import i18n from "../i18n";
 import { useBackClose } from "../hooks/useBackClose";
 import { useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   type ChatMessage,
@@ -800,19 +801,13 @@ const mdComponents = {
 
 /* ── Tool result markdown components (inline code stays inline) ── */
 
-const toolMdComponents = {
-  code: ({
-    children,
-  }: {
-    className?: string;
-    children?: React.ReactNode;
-    [k: string]: unknown;
-  }) => {
+const toolMdComponents: Components = {
+  code: ({ children }) => {
     // Tool results use simple inline code only — no CodeBlock (no dark theme, no Preview)
     return <code className="code-inline">{children}</code>;
   },
   // Prevent code blocks from rendering as <pre><code> with CodeBlock styling
-  pre: ({ children }: { children?: React.ReactNode }) => {
+  pre: ({ children }) => {
     return <pre className="tool-result-pre">{children}</pre>;
   },
 };
@@ -1838,8 +1833,9 @@ export function ChatPage() {
       try {
         const cfg = await getConfig();
         const hasLegacyKey = !!(cfg.anthropicApiKey || cfg.openaiApiKey || cfg.geminiApiKey);
-        const hasProvider = Array.isArray((cfg as Record<string, unknown>).providers) &&
-          ((cfg as Record<string, unknown>).providers as Array<{ apiKey?: string }>).some((p) => p.apiKey);
+        const configRecord = cfg as unknown as Record<string, unknown>;
+        const hasProvider = Array.isArray(configRecord.providers) &&
+          (configRecord.providers as Array<{ apiKey?: string }>).some((p) => p.apiKey);
         const hasKey = hasLegacyKey || hasProvider;
         configCheckedRef.current = hasKey;
         if (!hasKey) {

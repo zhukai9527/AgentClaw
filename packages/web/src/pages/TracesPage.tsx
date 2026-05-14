@@ -50,7 +50,7 @@ function computeToolStats(items: TraceInfo[]): ToolStats {
       if (isErr) stat.errors++;
       else stat.success++;
       stat.totalDurationMs +=
-        ((step as Record<string, unknown>).durationMs as number) ?? 0;
+        ((step as unknown as Record<string, unknown>).durationMs as number) ?? 0;
     }
   }
 
@@ -729,7 +729,7 @@ export function TracesPage() {
             ))}
           </select>
           <span className="traces-total">
-            {t("traces.tracesCount", { count: formatNumber(total) })}
+            {t("traces.tracesCount", { count: total })}
           </span>
           <div className="traces-pager">
             <button

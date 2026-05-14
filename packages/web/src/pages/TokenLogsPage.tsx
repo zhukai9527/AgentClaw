@@ -46,7 +46,7 @@ export function TokenLogsPage() {
         <section className="card token-logs-section">
           <div className="token-logs-header">
             <span className="token-logs-total">
-              {t('tokenLogs.records', { count: formatNumber(total) })}
+              {t('tokenLogs.records', { count: total })}
             </span>
             <div className="token-logs-pager">
               <button

@@ -13,6 +13,8 @@ import {
   deleteAgentApiKey,
   type AgentInfo,
   type AgentApiKeyInfo,
+  type FileSourceConfigInfo,
+  type HttpApiConfigInfo,
   type KnowledgeSourceInfo,
   type ProviderInstance,
 } from "../api/client";
@@ -530,7 +532,11 @@ export function AgentsPage() {
                             <div key={ks.id} className="agents-ks-card">
                               <div className="agents-ks-header">
                                 <strong>{ks.name}</strong>
-                                <span className="agents-ks-method">{ks.config.method}</span>
+                                <span className="agents-ks-method">
+                                  {ks.type === "http_api"
+                                    ? (ks.config as HttpApiConfigInfo).method
+                                    : "FILE"}
+                                </span>
                                 <button
                                   className="agents-apikey-delete"
                                   onClick={() => setKnowledgeSources((prev) => prev.filter((_, i) => i !== idx))}
@@ -538,7 +544,11 @@ export function AgentsPage() {
                                   &times;
                                 </button>
                               </div>
-                              <code className="agents-ks-url">{ks.config.url}</code>
+                              <code className="agents-ks-url">
+                                {ks.type === "http_api"
+                                  ? (ks.config as HttpApiConfigInfo).url
+                                  : (ks.config as FileSourceConfigInfo).filename}
+                              </code>
                               <div className="agents-ks-desc">{ks.description}</div>
                             </div>
                           ))}

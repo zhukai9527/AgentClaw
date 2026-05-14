@@ -671,6 +671,7 @@ export interface AppConfigInfo {
   databasePath: string;
   skillsDir: string;
   dailyBriefTime?: string;
+  dailyBriefEnabled?: boolean;
   // 多 Provider 实例
   providers?: ProviderInstance[];
   activeProvider?: string;

@@ -380,7 +380,7 @@ function TodayView({
   onUpdate: (id: string, updates: Partial<TaskItem>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onDecide: (id: string, decision: string) => Promise<void>;
-  onAdd: (text: string) => Promise<void>;
+  onAdd: (text: string, assignee: string) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const decisions = tasks.filter((t) => t.status === "waiting_decision");
@@ -649,7 +649,7 @@ function AllTasksView({
   tasks: TaskItem[];
   onUpdate: (id: string, updates: Partial<TaskItem>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onAdd: (text: string) => Promise<void>;
+  onAdd: (text: string, assignee: string) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const [statusFilter, setStatusFilter] = useState("");

@@ -14,6 +14,7 @@
 ### Fixed
 - **偏好冲突污染**：同场景 preference/fact 出现“不要/改成/以后”等变更信号时，新 L1 记忆会 `supersedes` 旧记忆，并把旧记忆标记为 `deprecated`，避免新旧偏好同时注入。
 - **废弃记忆召回**：Memory search 和 prompt 格式化会跳过 `deprecated/superseded` 记忆，防止已被替代的内容继续影响 Agent。
+- **Web typecheck 旧债**：补齐 Vite/Babel/Web Speech 类型声明，修复知识源 union narrowing、ReactMarkdown components、i18n count 类型和任务 quick-add 签名，使全仓 `pnpm run typecheck` 恢复通过。
 
 ## [1.5.26] - 2026-05-14
 

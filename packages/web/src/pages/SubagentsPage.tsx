@@ -198,8 +198,8 @@ export function SubagentsPage() {
         <div className="sa-toolbar">
           <span className="sa-total">
             {total !== 1
-              ? t("subagents.subagentsCount", { count: formatNumber(total) })
-              : t("subagents.subagentCount", { count: formatNumber(total) })}
+              ? t("subagents.subagentsCount", { count: total })
+              : t("subagents.subagentCount", { count: total })}
           </span>
           <div className="sa-pager">
             <button
