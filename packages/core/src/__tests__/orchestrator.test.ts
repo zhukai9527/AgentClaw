@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { SimpleOrchestrator } from "../orchestrator.js";
+import {
+  SimpleOrchestrator,
+  shouldRunMemoryExtraction,
+} from "../orchestrator.js";
 import type {
   LLMProvider,
   LLMResponse,
@@ -11,6 +14,25 @@ import type {
 import type { ToolRegistryImpl } from "@agentclaw/tools";
 
 // ── Mock 工厂 ──
+
+describe("memory extraction trigger policy", () => {
+  it("应支持 warmup、周期触发和 idle 触发", () => {
+    const base = new Date("2026-05-15T10:00:00.000Z");
+
+    expect(shouldRunMemoryExtraction(1, undefined, base)).toBe(true);
+    expect(shouldRunMemoryExtraction(2, base, base)).toBe(true);
+    expect(shouldRunMemoryExtraction(3, base, base)).toBe(false);
+    expect(shouldRunMemoryExtraction(4, base, base)).toBe(true);
+    expect(shouldRunMemoryExtraction(8, base, base)).toBe(true);
+    expect(
+      shouldRunMemoryExtraction(
+        5,
+        new Date("2026-05-15T09:49:59.000Z"),
+        base,
+      ),
+    ).toBe(true);
+  });
+});
 
 function createMockProvider(): LLMProvider {
   return {

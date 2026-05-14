@@ -270,6 +270,20 @@ CREATE TABLE IF NOT EXISTS observation_reads (
 CREATE INDEX IF NOT EXISTS idx_observation_reads_observation ON observation_reads(observation_id, read_at ASC);
 CREATE INDEX IF NOT EXISTS idx_observation_reads_trace ON observation_reads(trace_id, step_id);
 
+-- Memory usage telemetry: records which memories actually reached agent context
+CREATE TABLE IF NOT EXISTS memory_usage (
+  id TEXT PRIMARY KEY,
+  memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+  source TEXT NOT NULL,
+  conversation_id TEXT,
+  trace_id TEXT,
+  agent_id TEXT,
+  metadata TEXT,
+  used_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_memory_usage_memory ON memory_usage(memory_id, used_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_usage_conversation ON memory_usage(conversation_id, used_at DESC);
+
 -- Agent profiles (persona with custom soul, model, tools)
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY,
@@ -439,6 +453,14 @@ export function initDatabase(dbPath: string): DbAdapter {
     "TEXT NOT NULL DEFAULT ''",
   );
 
+  addColumnIfMissing(db, "memory_usage", "memory_id", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, "memory_usage", "source", "TEXT NOT NULL DEFAULT 'prompt_injection'");
+  addColumnIfMissing(db, "memory_usage", "conversation_id", "TEXT");
+  addColumnIfMissing(db, "memory_usage", "trace_id", "TEXT");
+  addColumnIfMissing(db, "memory_usage", "agent_id", "TEXT");
+  addColumnIfMissing(db, "memory_usage", "metadata", "TEXT");
+  addColumnIfMissing(db, "memory_usage", "used_at", "TEXT NOT NULL DEFAULT ''");
+
   // Create indexes for migration-added columns (must run after addColumnIfMissing)
   try {
     db.exec(`
@@ -450,6 +472,8 @@ export function initDatabase(dbPath: string): DbAdapter {
       CREATE INDEX IF NOT EXISTS idx_observations_created ON observations(created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_observation_reads_observation ON observation_reads(observation_id, read_at ASC);
       CREATE INDEX IF NOT EXISTS idx_observation_reads_trace ON observation_reads(trace_id, step_id);
+      CREATE INDEX IF NOT EXISTS idx_memory_usage_memory ON memory_usage(memory_id, used_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_memory_usage_conversation ON memory_usage(conversation_id, used_at DESC);
     `);
   } catch {
     // Indexes may already exist

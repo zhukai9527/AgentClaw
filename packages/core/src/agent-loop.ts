@@ -446,6 +446,23 @@ function buildActiveToolOffloadHint(info: ToolOffloadInfo): string {
   );
 }
 
+function buildToolOffloadCanvas(infos: ToolOffloadInfo[]): string {
+  const nodes = infos
+    .slice(-8)
+    .map((info, index) => {
+      const node = `N${index + 1}`;
+      const label = `${info.toolName}\\n${info.nodeId}\\n${info.resultRef}`;
+      return `  ${node}["${label}"]`;
+    })
+    .join("\n");
+  const edges = infos
+    .slice(-8)
+    .map((_, index) => (index === 0 ? "" : `  N${index} --> N${index + 1}`))
+    .filter(Boolean)
+    .join("\n");
+  return `<active_tool_offload_canvas>\ngraph LR\n${nodes}${edges ? `\n${edges}` : ""}\n</active_tool_offload_canvas>`;
+}
+
 /**
  * Overflow mode: when a tool's output exceeds OVERFLOW_THRESHOLD, save the
  * full content to a temp file and replace result.content with a preview +
@@ -1268,6 +1285,8 @@ export class SimpleAgentLoop implements AgentLoop {
     const runtimeHints: string[] = [
       `[工作目录：${sessionTmpDir}]（所有文件都在此目录下，输出也保存到这里）`,
     ];
+    const activeToolOffloads: ToolOffloadInfo[] = [];
+    let offloadCanvasHintIndex: number | null = null;
     const inputTextForHeuristics =
       typeof input === "string"
         ? (context?.originalUserText ?? input)
@@ -2557,7 +2576,15 @@ export class SimpleAgentLoop implements AgentLoop {
               effectiveToolInput,
             );
             if (offloadInfo) {
+              activeToolOffloads.push(offloadInfo);
               runtimeHints.push(buildActiveToolOffloadHint(offloadInfo));
+              const canvas = buildToolOffloadCanvas(activeToolOffloads);
+              if (offloadCanvasHintIndex === null) {
+                runtimeHints.push(canvas);
+                offloadCanvasHintIndex = runtimeHints.length - 1;
+              } else {
+                runtimeHints[offloadCanvasHintIndex] = canvas;
+              }
             }
           }
 

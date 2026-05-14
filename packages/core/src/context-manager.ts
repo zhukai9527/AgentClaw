@@ -173,6 +173,7 @@ export class SimpleContextManager implements ContextManager {
       skillMatch = cached.skillMatch;
     } else {
       const result = await this.buildDynamicContext(
+        conversationId,
         currentInput,
         options,
         options?.memoryNamespace,
@@ -279,6 +280,7 @@ export class SimpleContextManager implements ContextManager {
    * Returns a string to append to the system prompt.
    */
   private async buildDynamicContext(
+    conversationId: string,
     currentInput: string | ContentBlock[],
     options?: { preSelectedSkillName?: string },
     memoryNamespace = "default",
@@ -330,10 +332,26 @@ export class SimpleContextManager implements ContextManager {
         namespace: memoryNamespace,
       });
 
-      // Merge and dedup by ID (identity first → preferences → query results)
+      const layeredMemories = await this.memoryStore.search({
+        query: searchQuery,
+        limit: 12,
+        bm25Weight: 0.1,
+        semanticWeight: 0.35,
+        recencyWeight: 0.1,
+        importanceWeight: 0.45,
+        namespace: memoryNamespace,
+      });
+
+      // Merge and dedup by ID (L3/L2 → identity → preferences → query results)
       const seen = new Set<string>();
       const allMemories: MemorySearchResult[] = [];
       for (const m of [
+        ...layeredMemories.filter((memory) =>
+          isLayer(memory.entry.metadata, "L3"),
+        ),
+        ...layeredMemories.filter((memory) =>
+          isLayer(memory.entry.metadata, "L2"),
+        ),
         ...identityMemories,
         ...prefMemories,
         ...queryMemories,
@@ -353,6 +371,17 @@ export class SimpleContextManager implements ContextManager {
           if (totalChars + line.length > 2000) break;
           lines.push(line);
           totalChars += line.length;
+          if (this.memoryStore.recordMemoryUsage) {
+            await this.memoryStore.recordMemoryUsage({
+              memoryId: m.entry.id,
+              source: "prompt_injection",
+              conversationId,
+              metadata: {
+                layer: readStringMetadata(m.entry.metadata, "layer", "legacy"),
+                namespace: memoryNamespace,
+              },
+            });
+          }
         }
         if (lines.length > 0) {
           parts.push(
@@ -1269,6 +1298,27 @@ ${transcript}`;
 
 function formatMemoryForPrompt(memory: MemorySearchResult): string | null {
   const metadata = memory.entry.metadata;
+  const status = readStringMetadata(metadata, "status", "");
+  if (status === "deprecated" || status === "superseded") return null;
+  if (isLayer(metadata, "L3")) {
+    const confidence = readNumericMetadata(metadata, "confidence");
+    if (confidence < 0.75) return null;
+    const tags = [`layer:L3`, `src:${readStringMetadata(metadata, "source", "persona")}`];
+    const ids = readStringArrayMetadata(metadata, "sourceMemoryIds");
+    if (ids.length > 0) tags.push(`evidence:${ids.slice(0, 3).join(",")}`);
+    tags.push(`conf:${formatConfidence(confidence)}`);
+    return `- [profile] ${memory.entry.content} (${tags.join(" ")})`;
+  }
+  if (isLayer(metadata, "L2")) {
+    const confidence = readNumericMetadata(metadata, "confidence");
+    if (confidence < 0.7) return null;
+    const sceneName = readStringMetadata(metadata, "sceneName", "general");
+    const ids = readStringArrayMetadata(metadata, "sourceMemoryIds");
+    const tags = [`layer:L2`, `scene:${sceneName}`];
+    if (ids.length > 0) tags.push(`evidence:${ids.slice(0, 3).join(",")}`);
+    tags.push(`conf:${formatConfidence(confidence)}`);
+    return `- [scene] ${memory.entry.content} (${tags.join(" ")})`;
+  }
   const isL1 = metadata?.layer === "L1";
   if (isL1) {
     const confidence = readNumericMetadata(metadata, "confidence");
@@ -1292,6 +1342,13 @@ function formatMemoryForPrompt(memory: MemorySearchResult): string | null {
   return `- [${memory.entry.type}] ${memory.entry.content} (src:legacy)`;
 }
 
+function isLayer(
+  metadata: Record<string, unknown> | undefined,
+  layer: string,
+): boolean {
+  return readStringMetadata(metadata, "layer", "") === layer;
+}
+
 function readNumericMetadata(
   metadata: Record<string, unknown> | undefined,
   key: string,
@@ -1309,6 +1366,16 @@ function readStringMetadata(
   if (!metadata) return fallback;
   const value = metadata[key];
   return typeof value === "string" ? value : fallback;
+}
+
+function readStringArrayMetadata(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string[] {
+  const value = metadata?.[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function formatConfidence(value: number): string {

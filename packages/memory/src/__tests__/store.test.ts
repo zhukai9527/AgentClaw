@@ -201,6 +201,63 @@ describe("SQLiteMemoryStore — 会话 CRUD", () => {
   });
 });
 
+describe("SQLiteMemoryStore — 记忆分层与 telemetry", () => {
+  let store: SQLiteMemoryStore;
+
+  beforeEach(() => {
+    ({ store } = createStore());
+  });
+
+  it("search 不应返回已废弃或被替代的记忆", async () => {
+    await store.add({
+      type: "preference",
+      content: "用户偏好白底 PPTX。",
+      importance: 0.9,
+      metadata: { layer: "L1", confidence: 0.9 },
+    });
+    await store.add({
+      type: "preference",
+      content: "用户偏好深色 PPTX。",
+      importance: 1,
+      metadata: { layer: "L1", status: "deprecated", confidence: 0.95 },
+    });
+
+    const results = await store.search({ query: "PPTX", limit: 10 });
+
+    expect(results.map((result) => result.entry.content)).toContain(
+      "用户偏好白底 PPTX。",
+    );
+    expect(results.map((result) => result.entry.content)).not.toContain(
+      "用户偏好深色 PPTX。",
+    );
+  });
+
+  it("应记录 memory usage telemetry", async () => {
+    const memory = await store.add({
+      type: "preference",
+      content: "用户要求报告具体效果。",
+      importance: 0.8,
+      metadata: { layer: "L1", confidence: 0.9 },
+    });
+
+    const usage = await store.recordMemoryUsage({
+      memoryId: memory.id,
+      source: "prompt_injection",
+      conversationId: "conv-usage",
+      metadata: { layer: "L1" },
+      usedAt: new Date("2026-05-15T10:00:00.000Z"),
+    });
+
+    expect(usage).toMatchObject({
+      memoryId: memory.id,
+      source: "prompt_injection",
+      conversationId: "conv-usage",
+      metadata: { layer: "L1" },
+    });
+    expect(usage.usedAt).toEqual(new Date("2026-05-15T10:00:00.000Z"));
+  });
+});
+
 describe("SQLiteMemoryStore — 对话轮次", () => {
   let store: SQLiteMemoryStore;
   let db: DbAdapter;

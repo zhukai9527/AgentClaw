@@ -28,6 +28,8 @@ import type {
   BackgroundJob,
   BackgroundJobInput,
   BackgroundJobUpdate,
+  MemoryUsageEvent,
+  MemoryUsageRecord,
 } from "@agentclaw/types";
 import { cosineSimilarity, SimpleBagOfWords } from "./embeddings.js";
 
@@ -187,8 +189,9 @@ export class SQLiteMemoryStore implements MemoryStore {
     const now = Date.now();
     const ONE_DAY_MS = 86_400_000;
 
-    const scored: MemorySearchResult[] = rows.map((row) => {
+    const scored: MemorySearchResult[] = rows.flatMap((row) => {
       const entry = rowToMemoryEntry(row);
+      if (isDeprecatedMemory(entry)) return [];
 
       // BM25 score (0-1), 0 if not found in FTS results
       const bm25Score = bm25Scores.get(entry.id) ?? 0;
@@ -221,7 +224,7 @@ export class SQLiteMemoryStore implements MemoryStore {
         wRecency * recencyScore +
         wImportance * importanceScore;
 
-      return { entry, score };
+      return [{ entry, score }];
     });
 
     // Sort by hybrid score
@@ -358,6 +361,42 @@ export class SQLiteMemoryStore implements MemoryStore {
       }
     });
     deleteFn();
+  }
+
+  async recordMemoryUsage(
+    event: MemoryUsageEvent,
+  ): Promise<MemoryUsageRecord> {
+    const id = randomUUID();
+    const usedAt = (event.usedAt ?? new Date()).toISOString();
+    const metadata = event.metadata ? JSON.stringify(event.metadata) : null;
+
+    this.db
+      .prepare(
+        `INSERT INTO memory_usage (
+          id, memory_id, source, conversation_id, trace_id, agent_id, metadata, used_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        event.memoryId,
+        event.source,
+        event.conversationId ?? null,
+        event.traceId ?? null,
+        event.agentId ?? null,
+        metadata,
+        usedAt,
+      );
+
+    return {
+      id,
+      memoryId: event.memoryId,
+      source: event.source,
+      conversationId: event.conversationId,
+      traceId: event.traceId,
+      agentId: event.agentId,
+      metadata: event.metadata,
+      usedAt: new Date(usedAt),
+    };
   }
 
   // ─── Usage stats ─────────────────────────────────────────────
@@ -2622,6 +2661,11 @@ function rowToEvolutionEventRecord(
       : undefined,
     createdAt: new Date(row.created_at),
   };
+}
+
+function isDeprecatedMemory(entry: MemoryEntry): boolean {
+  const status = entry.metadata?.status;
+  return status === "deprecated" || status === "superseded";
 }
 
 function rowToObservation(row: ObservationRow): Observation {

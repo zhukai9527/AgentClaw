@@ -25,6 +25,13 @@ interface ExtractedMemory {
   confidence?: number;
 }
 
+export interface LayeredMemoryConsolidationResult {
+  l2Created: number;
+  l2Updated: number;
+  l3Created: number;
+  l3Updated: number;
+}
+
 const EXTRACTION_PROMPT = `从对话中提取值得永久记住的用户信息。极度精简，白名单模式——只允许提取以下四类，其他一律不记。
 
 只允许提取：
@@ -49,6 +56,52 @@ function clamp01(value: unknown, fallback: number): number {
 function readSceneName(value: Record<string, unknown>): string | undefined {
   const raw = value.scene_name !== undefined ? value.scene_name : value.sceneName;
   return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+}
+
+function normalizeSceneName(sceneName: string | undefined): string {
+  return sceneName?.trim() || "general";
+}
+
+function readStringMetadata(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readNumberMetadata(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+  fallback: number,
+): number {
+  const value = metadata?.[key];
+  return typeof value === "number" ? value : fallback;
+}
+
+function hasConflictSignal(content: string): boolean {
+  return /不再|不要|别|禁止|改成|改为|以后|从现在|替代|而不是|instead|no longer|do not/i.test(
+    content,
+  );
+}
+
+function shouldSupersedeExisting(
+  incoming: ExtractedMemory,
+  existing: { entry: { type: string; content: string; metadata?: Record<string, unknown> }; score: number },
+): boolean {
+  if (incoming.content.trim() === existing.entry.content.trim()) return false;
+  if (incoming.type !== existing.entry.type) return false;
+  const incomingScene = normalizeSceneName(incoming.sceneName);
+  const existingScene = normalizeSceneName(
+    readStringMetadata(existing.entry.metadata, "sceneName"),
+  );
+  if (incomingScene !== existingScene) return false;
+  if (incoming.type !== "preference" && incoming.type !== "fact") return false;
+  return existing.score >= 0.55 && hasConflictSignal(incoming.content);
+}
+
+function isActiveLayerMemory(metadata: Record<string, unknown> | undefined) {
+  return metadata?.status !== "deprecated" && metadata?.status !== "superseded";
 }
 
 export class MemoryExtractor {
@@ -156,6 +209,7 @@ export class MemoryExtractor {
   async processConversation(
     conversationId: string,
     recentTurnsCount = 10,
+    namespace = "default",
   ): Promise<number> {
     const turns = await this.memoryStore.getHistory(
       conversationId,
@@ -163,7 +217,10 @@ export class MemoryExtractor {
     );
 
     // Load existing memories so LLM can see what's already stored
-    const existingResults = await this.memoryStore.search({ limit: 50 });
+    const existingResults = await this.memoryStore.search({
+      limit: 50,
+      namespace,
+    });
     const existingMemories = existingResults.map(
       (r) => `- [${r.entry.type}] ${r.entry.content}`,
     );
@@ -172,44 +229,25 @@ export class MemoryExtractor {
     let stored = 0;
 
     for (const memory of extracted) {
-      // Semantic dedup: skip if a similar memory already exists (cross-type)
-      const similar = await this.memoryStore.findSimilar(
-        memory.content,
-        memory.type,
-        0.75,
-      );
-
-      if (similar) {
-        // Update importance if the new one is higher
-        if (memory.importance > similar.entry.importance) {
-          await this.memoryStore.update(similar.entry.id, {
-            importance: memory.importance,
-          });
-        }
-        continue;
-      }
-
       const sourceTurnIds = turns
         .filter((turn) => turn.role === "user" || turn.role === "assistant")
         .map((turn) => turn.id);
-      await this.memoryStore.add({
-        type: memory.type,
-        content: memory.content,
-        importance: memory.importance,
-        sourceTurnId: turns[turns.length - 1]?.id,
-        metadata: {
-          layer: "L1",
+      const didStore = await this.storeL1Memory(
+        memory,
+        {
           source: "conversation",
           conversationId,
           sourceTurnIds,
-          sceneName: memory.sceneName,
-          confidence:
-            typeof memory.confidence === "number" ? memory.confidence : 0.7,
+          sourceTurnId: turns[turns.length - 1]?.id,
         },
-      });
-      stored++;
+        namespace,
+      );
+      if (didStore) stored++;
     }
 
+    if (stored > 0) {
+      await this.consolidateLayeredMemories(namespace);
+    }
     return stored;
   }
 
@@ -317,37 +355,270 @@ export class MemoryExtractor {
       for (const lesson of lessons) {
         if (!lesson.content) continue;
 
-        const similar = await this.memoryStore.findSimilar(
-          lesson.content,
-          "episodic",
-          0.75,
-          namespace,
-        );
-        if (similar) continue;
-
-        await this.memoryStore.add(
+        const didStore = await this.storeL1Memory(
           {
             type: "episodic",
             content: lesson.content,
             importance: clamp01(lesson.importance, 0.7),
-            metadata: {
-              layer: "L1",
-              source: "trace",
-              traceId: trace.id,
-              conversationId: trace.conversationId,
-              sourceStepIds,
-              sceneName: readSceneName(lesson),
-              confidence: clamp01(lesson.confidence, 0.7),
-            },
+            sceneName: readSceneName(lesson),
+            confidence: clamp01(lesson.confidence, 0.7),
+          },
+          {
+            source: "trace",
+            traceId: trace.id,
+            conversationId: trace.conversationId,
+            sourceStepIds,
           },
           namespace,
         );
-        stored++;
+        if (didStore) stored++;
       }
 
+      if (stored > 0) {
+        await this.consolidateLayeredMemories(namespace);
+      }
       return stored;
     } catch {
       return 0;
     }
   }
+
+  private async storeL1Memory(
+    memory: ExtractedMemory,
+    source: {
+      source: "conversation" | "trace";
+      conversationId: string;
+      traceId?: string;
+      sourceTurnIds?: string[];
+      sourceTurnId?: string;
+      sourceStepIds?: string[];
+    },
+    namespace: string,
+  ): Promise<boolean> {
+    const similar = await this.memoryStore.findSimilar(
+      memory.content,
+      memory.type,
+      memory.type === "preference" || memory.type === "fact" ? 0.55 : 0.75,
+      namespace,
+    );
+
+    const supersedes =
+      similar && shouldSupersedeExisting(memory, similar)
+        ? [similar.entry.id]
+        : [];
+    if (similar && supersedes.length === 0) {
+      if (memory.importance > similar.entry.importance) {
+        await this.memoryStore.update(similar.entry.id, {
+          importance: memory.importance,
+        });
+      }
+      return false;
+    }
+
+    const created = await this.memoryStore.add(
+      {
+        type: memory.type,
+        content: memory.content,
+        importance: memory.importance,
+        sourceTurnId: source.sourceTurnId,
+        metadata: {
+          layer: "L1",
+          source: source.source,
+          conversationId: source.conversationId,
+          traceId: source.traceId,
+          sourceTurnIds: source.sourceTurnIds,
+          sourceStepIds: source.sourceStepIds,
+          sceneName: normalizeSceneName(memory.sceneName),
+          confidence:
+            typeof memory.confidence === "number" ? memory.confidence : 0.7,
+          supersedes,
+        },
+      },
+      namespace,
+    );
+
+    if (similar && supersedes.length > 0) {
+      await this.memoryStore.update(similar.entry.id, {
+        metadata: {
+          ...similar.entry.metadata,
+          status: "deprecated",
+          supersededBy: created.id,
+          supersededAt: new Date().toISOString(),
+        },
+      });
+    }
+    return true;
+  }
+
+  async consolidateLayeredMemories(
+    namespace = "default",
+  ): Promise<LayeredMemoryConsolidationResult> {
+    const results = await this.memoryStore.search({
+      limit: 200,
+      namespace,
+      bm25Weight: 0,
+      semanticWeight: 0,
+      recencyWeight: 0.1,
+      importanceWeight: 0.9,
+    });
+    const entries = results.map((result) => result.entry);
+    const activeL1 = entries.filter(
+      (entry) =>
+        entry.metadata?.layer === "L1" &&
+        isActiveLayerMemory(entry.metadata) &&
+        readNumberMetadata(entry.metadata, "confidence", 0) >= 0.7,
+    );
+    const existingAggregates = entries.filter(
+      (entry) =>
+        (entry.metadata?.layer === "L2" || entry.metadata?.layer === "L3") &&
+        isActiveLayerMemory(entry.metadata),
+    );
+
+    const byScene = new Map<string, typeof activeL1>();
+    for (const entry of activeL1) {
+      const sceneName = normalizeSceneName(
+        readStringMetadata(entry.metadata, "sceneName"),
+      );
+      let group = byScene.get(sceneName);
+      if (!group) {
+        group = [];
+        byScene.set(sceneName, group);
+      }
+      group.push(entry);
+    }
+
+    const result: LayeredMemoryConsolidationResult = {
+      l2Created: 0,
+      l2Updated: 0,
+      l3Created: 0,
+      l3Updated: 0,
+    };
+
+    const l2Ids: string[] = [];
+    for (const [sceneName, group] of byScene.entries()) {
+      if (group.length < 2) continue;
+      group.sort((a, b) => b.importance - a.importance);
+      const sourceMemoryIds = group.map((entry) => entry.id);
+      const content = buildSceneMemoryContent(sceneName, group);
+      const existing = existingAggregates.find(
+        (entry) =>
+          entry.metadata?.layer === "L2" &&
+          readStringMetadata(entry.metadata, "sceneName") === sceneName,
+      );
+      const metadata = {
+        layer: "L2",
+        source: "scene_aggregate",
+        sceneName,
+        confidence: averageConfidence(group),
+        sourceMemoryIds,
+        evidence: { l1: sourceMemoryIds },
+      };
+      if (existing) {
+        await this.memoryStore.update(existing.id, {
+          content,
+          importance: Math.max(existing.importance, averageImportance(group)),
+          metadata: { ...existing.metadata, ...metadata },
+        });
+        l2Ids.push(existing.id);
+        result.l2Updated++;
+      } else {
+        const created = await this.memoryStore.add(
+          {
+            type: "episodic",
+            content,
+            importance: averageImportance(group),
+            metadata,
+          },
+          namespace,
+        );
+        l2Ids.push(created.id);
+        result.l2Created++;
+      }
+    }
+
+    const personaSources = activeL1.filter(
+      (entry) =>
+        (entry.type === "identity" || entry.type === "preference") &&
+        readNumberMetadata(entry.metadata, "confidence", 0) >= 0.8,
+    );
+    if (personaSources.length >= 2) {
+      personaSources.sort((a, b) => b.importance - a.importance);
+      const sourceMemoryIds = personaSources.map((entry) => entry.id);
+      const content = buildPersonaMemoryContent(personaSources);
+      const existing = existingAggregates.find(
+        (entry) => entry.metadata?.layer === "L3",
+      );
+      const metadata = {
+        layer: "L3",
+        source: "persona_aggregate",
+        sceneName: "persona",
+        confidence: averageConfidence(personaSources),
+        sourceMemoryIds,
+        evidence: { l2: l2Ids, l1: sourceMemoryIds },
+      };
+      if (existing) {
+        await this.memoryStore.update(existing.id, {
+          content,
+          importance: Math.max(existing.importance, 0.9),
+          metadata: { ...existing.metadata, ...metadata },
+        });
+        result.l3Updated++;
+      } else {
+        await this.memoryStore.add(
+          {
+            type: "preference",
+            content,
+            importance: 0.9,
+            metadata,
+          },
+          namespace,
+        );
+        result.l3Created++;
+      }
+    }
+
+    return result;
+  }
+}
+
+function buildSceneMemoryContent(
+  sceneName: string,
+  memories: Array<{ type: string; content: string }>,
+): string {
+  const lines = memories
+    .slice(0, 6)
+    .map((memory) => `- [${memory.type}] ${memory.content}`);
+  return `场景：${sceneName}\n${lines.join("\n")}`;
+}
+
+function buildPersonaMemoryContent(
+  memories: Array<{ type: string; content: string; metadata?: Record<string, unknown> }>,
+): string {
+  const lines = memories.slice(0, 8).map((memory) => {
+    const sceneName = normalizeSceneName(
+      readStringMetadata(memory.metadata, "sceneName"),
+    );
+    return `- (${sceneName}) [${memory.type}] ${memory.content}`;
+  });
+  return `用户稳定画像：\n${lines.join("\n")}`;
+}
+
+function averageImportance(memories: Array<{ importance: number }>): number {
+  return (
+    memories.reduce((sum, memory) => sum + memory.importance, 0) /
+    memories.length
+  );
+}
+
+function averageConfidence(
+  memories: Array<{ metadata?: Record<string, unknown> }>,
+): number {
+  return clamp01(
+    memories.reduce(
+      (sum, memory) =>
+        sum + readNumberMetadata(memory.metadata, "confidence", 0.7),
+      0,
+    ) / memories.length,
+    0.7,
+  );
 }

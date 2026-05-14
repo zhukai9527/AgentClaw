@@ -29,6 +29,24 @@ import { LRUCache } from "lru-cache";
 
 /** How many user turns between automatic memory extraction runs */
 const EXTRACT_EVERY_N_TURNS = 8;
+const MEMORY_IDLE_TRIGGER_MS = 10 * 60 * 1000;
+
+export function shouldRunMemoryExtraction(
+  turnCount: number,
+  lastExtractionAt?: Date,
+  now = new Date(),
+): boolean {
+  if (turnCount <= 0) return false;
+  if (turnCount === 1 || turnCount === 2 || turnCount === 4) return true;
+  if (turnCount % EXTRACT_EVERY_N_TURNS === 0) return true;
+  if (
+    lastExtractionAt &&
+    now.getTime() - lastExtractionAt.getTime() >= MEMORY_IDLE_TRIGGER_MS
+  ) {
+    return true;
+  }
+  return false;
+}
 
 function formatPromptDateTime(): { datetime: string; timezone: string } {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -59,6 +77,7 @@ function resolveRuntimePromptVars(prompt?: string): string | undefined {
 export class SimpleOrchestrator implements Orchestrator {
   private sessions = new LRUCache<string, Session>({ max: 10000 });
   private turnCounters = new LRUCache<string, number>({ max: 10000 });
+  private lastMemoryExtractionAt = new LRUCache<string, Date>({ max: 10000 });
   private activeLoops = new Map<string, SimpleAgentLoop>();
   private provider: LLMProvider;
   private visionProvider?: LLMProvider;
@@ -525,12 +544,16 @@ export class SimpleOrchestrator implements Orchestrator {
     // 后台记忆抽取：第 1 轮和之后每 N 轮触发
     const count = (this.turnCounters.get(session.conversationId) ?? 0) + 1;
     this.turnCounters.set(session.conversationId, count);
-    if (
+    const shouldExtract =
       this.enableBackgroundLearning &&
-      (count === 1 || count % EXTRACT_EVERY_N_TURNS === 0)
-    ) {
+      shouldRunMemoryExtraction(
+        count,
+        this.lastMemoryExtractionAt.get(session.conversationId),
+      );
+    if (shouldExtract) {
+      this.lastMemoryExtractionAt.set(session.conversationId, new Date());
       this.memoryExtractor
-        .processConversation(session.conversationId)
+        .processConversation(session.conversationId, 10, memoryNamespace)
         .then((n) => {
           if (n > 0) console.log(`[memory] Extracted ${n} memories`);
         })

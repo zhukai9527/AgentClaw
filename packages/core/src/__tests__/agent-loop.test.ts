@@ -1969,6 +1969,8 @@ describe("SimpleAgentLoop", () => {
       expect(secondPrompt).toContain("nodeId=tc-offload");
       expect(secondPrompt).toContain("resultRef=observation://obs-1");
       expect(secondPrompt).toContain("replaceabilityScore=8/10");
+      expect(secondPrompt).toContain("<active_tool_offload_canvas>");
+      expect(secondPrompt).toContain("graph LR");
     });
 
     it("相同 contentHash 的大输出应复用已有 observation 且不重复写 raw", async () => {

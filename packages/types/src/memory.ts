@@ -357,6 +357,26 @@ export interface ObservationRead {
 
 export type ObservationReadInput = Omit<ObservationRead, "id" | "readAt">;
 
+export type MemoryUsageSource =
+  | "prompt_injection"
+  | "recall_tool"
+  | "drill_down";
+
+export interface MemoryUsageEvent {
+  memoryId: string;
+  source: MemoryUsageSource;
+  conversationId?: string;
+  traceId?: string;
+  agentId?: string;
+  usedAt?: Date;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MemoryUsageRecord extends Omit<MemoryUsageEvent, "usedAt"> {
+  id: string;
+  usedAt: Date;
+}
+
 /** Memory store interface */
 export interface MemoryStore {
   /** Store a new memory (namespace for per-agent isolation, defaults to "default") */
@@ -547,6 +567,9 @@ export interface MemoryStore {
 
   /** 列出观察结果读取记录 */
   listObservationReads(observationId: string): Promise<ObservationRead[]>;
+
+  /** Record memory usage telemetry for injected/recalled/drilled-down memories. */
+  recordMemoryUsage?(event: MemoryUsageEvent): Promise<MemoryUsageRecord>;
 }
 
 /** A single conversation turn stored in memory */

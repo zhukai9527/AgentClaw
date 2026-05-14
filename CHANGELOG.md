@@ -1,5 +1,20 @@
 # 更新日志
 
+## [1.5.27] - 2026-05-15
+
+### Added
+- **分层记忆聚合**：长期记忆新增 L2 scene aggregate 和 L3 persona aggregate，自动把高置信 L1 原子记忆聚合为场景记忆和稳定用户画像，并保留 `sourceMemoryIds/evidence` 可回溯链路。
+- **记忆使用 telemetry**：新增 `memory_usage` 记录，Context 注入 L1/L2/L3 记忆时会记录 memoryId、conversationId、layer 和来源，后续可计算哪条记忆真正参与了决策。
+- **记忆真实回归入口**：新增 `scripts/memory-layered-regression.mts`，覆盖冲突废弃、L2 场景聚合、L3 用户画像、分层召回注入和 telemetry 四条链路。
+
+### Changed
+- **分层召回优先级**：长期记忆注入改为优先 L3 用户画像和 L2 场景记忆，再合并 identity、preference 和 query 相关 L1/legacy 记忆，降低碎片记忆直接污染 prompt 的概率。
+- **记忆抽取触发策略**：后台记忆抽取从单一首轮/固定周期改为 warmup 轮次、固定周期和 idle 触发组合，并按 agent memory namespace 写入。
+
+### Fixed
+- **偏好冲突污染**：同场景 preference/fact 出现“不要/改成/以后”等变更信号时，新 L1 记忆会 `supersedes` 旧记忆，并把旧记忆标记为 `deprecated`，避免新旧偏好同时注入。
+- **废弃记忆召回**：Memory search 和 prompt 格式化会跳过 `deprecated/superseded` 记忆，防止已被替代的内容继续影响 Agent。
+
 ## [1.5.26] - 2026-05-14
 
 ### Added
