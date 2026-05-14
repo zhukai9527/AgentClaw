@@ -6,6 +6,7 @@
 - **分层记忆聚合**：长期记忆新增 L2 scene aggregate 和 L3 persona aggregate，自动把高置信 L1 原子记忆聚合为场景记忆和稳定用户画像，并保留 `sourceMemoryIds/evidence` 可回溯链路。
 - **记忆使用 telemetry**：新增 `memory_usage` 记录，Context 注入 L1/L2/L3 记忆时会记录 memoryId、conversationId、layer 和来源，后续可计算哪条记忆真正参与了决策。
 - **记忆真实回归入口**：新增 `scripts/memory-layered-regression.mts`，覆盖冲突废弃、L2 场景聚合、L3 用户画像、分层召回注入和 telemetry 四条链路。
+- **记忆版本对比评测**：新增 `scripts/memory-10-case-eval.mts`，用 10 个固定检查点对比旧版/当前版的冲突处理、分层聚合、证据链、prompt 注入、telemetry 和 offload 符号图。
 
 ### Changed
 - **分层召回优先级**：长期记忆注入改为优先 L3 用户画像和 L2 场景记忆，再合并 identity、preference 和 query 相关 L1/legacy 记忆，降低碎片记忆直接污染 prompt 的概率。
