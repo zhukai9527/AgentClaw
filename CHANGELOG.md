@@ -1,41 +1,40 @@
 # 更新日志
 
-## [Unreleased] - 2026-05-03
+## [1.5.26] - 2026-05-14
 
 ### Added
 - **Agent 记忆 L1 provenance**：后台记忆抽取现在把 conversation/trace 来源、source turn/step、sceneName、confidence 和 L1 layer 写入 memory metadata，避免长期记忆成为无来源事实池，并为后续受控 recall 和 scene/persona 铺路。
 - **工具输出 offload active hint**：大工具输出进入 Observation Store 后，agent loop 会在下一轮注入 `active_tool_offload` 摘要，并在工具结果 metadata 中记录 `resultRef`、`nodeId`、`taskId` 和 `replaceabilityScore`，让长任务少读 overflow、必要时再定向回读原始观察。
-- **微信公众号发布统一 CLI 契约**：`wechat-publish` 新增 `wechat_publish.py`，提供 `capabilities/inspect/preview/publish` 四个子命令和 `success/code/message/data` JSON envelope；`SKILL.md` 收敛为只走统一入口，避免 Agent 继续拆步骤或解析旧脚本行文本。
-- **微信公众号发布真实入口回归**：新增 `scripts/wechat-publish-skill-regression.mts`，从真实 Agent session 验证 `use_skill`、统一 CLI、dry-run 产物、无旧脚本、无直接微信 API 和无参数缩写漂移；根测试命令纳入对应 evaluator 单测。
-- **一键安装脚本**：新增 `scripts/install.sh`，支持 Linux、macOS 和 Termux 交互式安装，自动检查基础依赖、配置模型 Provider/API Key、构建并启动服务，让默认路径直接进入 Web 对话。
-- **Trace 质量评分器**：新增 `evaluateTraceQuality`，可对真实 trace 的 LLM 轮次、工具调用、输入 token、耗时、cache 命中、overflow 全文读回和 Reddit 计数字段伪造进行确定性评分；新增 `scripts/trace-quality-regression.mts` 作为线上近似闭环回归入口。
-- **Observation Store 回归指标**：`evaluateTraceQuality` 新增 observation 创建数、读取数、全文读回数、原始字符数、提示字符数、节省字符数和节省率，并提供最低创建数、最低节省率、最大全文读回数阈值，防止 P0 Observation Store 退化成上下文全文回灌。
-- **微信公众号草稿发布脚本**：`wechat-publish` 新增 `publish_article.py` 一键发布入口和 `publish_draft.py` 草稿脚本，把封面生成、Markdown 转换、草稿 JSON 组装、封面上传和创建草稿收敛到单一命令，并支持 dry-run 回归验证。
-- **纯文本字幕极速入口**：`bilingual-subtitle` 新增 `--txt-only` 和 `--beam-size`，URL 字幕任务可直接生成无时间戳 `.txt`，最快模板显式使用 `tiny + beam_size=1`，不再先生成 SRT 再用 shell 清洗。
 
 ### Changed
 - **PPTX 生成任务工具路由收敛**：普通 PPTX 生成首轮不再暴露 `recall/glob/grep/file_read/web_search/web_fetch/claude_code`，避免模型把“做 PPTX”扩散成项目研究或外部委托；只有用户明确要求基于仓库/代码/文件时才保留项目读取工具。
 - **长期记忆注入受控化**：系统 prompt 中的长期记忆现在会过滤低置信 L1 记忆，并为注入项附带 `src/trace/conf` 来源标记；legacy 记忆只保留身份、偏好和经验类，降低无来源事实污染。
 - **PPTX 技能收敛为极简硬验收流程**：`pptx` skill 移除大段内联 `python-pptx` 生成示例，新增短指令旧会话处理、禁止验收失败发送、禁止写入用户 home 等硬规则，并提供 `skills/pptx/scripts/verify_pptx.py` 作为统一 PPTX 检查和预览报告入口。
 - **PPTX 技能升级为设计先行流程**：`pptx` skill 从 `python-pptx` API 片段升级为 HTML-first / 可编辑约束 / 品牌资产 / two-slide showcase / anti-slop / 预览验收的生产流程，并保留 `python-pptx` 作为快速编辑和朴素内部门槛路径。
+
+### Fixed
+- **PPTX verifier Windows 输出解码**：LibreOffice 预览渲染输出按 UTF-8 replacement 解码，避免中文路径/本机编码导致 verifier 已成功但 stderr 打出 `UnicodeDecodeError`。
+
+## [1.5.25] - 2026-05-13
+
+### Fixed
+- **MiMo 工具历史 400 Param Incorrect**：OpenAI-compatible provider 现在会保存并回传 `reasoning_content`，满足小米 MiMo 在 thinking mode 下对工具调用历史的 API 要求；agent loop 遇到 LLM stream 错误时也会在 trace/UI 暴露真实 provider 错误，不再误报“最大迭代次数”。
+- **微信公众号 web_fetch 验证页误发**：`web_fetch` 对 `mp.weixin.qq.com` 改为本机直连提取 `#js_content`，不再优先走 Jina Reader；Jina 或最终内容出现“当前环境异常/完成验证后即可继续访问/CAPTCHA”时会硬拦截保存和 `auto_send`，避免把微信验证页当正文发送。
+
+## [1.5.24] - 2026-05-09
+
+### Added
+- **微信公众号发布统一 CLI 契约**：`wechat-publish` 新增 `wechat_publish.py`，提供 `capabilities/inspect/preview/publish` 四个子命令和 `success/code/message/data` JSON envelope；`SKILL.md` 收敛为只走统一入口，避免 Agent 继续拆步骤或解析旧脚本行文本。
+- **微信公众号发布真实入口回归**：新增 `scripts/wechat-publish-skill-regression.mts`，从真实 Agent session 验证 `use_skill`、统一 CLI、dry-run 产物、无旧脚本、无直接微信 API 和无参数缩写漂移；根测试命令纳入对应 evaluator 单测。
+
+### Changed
 - **微信公众号发布默认能力面收敛**：`capabilities.commands` 和 `canonical_args` 默认只暴露 `capabilities/inspect/publish`，`preview` 移到 `explicit_preview`，避免用户已要求发布时 Agent 先跑预览并因漏 `--out-dir` 产生无意义错误。
 - **微信公众号发布 CLI 容错收敛**：`wechat_publish.py publish` 缺省 `--out-dir` 时自动使用 Markdown 同目录的 `wechat-output`，避免漏参触发重试雪崩；`capabilities.canonical_args` 不再把 `--theme` 作为默认发布参数暴露，减少 Agent 绕过 `auto` 主题选择的概率。
 - **微信公众号书籍内容自动选题收敛**：`wechat_publish.py` 的 `auto` 主题识别新增书籍语境规则，能把“这本书/本书/全书/书中/一本书”等书评和书籍提炼内容自动选为 `minimal`；`wechat-publish` 技能说明同步禁止默认场景手写 `--theme`，并明确 `publish` 子命令不可使用 `--draft`。
 - **微信公众号主题自动选择**：`wechat_publish.py` 的默认主题改为 `auto`，根据正文确定性选择 `minimal`/`sage`/`tech-modern`，并在 JSON 与 `manifest.json` 写入 `theme_selection` 审计信息；读书笔记、书摘和阅读心得不再因用户只说“发送到公众号”而误用科技风。
 - **微信公众号发布体验增强**：`wechat_publish.py preview` 现在输出可直接打开的完整 HTML 页面；`publish` 写入 `manifest.json` 审计清单；`capabilities` 暴露 canonical 参数列表，并关闭 argparse 参数缩写，避免 `--out` 被隐式当成 `--out-dir`。
-- **默认部署瘦身**：Docker 默认只启动 AgentClaw 核心服务，不再自动启动 SearXNG/Redis，本地搜索改为 `search` profile 和 Settings 配置；默认镜像不再安装 Chromium/CJK 字体，`browser_cdp` 需要显式设置 `AGENTCLAW_ENABLE_BROWSER_CDP=true` 才注册。
-- **overflow 文件读取策略**：`file_read` 对 `overflow_*.txt` 默认只返回短预览，必须通过 `offset` / `length` 做定向范围读取，避免 `execute_code` 大输出被全文读回上下文。
-- **JSON 抓取结果保持机器可解析**：`web_fetch` 对 `application/json` 不再追加人类 hint，避免 `execute_code` 中 `JSON.parse(await web_fetch(...))` 因尾部提示文本失败。
-- **send_file 路径审计**：发送结果现在记录 `originalPath`、`effectivePath` 和 `relocated`，并且只有文件确实从 workDir 外复制进来时才标记 relocated。
-- **shell 文件发送边界**：`shell` 只有显式 `auto_send=true` 时才发送检测到的文件，避免命令参数里的中间视频、SRT 等路径被误发给用户。
-- **X 长视频纯文本字幕极速路径**：`bilingual-subtitle --txt-only` 的 URL 模式改为下载视频容器后直接交给 faster-whisper demux 转写；真实 83 分钟 X 视频回归从 10 分钟超时收敛到 8分43秒，只发送最终 `.txt`。
-- **P1 任务工具路由**：新闻简报只暴露 `web_search`/`web_fetch`/输出工具，Reddit/RSS 日报只暴露 `rss_top`/文件输出工具，并按任务类型收紧工具预算；真实回归中 AI 新闻任务稳定在约 11.5K input token，Reddit 日报收敛为 1 次 `rss_top` + 文件输出链路。
-- **P2 工具输出瘦身**：`web_search` 结果硬夹到 5 条，`web_fetch` 默认返回带来源 URL 的短事实卡并保留 `save_as` 完整保存路径，`rss_top` 对相同 feed/topN 做短期缓存；真实 AI 新闻回归约 `11.3K input token / 35.1s`，不再因超限搜索多跑一轮。
 
 ### Fixed
-- **PPTX verifier Windows 输出解码**：LibreOffice 预览渲染输出按 UTF-8 replacement 解码，避免中文路径/本机编码导致 verifier 已成功但 stderr 打出 `UnicodeDecodeError`。
-- **MiMo 工具历史 400 Param Incorrect**：OpenAI-compatible provider 现在会保存并回传 `reasoning_content`，满足小米 MiMo 在 thinking mode 下对工具调用历史的 API 要求；agent loop 遇到 LLM stream 错误时也会在 trace/UI 暴露真实 provider 错误，不再误报“最大迭代次数”。
-- **微信公众号 web_fetch 验证页误发**：`web_fetch` 对 `mp.weixin.qq.com` 改为本机直连提取 `#js_content`，不再优先走 Jina Reader；Jina 或最终内容出现“当前环境异常/完成验证后即可继续访问/CAPTCHA”时会硬拦截保存和 `auto_send`，避免把微信验证页当正文发送。
 - **微信公众号发布 inspect 后漂移**：公众号发布任务在 `wechat_publish.py inspect` 返回 `INSPECT_READY` 后进入运行时状态机，下一轮只暴露 `bash` 并只允许锚定的 `publish` 命令，防止模型继续搜索、重写文章、调用预览或寻找不存在的 skill 路径。
 - **微信公众号发布前置 bash 漂移**：公众号发布任务在没有 Markdown 源文前不再暴露 `bash`；`file_write` 成功写入 `.md` 后下一轮只暴露 CLI 所需 `bash`，动态提示下一条 inspect/publish 命令，并强制 `capabilities/inspect/publish` 带 `--json`，确保运行时能读取 `manifest_json` 和主题审计。
 - **微信公众号发布参数漂移**：当模型在 `inspect` 通过后调用 `publish` 却漏掉 Markdown 位置参数时，运行时会用刚检查过的 canonical Markdown 路径补齐命令，避免一次 CLI 报错和重复发布尝试。
@@ -44,6 +43,10 @@
 - **微信公众号发布绕过统一 CLI**：公众号发布任务新增运行时硬边界，`bash` 只能执行锚定仓库根目录的 `wechat_publish.py`，`file_write` 只能写 Markdown 源文，阻止 Agent 手写 HTML/Node 转换或查找不存在的 `C:/Users/voroj/skills` 路径。
 - **微信公众号发布真实路径漂移**：`wechat-publish` 技能入口固定为 `cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py ...`，防止 Agent 在 `C:/Users/voroj` 或下载目录执行相对路径后找不到统一 CLI；真实回归 evaluator 同步拦截未锚定仓库根目录的调用。
 - **微信公众号正文标题重复**：`wechat_publish.py` 在预览和发布正文中移除 Markdown 第一个 H1，保留草稿 metadata 标题和封面标题，避免公众号后台显示标题后正文再次出现同名大标题。
+
+## [1.5.23] - 2026-05-08
+
+### Fixed
 - **伪工具 XML 流式外泄**：agent loop 不再把未经最终校验的模型文本直接作为 `response_chunk` 推给 WebSocket/IM 渠道；模型在合成阶段输出 `<tool_call>` / `<function=>` 等不可执行标记时，只释放系统兜底后的用户可见文本。
 - **Skill 能力身份参数漂移**：`skill_manage` 不再把显示名 `name` 当作 `skillId`，`write_file` 不再接受隐藏 `fileContent`，`skill_curator` 的 `reason` 参数补齐到 schema；线上 skill 能力回归也改为只认 canonical `skillId`。
 - **线上能力回归日期与工具漂移**：`live-agent-eval` 不再硬编码历史日期，也不再把已不存在的 `execute_code` 当作实时检索工具加分；脚本守卫测试纳入根测试命令。
@@ -55,7 +58,41 @@
 - **工具 ID 与参数唯一事实源漂移**：preset hook 改为监听真实 `bash` 工具名，eval 示例同步使用 `bash`；`schedule` 创建任务不再接受隐藏的 `message` 参数，操作参数也只接受 canonical `op`，避免 schema、提示词和执行层继续分叉。
 - **系统时间注入过期**：`system-prompt.md` 中的 `{{datetime}}` / `{{timezone}}` 不再在 gateway 启动时固化，而是在每次 agent loop 创建时解析，避免服务运行多天后“明天/今天”推算使用旧日期。
 - **grep 后续读取误导**：`file_read` 新增 `line` / `context_lines` 行号上下文读取，`grep` hint 改为引导按匹配行读取，避免模型把 grep 行号当字符 offset 反复读到无关片段并耗尽工具预算。
+
+## [1.5.22] - 2026-05-06
+
+### Fixed
 - **MiMo 1M 上下文未生效**：OpenAI-compatible 自定义 provider 现在会按默认模型自动登记模型元数据；`mimo-v2.5-pro` 和小米 MiMo API 地址自动识别为 1,048,576 context window，避免被通用 128K 默认值提前触发上下文压缩。
+
+## [1.5.21] - 2026-05-05
+
+### Added
+- **一键安装脚本**：新增 `scripts/install.sh`，支持 Linux、macOS 和 Termux 交互式安装，自动检查基础依赖、配置模型 Provider/API Key、构建并启动服务，让默认路径直接进入 Web 对话。
+
+### Changed
+- **默认部署瘦身**：Docker 默认只启动 AgentClaw 核心服务，不再自动启动 SearXNG/Redis，本地搜索改为 `search` profile 和 Settings 配置；默认镜像不再安装 Chromium/CJK 字体，`browser_cdp` 需要显式设置 `AGENTCLAW_ENABLE_BROWSER_CDP=true` 才注册。
+
+### Removed
+- **默认 Deno 运行时**：移除 Docker 镜像中的 Deno 安装和启动时 Deno 探测；当前运行路径没有真实依赖，避免默认安装额外下载未使用的运行时。
+
+## [1.5.20] - 2026-05-03
+
+### Added
+- **Trace 质量评分器**：新增 `evaluateTraceQuality`，可对真实 trace 的 LLM 轮次、工具调用、输入 token、耗时、cache 命中、overflow 全文读回和 Reddit 计数字段伪造进行确定性评分；新增 `scripts/trace-quality-regression.mts` 作为线上近似闭环回归入口。
+- **Observation Store 回归指标**：`evaluateTraceQuality` 新增 observation 创建数、读取数、全文读回数、原始字符数、提示字符数、节省字符数和节省率，并提供最低创建数、最低节省率、最大全文读回数阈值，防止 P0 Observation Store 退化成上下文全文回灌。
+- **微信公众号草稿发布脚本**：`wechat-publish` 新增 `publish_article.py` 一键发布入口和 `publish_draft.py` 草稿脚本，把封面生成、Markdown 转换、草稿 JSON 组装、封面上传和创建草稿收敛到单一命令，并支持 dry-run 回归验证。
+- **纯文本字幕极速入口**：`bilingual-subtitle` 新增 `--txt-only` 和 `--beam-size`，URL 字幕任务可直接生成无时间戳 `.txt`，最快模板显式使用 `tiny + beam_size=1`，不再先生成 SRT 再用 shell 清洗。
+
+### Changed
+- **overflow 文件读取策略**：`file_read` 对 `overflow_*.txt` 默认只返回短预览，必须通过 `offset` / `length` 做定向范围读取，避免 `execute_code` 大输出被全文读回上下文。
+- **JSON 抓取结果保持机器可解析**：`web_fetch` 对 `application/json` 不再追加人类 hint，避免 `execute_code` 中 `JSON.parse(await web_fetch(...))` 因尾部提示文本失败。
+- **send_file 路径审计**：发送结果现在记录 `originalPath`、`effectivePath` 和 `relocated`，并且只有文件确实从 workDir 外复制进来时才标记 relocated。
+- **shell 文件发送边界**：`shell` 只有显式 `auto_send=true` 时才发送检测到的文件，避免命令参数里的中间视频、SRT 等路径被误发给用户。
+- **X 长视频纯文本字幕极速路径**：`bilingual-subtitle --txt-only` 的 URL 模式改为下载视频容器后直接交给 faster-whisper demux 转写；真实 83 分钟 X 视频回归从 10 分钟超时收敛到 8分43秒，只发送最终 `.txt`。
+- **P1 任务工具路由**：新闻简报只暴露 `web_search`/`web_fetch`/输出工具，Reddit/RSS 日报只暴露 `rss_top`/文件输出工具，并按任务类型收紧工具预算；真实回归中 AI 新闻任务稳定在约 11.5K input token，Reddit 日报收敛为 1 次 `rss_top` + 文件输出链路。
+- **P2 工具输出瘦身**：`web_search` 结果硬夹到 5 条，`web_fetch` 默认返回带来源 URL 的短事实卡并保留 `save_as` 完整保存路径，`rss_top` 对相同 feed/topN 做短期缓存；真实 AI 新闻回归约 `11.3K input token / 35.1s`，不再因超限搜索多跑一轮。
+
+### Fixed
 - **URL 字幕音频下载失败**：`bilingual-subtitle` 现在会定位 `ffmpeg/ffprobe` 并显式传给 `yt-dlp`，无 CC 字幕时只下载音频转写，不再因为 Python 子进程 PATH 缺失退化成手写下载完整视频。
 - **Git Bash ffmpeg 路径识别**：`bilingual-subtitle` 支持 `/e/...` MSYS 路径转换，并优先选择同时包含 `ffmpeg` 和 `ffprobe` 的目录，避免只找到 `ffmpeg.exe` 但缺 `ffprobe.exe` 时失败。
 - **字幕输出目录缺失**：纯文本/SRT 写出前会自动创建父目录，避免 gateway 会话工作目录尚未存在时，长视频转写完成后因写文件失败重跑。
@@ -64,9 +101,6 @@
 - **Web 研究组合预算**：新增 `web_search`/`web_fetch` 总调用上限和 overflow 文件读取上限，防止定时任务从 `execute_code` 长循环退化成搜索、抓取、读片段的混合长循环。
 - **批量新闻任务 token 浪费回归**：用生产 trace 固化失败样本，防止新闻/RSS 类任务再次出现 5 轮 LLM、60K+ input token、overflow 全文回灌和 RSS 缺失点赞/评论却填 0 的问题。
 - **最终回复 XML 外泄**：修复模型在合成阶段输出不可执行工具标记时，`response_complete` 仍发送旧 content block 的问题；新闻简报会在最终答案缺 URL 时从真实工具结果补来源链接。
-
-### Removed
-- **默认 Deno 运行时**：移除 Docker 镜像中的 Deno 安装和启动时 Deno 探测；当前运行路径没有真实依赖，避免默认安装额外下载未使用的运行时。
 
 ## [1.5.19] - 2026-05-02
 
