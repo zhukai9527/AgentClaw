@@ -94,7 +94,14 @@ def render_pdf(pptx_path: Path, out_dir: Path) -> tuple[Path | None, list[str], 
         str(out_dir),
         str(pptx_path),
     ]
-    proc = subprocess.run(command, capture_output=True, text=True, timeout=90)
+    proc = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=90,
+    )
     if proc.returncode != 0:
         errors.append((proc.stderr or proc.stdout or "LibreOffice render failed").strip())
         return None, warnings, errors

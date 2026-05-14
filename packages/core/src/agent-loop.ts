@@ -121,17 +121,41 @@ function extractVerifiedPptxPaths(content: string): string[] {
   }
 }
 
+function extractPptxPathMentions(content: string): string[] {
+  const paths = new Set<string>();
+  const re = /(?:[A-Za-z]:)?[^\s"'<>|]+\.pptx/gi;
+  for (const match of content.matchAll(re)) {
+    const value = match[0].replace(/[),.;:]+$/g, "");
+    if (value) paths.add(value);
+  }
+  return Array.from(paths);
+}
+
+function resolveBundledPptxVerifierPath(skillsDir?: string): string {
+  const projectVerifierPath = join(
+    process.cwd(),
+    "skills",
+    "pptx",
+    "scripts",
+    "verify_pptx.py",
+  );
+  if (existsSync(projectVerifierPath)) return projectVerifierPath;
+
+  const configuredVerifierPath = join(
+    resolve(skillsDir ?? "skills"),
+    "pptx",
+    "scripts",
+    "verify_pptx.py",
+  );
+  return configuredVerifierPath;
+}
+
 async function verifyPptxForDelivery(input: {
   pptxPath: string;
   workDir: string;
   skillsDir?: string;
 }): Promise<{ ok: boolean; content: string; verifiedPaths: string[] }> {
-  const verifierPath = join(
-    resolve(input.skillsDir ?? "skills"),
-    "pptx",
-    "scripts",
-    "verify_pptx.py",
-  );
+  const verifierPath = resolveBundledPptxVerifierPath(input.skillsDir);
   const outDir = join(input.workDir, "previews");
   try {
     const { stdout, stderr } = await execFileAsync(
@@ -635,7 +659,12 @@ type ToolFactInput = {
 };
 
 type TaskToolProfile = {
-  kind: "default" | "news_brief" | "reddit_rss" | "wechat_publish";
+  kind:
+    | "default"
+    | "news_brief"
+    | "reddit_rss"
+    | "wechat_publish"
+    | "pptx_generation";
   allowedTools?: Set<string>;
   toolTotalLimits: Record<string, number>;
   webResearchToolLimit: number;
@@ -718,11 +747,38 @@ function buildTaskToolProfile(
     };
   }
 
+  if (isPptxGenerationTask && !shouldAllowProjectResearchForPptx(inputText)) {
+    return {
+      kind: "pptx_generation",
+      allowedTools: new Set([
+        "use_skill",
+        "bash",
+        "file_write",
+        "send_file",
+      ]),
+      toolTotalLimits: {
+        use_skill: 2,
+        bash: 8,
+        file_write: 3,
+        send_file: 2,
+      },
+      webResearchToolLimit: 0,
+      hint:
+        `[任务工具边界]当前是普通 PPTX 生成任务：不要调用 recall、glob、grep、file_read、web_search、web_fetch 或 claude_code 做额外研究/委托。直接 use_skill pptx；如果要写 Python 生成脚本，必须先用 file_write 把脚本写入会话工作目录，再用 bash 运行 python，禁止运行尚不存在的 create_deck.py/create_pptx.py。生成 deck 后，必须用这个 verifier 绝对路径验证：python "${resolveBundledPptxVerifierPath().replace(/\\/g, "/")}" "<会话工作目录>/output.pptx" --out-dir "<会话工作目录>/previews" --require-text --json；然后 send_file 发送验证通过的 .pptx。只有用户明确要求基于仓库/代码/文件研究时，才允许项目读取工具。`,
+    };
+  }
+
   return {
     kind: "default",
     toolTotalLimits: { web_search: 8, web_fetch: 8 },
     webResearchToolLimit: 6,
   };
+}
+
+function shouldAllowProjectResearchForPptx(inputText: string): boolean {
+  return /基于.*(仓库|代码|源码|文件|目录|项目)|当前.*(仓库|代码|源码|文件|目录|项目)|仓库代码|代码库|repo|repository|codebase|read files|inspect files/i.test(
+    inputText,
+  );
 }
 
 function currentLocalDateString(date = new Date()): string {
@@ -1237,6 +1293,9 @@ export class SimpleAgentLoop implements AgentLoop {
       !/不用生成|先不用生成|不要生成|别生成|无需生成|不用做|先别做/i.test(
         inputTextForHeuristics,
       );
+    if (isPptxGenerationTask) {
+      ensureSessionTmpDir();
+    }
     if (isNewsBriefTask) {
       runtimeHints.push(
         "[新闻任务约束]优先在3轮以内完成：第1轮并行 web_search 搜索并筛选，第2轮只在必要时用 web_fetch 抓取少量原文，第3轮必须合成最终答复。只采用高可信来源：官方公告/公司博客/监管机构/学术机构/Reuters/AP/Bloomberg/FT/The Verge/TechCrunch/MIT Technology Review/Stanford HAI等。不要使用Reddit、YouTube、低质量SEO聚合站或个人博客作为事实来源，除非用户明确要求。无法用可信来源交叉确认的新闻点直接跳过或标注未确认。已有搜索结果足够时不要继续抓取原文。",
@@ -1852,7 +1911,7 @@ export class SimpleAgentLoop implements AgentLoop {
           pptxMissingDeliveryRetries++;
           if (pptxMissingDeliveryRetries <= 2) {
             runtimeHints.push(
-              `[PPTX任务未完成]还没有发送任何 .pptx 文件。不要回复“已生成”。下一步必须在 ${sessionTmpDir} 运行 verifier：python "${join(resolve(context?.skillsDir ?? "skills"), "pptx", "scripts", "verify_pptx.py").replace(/\\/g, "/")}" "${sessionTmpDir}/output.pptx" --out-dir "${sessionTmpDir}/previews" --require-text --json；只有 ok:true 后才能 send_file。`,
+              `[PPTX任务未完成]还没有发送任何 .pptx 文件。不要回复“已生成”。下一步必须在 ${sessionTmpDir} 运行 verifier：python "${resolveBundledPptxVerifierPath(context?.skillsDir).replace(/\\/g, "/")}" "${sessionTmpDir}/output.pptx" --out-dir "${sessionTmpDir}/previews" --require-text --json；只有 ok:true 后才能 send_file。`,
             );
             continue;
           }
@@ -2256,11 +2315,8 @@ export class SimpleAgentLoop implements AgentLoop {
                   );
                 }
               } else if (!verifiedPptxPaths.has(normalizedRequestedPath)) {
-                const verifierPath = join(
-                  resolve(context?.skillsDir ?? "skills"),
-                  "pptx",
-                  "scripts",
-                  "verify_pptx.py",
+                const verifierPath = resolveBundledPptxVerifierPath(
+                  context?.skillsDir,
                 ).replace(/\\/g, "/");
                 result = {
                   content:
@@ -2582,6 +2638,27 @@ export class SimpleAgentLoop implements AgentLoop {
                 runtimeHints.push(
                   `<pptx_verified>${pptxPath.replace(/\\/g, "/")}</pptx_verified>`,
                 );
+              }
+            }
+            if (
+              (pptxSkillLoaded || isPptxGenerationTask) &&
+              effectiveToolName !== "send_file"
+            ) {
+              for (const pptxPath of extractPptxPathMentions(
+                String(result.content ?? ""),
+              )) {
+                const normalized = normalizeComparablePath(
+                  pptxPath,
+                  context?.workDir,
+                );
+                if (normalized && !verifiedPptxPaths.has(normalized)) {
+                  const verifierPath = resolveBundledPptxVerifierPath(
+                    context?.skillsDir,
+                  ).replace(/\\/g, "/");
+                  runtimeHints.push(
+                    `<pptx_candidate>${pptxPath.replace(/\\/g, "/")}</pptx_candidate><pptx_next_step>Do not answer Done. Run: python "${verifierPath}" "${pptxPath.replace(/\\/g, "/")}" --out-dir "${context?.workDir ?? "."}/previews" --require-text --json ; if ok:true, call send_file for that exact PPTX.</pptx_next_step>`,
+                  );
+                }
               }
             }
           }

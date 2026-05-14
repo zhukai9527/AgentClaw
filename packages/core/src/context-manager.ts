@@ -348,7 +348,8 @@ export class SimpleContextManager implements ContextManager {
         const lines: string[] = [];
         let totalChars = 0;
         for (const m of allMemories) {
-          const line = `- [${m.entry.type}] ${m.entry.content}`;
+          const line = formatMemoryForPrompt(m);
+          if (!line) continue;
           if (totalChars + line.length > 2000) break;
           lines.push(line);
           totalChars += line.length;
@@ -1264,4 +1265,52 @@ ${transcript}`;
 
     return result;
   }
+}
+
+function formatMemoryForPrompt(memory: MemorySearchResult): string | null {
+  const metadata = memory.entry.metadata;
+  const isL1 = metadata?.layer === "L1";
+  if (isL1) {
+    const confidence = readNumericMetadata(metadata, "confidence");
+    if (confidence < 0.7) return null;
+    const tags = [`src:${readStringMetadata(metadata, "source", "unknown")}`];
+    const traceId = readStringMetadata(metadata, "traceId", "");
+    if (traceId) tags.push(`trace:${traceId}`);
+    const conversationId = readStringMetadata(metadata, "conversationId", "");
+    if (conversationId && !traceId) tags.push(`conv:${conversationId}`);
+    tags.push(`conf:${formatConfidence(confidence)}`);
+    return `- [${memory.entry.type}] ${memory.entry.content} (${tags.join(" ")})`;
+  }
+
+  if (
+    memory.entry.type !== "identity" &&
+    memory.entry.type !== "preference" &&
+    memory.entry.type !== "episodic"
+  ) {
+    return null;
+  }
+  return `- [${memory.entry.type}] ${memory.entry.content} (src:legacy)`;
+}
+
+function readNumericMetadata(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): number {
+  if (!metadata) return 0;
+  const value = metadata[key];
+  return typeof value === "number" ? value : 0;
+}
+
+function readStringMetadata(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+  fallback: string,
+): string {
+  if (!metadata) return fallback;
+  const value = metadata[key];
+  return typeof value === "string" ? value : fallback;
+}
+
+function formatConfidence(value: number): string {
+  return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }

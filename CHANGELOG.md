@@ -14,6 +14,8 @@
 - **纯文本字幕极速入口**：`bilingual-subtitle` 新增 `--txt-only` 和 `--beam-size`，URL 字幕任务可直接生成无时间戳 `.txt`，最快模板显式使用 `tiny + beam_size=1`，不再先生成 SRT 再用 shell 清洗。
 
 ### Changed
+- **PPTX 生成任务工具路由收敛**：普通 PPTX 生成首轮不再暴露 `recall/glob/grep/file_read/web_search/web_fetch/claude_code`，避免模型把“做 PPTX”扩散成项目研究或外部委托；只有用户明确要求基于仓库/代码/文件时才保留项目读取工具。
+- **长期记忆注入受控化**：系统 prompt 中的长期记忆现在会过滤低置信 L1 记忆，并为注入项附带 `src/trace/conf` 来源标记；legacy 记忆只保留身份、偏好和经验类，降低无来源事实污染。
 - **PPTX 技能收敛为极简硬验收流程**：`pptx` skill 移除大段内联 `python-pptx` 生成示例，新增短指令旧会话处理、禁止验收失败发送、禁止写入用户 home 等硬规则，并提供 `skills/pptx/scripts/verify_pptx.py` 作为统一 PPTX 检查和预览报告入口。
 - **PPTX 技能升级为设计先行流程**：`pptx` skill 从 `python-pptx` API 片段升级为 HTML-first / 可编辑约束 / 品牌资产 / two-slide showcase / anti-slop / 预览验收的生产流程，并保留 `python-pptx` 作为快速编辑和朴素内部门槛路径。
 - **微信公众号发布默认能力面收敛**：`capabilities.commands` 和 `canonical_args` 默认只暴露 `capabilities/inspect/publish`，`preview` 移到 `explicit_preview`，避免用户已要求发布时 Agent 先跑预览并因漏 `--out-dir` 产生无意义错误。
@@ -31,6 +33,7 @@
 - **P2 工具输出瘦身**：`web_search` 结果硬夹到 5 条，`web_fetch` 默认返回带来源 URL 的短事实卡并保留 `save_as` 完整保存路径，`rss_top` 对相同 feed/topN 做短期缓存；真实 AI 新闻回归约 `11.3K input token / 35.1s`，不再因超限搜索多跑一轮。
 
 ### Fixed
+- **PPTX verifier Windows 输出解码**：LibreOffice 预览渲染输出按 UTF-8 replacement 解码，避免中文路径/本机编码导致 verifier 已成功但 stderr 打出 `UnicodeDecodeError`。
 - **MiMo 工具历史 400 Param Incorrect**：OpenAI-compatible provider 现在会保存并回传 `reasoning_content`，满足小米 MiMo 在 thinking mode 下对工具调用历史的 API 要求；agent loop 遇到 LLM stream 错误时也会在 trace/UI 暴露真实 provider 错误，不再误报“最大迭代次数”。
 - **微信公众号 web_fetch 验证页误发**：`web_fetch` 对 `mp.weixin.qq.com` 改为本机直连提取 `#js_content`，不再优先走 Jina Reader；Jina 或最终内容出现“当前环境异常/完成验证后即可继续访问/CAPTCHA”时会硬拦截保存和 `auto_send`，避免把微信验证页当正文发送。
 - **微信公众号发布 inspect 后漂移**：公众号发布任务在 `wechat_publish.py inspect` 返回 `INSPECT_READY` 后进入运行时状态机，下一轮只暴露 `bash` 并只允许锚定的 `publish` 命令，防止模型继续搜索、重写文章、调用预览或寻找不存在的 skill 路径。

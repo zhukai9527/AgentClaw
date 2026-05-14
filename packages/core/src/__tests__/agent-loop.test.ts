@@ -607,6 +607,80 @@ describe("SimpleAgentLoop", () => {
       expect(captured[0]).not.toContain("file_write");
     });
 
+    it("普通 PPTX 生成首轮不暴露项目研究和显式 recall 工具", async () => {
+      const captured: string[][] = [];
+      const provider = createToolCaptureProvider(captured);
+      const testToolRegistry = createMockToolRegistry([
+        createMockTool("recall"),
+        createMockTool("glob"),
+        createMockTool("grep"),
+        createMockTool("file_read"),
+        createMockTool("web_search"),
+        createMockTool("web_fetch"),
+        createMockTool("use_skill"),
+        createMockTool("bash"),
+        createMockTool("claude_code"),
+        createMockTool("file_write"),
+        createMockTool("send_file"),
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 1 },
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "Create a polished 3-slide PPTX about AgentClaw P1/P3 memory and offload improvements. Generate and send the pptx file directly.",
+          "conv-pptx-no-research-tools",
+        ),
+      );
+
+      expect(captured[0]).toEqual(
+        expect.arrayContaining(["use_skill", "bash", "send_file"]),
+      );
+      expect(captured[0]).not.toContain("recall");
+      expect(captured[0]).not.toContain("glob");
+      expect(captured[0]).not.toContain("grep");
+      expect(captured[0]).not.toContain("file_read");
+      expect(captured[0]).not.toContain("web_search");
+      expect(captured[0]).not.toContain("web_fetch");
+      expect(captured[0]).not.toContain("claude_code");
+    });
+
+    it("明确要求基于仓库研究的 PPTX 任务保留项目读取工具", async () => {
+      const captured: string[][] = [];
+      const provider = createToolCaptureProvider(captured);
+      const testToolRegistry = createMockToolRegistry([
+        createMockTool("glob"),
+        createMockTool("grep"),
+        createMockTool("file_read"),
+        createMockTool("use_skill"),
+        createMockTool("bash"),
+        createMockTool("send_file"),
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 1 },
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "基于当前仓库代码仔细研究后生成一份 PPTX 并发送",
+          "conv-pptx-explicit-repo-research",
+        ),
+      );
+
+      expect(captured[0]).toEqual(
+        expect.arrayContaining(["glob", "grep", "file_read", "use_skill"]),
+      );
+    });
+
     it("仅提供 PPT 素材且明确先不生成时不触发 PPTX 交付守卫", async () => {
       const captured: string[][] = [];
       const provider = createToolCaptureProvider(captured);
