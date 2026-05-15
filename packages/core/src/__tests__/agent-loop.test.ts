@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHash } from "node:crypto";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { SimpleAgentLoop } from "../agent-loop.js";
 import type {
@@ -1425,7 +1425,70 @@ describe("SimpleAgentLoop", () => {
 
       await collectEvents(loop.runStream("生成一个 PPTX 并发送", convId, {}));
 
-      expect(sentPaths).toEqual([previewPath, deckPath]);
+      expect(sentPaths).toEqual([deckPath]);
+    });
+
+    it("PPTX verifier ok 后应自动发送 verified deck，不再等待模型下一轮自觉发送", async () => {
+      const convId = "conv-pptx-auto-send-after-verify";
+      const workDir = resolve(process.cwd(), "data", "tmp", convId).replace(
+        /\\/g,
+        "/",
+      );
+      const deckPath = `${workDir}/output.pptx`;
+      rmSync(workDir, { recursive: true, force: true });
+      mkdirSync(workDir, { recursive: true });
+      writeFileSync(deckPath, "fake pptx for mocked verifier");
+      const sentFiles: Array<{ url: string; filename: string }> = [];
+      const sendFile = vi.fn(async (filePath: string) => {
+        const filename = filePath.split(/[\\/]/).pop() || "file";
+        sentFiles.push({ url: `/files/${convId}/${filename}`, filename });
+      });
+      const bashTool = createMockTool("bash", {
+        content: JSON.stringify({ ok: true, pptx: deckPath }),
+      });
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-skill", "use_skill", { name: "pptx" }),
+        createToolCallChunks("tc-verify", "bash", {
+          command: `python D:/mycode/agentclaw/skills/pptx/scripts/verify_pptx.py "${deckPath}" --json`,
+        }),
+        createToolCallChunks("tc-preview", "send_file", {
+          path: `${workDir}/previews/output_slide_01.png`,
+        }),
+      ]);
+      const sendFileTool = createMockTool("send_file", {
+        content: "should not send preview",
+        autoComplete: true,
+      });
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          bashTool,
+          sendFileTool,
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("生成一个 PPTX 并发送", convId, {
+          workDir,
+          sentFiles,
+          sendFile,
+        }),
+      );
+
+      const complete = events.find((event) => event.type === "response_complete");
+      const message = (complete?.data as { message?: Message }).message;
+      expect(sendFile).toHaveBeenCalledWith(expect.any(String), "output.pptx");
+      expect(String(sendFile.mock.calls[0][0]).replace(/\\/g, "/")).toBe(
+        deckPath,
+      );
+      expect(sendFileTool.execute).not.toHaveBeenCalled();
+      expect(message?.content).toContain("[output.pptx]");
+      expect(message?.content).not.toContain("output_slide_01.png");
+      rmSync(workDir, { recursive: true, force: true });
     });
 
     it("PPTX 任务不得发送会话目录外的已验证 deck", async () => {

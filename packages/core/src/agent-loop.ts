@@ -1502,13 +1502,48 @@ export class SimpleAgentLoop implements AgentLoop {
     let wechatPublishSkillLoaded = false;
     let pptxSkillLoaded = false;
     const verifiedPptxPaths = new Set<string>();
+    const verifiedPptxDeliverables = new Map<string, string>();
     const unverifiedPptxCandidates = new Set<string>();
+    const autoSentVerifiedPptxPaths = new Set<string>();
+    let verifiedPptxAutoDelivered = false;
     let forceSynthesisOnly = false;
     let invalidFinalMarkupRetries = 0;
     let pptxMissingDeliveryRetries = 0;
     let consecutiveMaxTokensWithoutTools = 0;
     let forcedStopReason: string | undefined;
     const fallbackSnippets: string[] = [];
+
+    const rememberVerifiedPptx = (pptxPath: string): string | undefined => {
+      const normalized = normalizeComparablePath(pptxPath, context?.workDir);
+      if (!normalized) return undefined;
+      const absolutePath = isAbsolute(pptxPath)
+        ? resolve(pptxPath)
+        : resolve(context?.workDir ?? sessionTmpDir, pptxPath);
+      verifiedPptxPaths.add(normalized);
+      verifiedPptxDeliverables.set(normalized, absolutePath);
+      unverifiedPptxCandidates.delete(normalized);
+      return normalized;
+    };
+
+    const autoSendVerifiedPptx = async (pptxPath: string): Promise<void> => {
+      if (!context?.sendFile) return;
+      const normalized = rememberVerifiedPptx(pptxPath);
+      if (!normalized || autoSentVerifiedPptxPaths.has(normalized)) return;
+      const absolutePath =
+        verifiedPptxDeliverables.get(normalized) ??
+        (isAbsolute(pptxPath)
+          ? resolve(pptxPath)
+          : resolve(context?.workDir ?? sessionTmpDir, pptxPath));
+      const workDir = context?.workDir ?? sessionTmpDir;
+      if (!isPathInside(absolutePath, workDir)) return;
+      if (!existsSync(absolutePath)) return;
+      await context.sendFile(absolutePath, basename(absolutePath));
+      autoSentVerifiedPptxPaths.add(normalized);
+      verifiedPptxAutoDelivered = true;
+      runtimeHints.push(
+        `<pptx_auto_delivered>${absolutePath.replace(/\\/g, "/")}</pptx_auto_delivered>`,
+      );
+    };
 
     // Pre-compute tool pruning data (fixed for the entire loop)
     const loopToolDefs = this.toolRegistry.definitions();
@@ -2048,7 +2083,12 @@ export class SimpleAgentLoop implements AgentLoop {
             // Skip if already sent or if it's an overflow file
             if (
               sentUrls.has(`/files/${filename}`) ||
-              filename.startsWith("overflow_")
+              filename.startsWith("overflow_") ||
+              (isPptxGenerationTask && !/\.pptx$/i.test(filename)) ||
+              (isPptxGenerationTask &&
+                !verifiedPptxPaths.has(
+                  normalizeComparablePath(normalized, sessionTmpDir),
+                ))
             ) {
               continue;
             }
@@ -2407,7 +2447,18 @@ export class SimpleAgentLoop implements AgentLoop {
               typeof effectiveToolInput.path === "string"
                 ? effectiveToolInput.path
                 : "";
-            if (/\.pptx$/i.test(requestedPath.trim())) {
+            if (!/\.pptx$/i.test(requestedPath.trim())) {
+              const verifiedPath = Array.from(
+                verifiedPptxDeliverables.values(),
+              )[0];
+              result = {
+                content: verifiedPath
+                  ? `Skipped for PPTX delivery: do not send preview images, PDFs, scripts, or other side files as the final artifact. The verified PPTX is ${verifiedPath.replace(/\\/g, "/")}; send that .pptx only.`
+                  : "Skipped for PPTX delivery: do not send preview images, PDFs, scripts, or other side files as the final artifact. Generate and verify the .pptx with verify_pptx.py --json, then send the verified .pptx.",
+                isError: false,
+              };
+              blockedByPolicy = true;
+            } else {
               const resolvedRequestedPath = isAbsolute(requestedPath)
                 ? resolve(requestedPath)
                 : resolve(context?.workDir ?? process.cwd(), requestedPath);
@@ -2436,12 +2487,7 @@ export class SimpleAgentLoop implements AgentLoop {
                   skillsDir: context.skillsDir,
                 });
                 for (const pptxPath of verification.verifiedPaths) {
-                  const normalizedVerifiedPath = normalizeComparablePath(
-                    pptxPath,
-                    context.workDir,
-                  );
-                  verifiedPptxPaths.add(normalizedVerifiedPath);
-                  unverifiedPptxCandidates.delete(normalizedVerifiedPath);
+                  rememberVerifiedPptx(pptxPath);
                 }
                 if (!verification.ok) {
                   result = {
@@ -2779,13 +2825,9 @@ export class SimpleAgentLoop implements AgentLoop {
             for (const pptxPath of extractVerifiedPptxPaths(
               String(result.content ?? ""),
             )) {
-              const normalized = normalizeComparablePath(
-                pptxPath,
-                context?.workDir,
-              );
+              const normalized = rememberVerifiedPptx(pptxPath);
               if (normalized) {
-                verifiedPptxPaths.add(normalized);
-                unverifiedPptxCandidates.delete(normalized);
+                await autoSendVerifiedPptx(pptxPath);
                 runtimeHints.push(
                   `<pptx_verified>${pptxPath.replace(/\\/g, "/")}</pptx_verified>`,
                 );
@@ -3231,7 +3273,7 @@ export class SimpleAgentLoop implements AgentLoop {
           for (const f of context.sentFiles) {
             if (
               isPptxGenerationTask &&
-              !/\.(pptx|pdf|png|jpe?g)$/i.test(f.filename)
+              !/\.pptx$/i.test(f.filename)
             ) {
               continue;
             }
@@ -3289,8 +3331,12 @@ export class SimpleAgentLoop implements AgentLoop {
         const pptxDeliverySatisfied =
           !isPptxGenerationTask ||
           allSentFiles.some((f) => /\.pptx$/i.test(f.filename));
+        const pptxVerifierAutoDelivered =
+          isPptxGenerationTask &&
+          verifiedPptxAutoDelivered &&
+          pptxDeliverySatisfied;
         if (
-          allToolsAreAutoSend &&
+          (allToolsAreAutoSend || pptxVerifierAutoDelivered) &&
           iterationErrorCount === 0 &&
           todoComplete &&
           pptxDeliverySatisfied
