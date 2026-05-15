@@ -9,6 +9,7 @@
 - **PPTX 预览误当交付**：PPTX 任务只发送 PDF/PNG 预览时不再触发自动完成，必须继续到已验证 `.pptx` 被发送，避免“生成 ppt”最终只收到 PDF 预览。
 - **PPTX 依赖安装和自造预览绕路**：PPTX skill 明确禁止任务内 `pip install`，agent-loop 会硬化 `claude_code` 委托提示；生成 `.pptx` 候选文件后，非官方 `verify_pptx.py --json` 的自定义 Bash 检查/LibreOffice 预览会被跳过，避免卡在依赖安装、手写预览和最终不发送 `.pptx`。
 - **PPTX verified 后仍只发预览**：官方 `verify_pptx.py --json` 返回 `ok:true` 后，agent-loop 会自动发送会话目录内已验证 `.pptx`；PPTX 任务的最终文件累积只认 `.pptx`，并跳过 PNG/PDF/脚本等旁路文件，避免迭代上限兜底时把预览图或 `gen_pptx.py` 当最终交付。
+- **PPTX 慢预检和 subagent 绕路**：PPTX 生成链路不再提示或执行 `python -c "import pptx"` 依赖预检，而是直接写脚本运行并只在真实 `ModuleNotFoundError` 时报告缺依赖；普通 PPTX 任务默认跳过 subagent 预览检查，最终回复也会收敛为已发送的 `.pptx` 链接，避免把脚本/预览当交付物暴露给用户。
 
 ## [1.5.27] - 2026-05-15
 

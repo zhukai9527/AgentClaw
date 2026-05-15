@@ -22,8 +22,8 @@ For substantial decks, also save `brand-spec.md` beside the output with logo/ima
 ## Dependency discipline
 
 - Do not run `pip install`, `python -m pip install`, `npm install`, or other package installation during a deck task.
-- Use the existing environment. If you need to check whether `python-pptx` is available, run a fast import check such as `python -c "import pptx"`.
-- If a required dependency is missing, stop and report the missing dependency instead of installing it inside the user task.
+- Use the existing environment. Do not run standalone dependency preflight checks such as `python -c "import pptx"`.
+- Write and run the deck generation script directly. If that script fails with `ModuleNotFoundError` for a required package, stop and report the missing dependency instead of installing it inside the user task.
 
 ## Short prompt in an existing session
 

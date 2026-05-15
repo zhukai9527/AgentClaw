@@ -639,7 +639,12 @@ describe("SimpleAgentLoop", () => {
       );
 
       expect(captured[0]).toEqual(
-        expect.arrayContaining(["use_skill", "bash", "claude_code", "send_file"]),
+        expect.arrayContaining([
+          "use_skill",
+          "bash",
+          "claude_code",
+          "send_file",
+        ]),
       );
       expect(captured[0]).not.toContain("recall");
       expect(captured[0]).not.toContain("glob");
@@ -672,7 +677,10 @@ describe("SimpleAgentLoop", () => {
       });
 
       await collectEvents(
-        loop.runStream("生成本活动的PPT，拉赞助用的，目标清晰。", "conv-pptx-no-bash-claude"),
+        loop.runStream(
+          "生成本活动的PPT，拉赞助用的，目标清晰。",
+          "conv-pptx-no-bash-claude",
+        ),
       );
 
       expect(bashTool.execute).not.toHaveBeenCalled();
@@ -713,8 +721,13 @@ describe("SimpleAgentLoop", () => {
       );
       expect(executedPrompt).toContain("[PPTX dependency discipline]");
       expect(executedPrompt).toContain("Do not run `pip install`");
+      expect(executedPrompt).toContain(
+        "Do not run standalone dependency preflight checks",
+      );
       expect(executedPrompt).not.toContain("Install python-pptx first");
       expect(executedPrompt).not.toContain("pip install python-pptx");
+      expect(executedPrompt).not.toContain('python -c "import pptx"');
+      expect(executedPrompt).not.toContain("fast import check");
       const claudeCodeEvent = events.find(
         (event) =>
           event.type === "tool_call" &&
@@ -726,15 +739,17 @@ describe("SimpleAgentLoop", () => {
       );
       expect(tracedPrompt).toContain("[PPTX dependency discipline]");
       expect(tracedPrompt).not.toContain("pip install python-pptx");
+      expect(tracedPrompt).not.toContain('python -c "import pptx"');
+      expect(tracedPrompt).not.toContain("fast import check");
     });
 
-    it("PPTX skill 文档中的示例路径不应被当成已生成候选文件", async () => {
+    it("PPTX standalone python-pptx 预检应直接跳过，不再执行慢启动", async () => {
       const bashTool = createMockTool("bash", { content: "ok" });
       const loop = new SimpleAgentLoop({
         provider: createMockProvider([
           createToolCallChunks("tc-skill", "use_skill", { name: "pptx" }),
           createToolCallChunks("tc-import-check", "bash", {
-            command: 'python -c "import pptx; print(\'ok\')"',
+            command: "python -c \"import pptx; print('ok')\"",
           }),
           finalChunks,
         ]),
@@ -755,10 +770,113 @@ describe("SimpleAgentLoop", () => {
         loop.runStream("生成一个优质培训 PPT", "conv-pptx-skill-doc-path", {}),
       );
 
-      expect(bashTool.execute).toHaveBeenCalledWith(
-        { command: 'python -c "import pptx; print(\'ok\')"' },
-        expect.anything(),
+      expect(bashTool.execute).not.toHaveBeenCalled();
+    });
+
+    it("PPTX 任务默认不得调用 subagent 做预览检查", async () => {
+      const subagentTool = createMockTool("subagent", {
+        content: "previewed five png files",
+      });
+      const loop = new SimpleAgentLoop({
+        provider: createMockProvider([
+          createToolCallChunks("tc-skill", "use_skill", { name: "pptx" }),
+          createToolCallChunks("tc-subagent", "subagent", {
+            task: "Preview key slides and report visual quality.",
+          }),
+          finalChunks,
+        ]),
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          subagentTool,
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream(
+          "很好，做个测试的优质培训 PPT",
+          "conv-pptx-no-subagent",
+          {},
+        ),
       );
+      const blocked = events
+        .filter((event) => event.type === "tool_result")
+        .map((event) => (event.data as { result: ToolResult }).result.content)
+        .find((content) => content.includes("subagent preview checks"));
+
+      expect(subagentTool.execute).not.toHaveBeenCalled();
+      expect(blocked).toContain("Skipped for PPTX tasks");
+    });
+
+    it("PPTX 最终响应已有 deck 时只保留 pptx 链接，不泄露生成脚本", async () => {
+      const convId = "conv-pptx-final-only-deck";
+      const workDir = resolve(process.cwd(), "data", "tmp", convId).replace(
+        /\\/g,
+        "/",
+      );
+      const deckPath = `${workDir}/output.pptx`;
+      const bashTool = createMockTool("bash", {
+        content: JSON.stringify({ ok: true, pptx: deckPath }),
+      });
+      const sendFileTool: Tool = {
+        ...createMockTool("send_file"),
+        execute: vi.fn(async (input, context) => {
+          const filePath = String(input.path);
+          const filename = filePath.split(/[\\/]/).pop() || "file";
+          context?.sentFiles?.push({
+            url: `/files/${convId}/${filename}`,
+            filename,
+          });
+          return { content: `File sent: ${filename}` };
+        }),
+      };
+      const finalWithScriptLink: LLMStreamChunk[] = [
+        {
+          type: "text",
+          text: `[gen_training.py](/files/${convId}/gen_training.py)\n[output.pptx](/files/${convId}/output.pptx)`,
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 20, tokensOut: 10 },
+          model: "mock-model",
+        },
+      ];
+      const loop = new SimpleAgentLoop({
+        provider: createMockProvider([
+          createToolCallChunks("tc-skill", "use_skill", { name: "pptx" }),
+          createToolCallChunks("tc-verify", "bash", {
+            command: `python D:/mycode/agentclaw/skills/pptx/scripts/verify_pptx.py "${deckPath}" --json`,
+          }),
+          createToolCallChunks("tc-send", "send_file", { path: deckPath }),
+          finalWithScriptLink,
+        ]),
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          bashTool,
+          sendFileTool,
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("生成一个优质培训 PPT", convId, {
+          workDir,
+          sentFiles: [],
+        }),
+      );
+      const complete = events.find(
+        (event) => event.type === "response_complete",
+      );
+      const message = (complete?.data as { message?: Message }).message;
+
+      expect(message?.content).toBe(
+        `[output.pptx](/files/${convId}/output.pptx)`,
+      );
+      expect(message?.content).not.toContain("gen_training.py");
     });
 
     it("PPTX 候选文件出现后应拦截自定义预览 Bash，强制先跑官方 verifier", async () => {
@@ -810,7 +928,9 @@ describe("SimpleAgentLoop", () => {
       const blockedCustomPreview = events
         .filter((event) => event.type === "tool_result")
         .map((event) => (event.data as { result: ToolResult }).result.content)
-        .find((content) => content.includes("a .pptx candidate already exists"));
+        .find((content) =>
+          content.includes("a .pptx candidate already exists"),
+        );
 
       expect(blockedCustomPreview).toContain("official verifier");
       expect(bashTool.execute).toHaveBeenCalledTimes(1);
@@ -876,7 +996,9 @@ describe("SimpleAgentLoop", () => {
       const promptText = JSON.stringify(capturedMessages[0]);
       expect(promptText).toContain("拉赞助/招商/商业合作类 PPTX");
       expect(promptText).toContain("默认使用明亮、干净、商业提案风");
-      expect(promptText).toContain("不要因为长期记忆里的暗色偏好就全 deck 使用暗色");
+      expect(promptText).toContain(
+        "不要因为长期记忆里的暗色偏好就全 deck 使用暗色",
+      );
     });
 
     it("只询问 PPT 视觉风格时不触发 PPTX 生成链路", async () => {
@@ -1275,7 +1397,9 @@ describe("SimpleAgentLoop", () => {
         }),
         finalChunks,
       ]);
-      const bashTool = createMockTool("bash", { content: "should not execute" });
+      const bashTool = createMockTool("bash", {
+        content: "should not execute",
+      });
       const loop = new SimpleAgentLoop({
         provider: testProvider,
         toolRegistry: createMockToolRegistry([bashTool]),
@@ -1293,7 +1417,9 @@ describe("SimpleAgentLoop", () => {
       const toolResult = events.find((event) => event.type === "tool_result")!;
       const result = (toolResult.data as { result: ToolResult }).result;
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("bash may only run the anchored unified CLI");
+      expect(result.content).toContain(
+        "bash may only run the anchored unified CLI",
+      );
       expect(bashTool.execute).not.toHaveBeenCalled();
     });
 
@@ -1479,7 +1605,9 @@ describe("SimpleAgentLoop", () => {
         }),
       );
 
-      const complete = events.find((event) => event.type === "response_complete");
+      const complete = events.find(
+        (event) => event.type === "response_complete",
+      );
       const message = (complete?.data as { message?: Message }).message;
       expect(sendFile).toHaveBeenCalledWith(expect.any(String), "output.pptx");
       expect(String(sendFile.mock.calls[0][0]).replace(/\\/g, "/")).toBe(
@@ -1704,7 +1832,9 @@ describe("SimpleAgentLoop", () => {
           } as LLMStreamChunk;
         }) as unknown as LLMProvider["stream"],
       };
-      const bashTool = createMockTool("bash", { content: "should not execute" });
+      const bashTool = createMockTool("bash", {
+        content: "should not execute",
+      });
       const loop = new SimpleAgentLoop({
         provider: catProvider,
         toolRegistry: createMockToolRegistry([
@@ -1739,7 +1869,9 @@ describe("SimpleAgentLoop", () => {
         }),
         finalChunks,
       ]);
-      const bashTool = createMockTool("bash", { content: "should not execute" });
+      const bashTool = createMockTool("bash", {
+        content: "should not execute",
+      });
       const loop = new SimpleAgentLoop({
         provider: testProvider,
         toolRegistry: createMockToolRegistry([bashTool]),
@@ -1757,7 +1889,9 @@ describe("SimpleAgentLoop", () => {
       const toolResult = events.find((event) => event.type === "tool_result")!;
       const result = (toolResult.data as { result: ToolResult }).result;
       expect(result.isError).toBe(false);
-      expect(result.content).toContain("only capabilities, inspect, and publish");
+      expect(result.content).toContain(
+        "only capabilities, inspect, and publish",
+      );
       expect(bashTool.execute).not.toHaveBeenCalled();
     });
 
@@ -1769,7 +1903,9 @@ describe("SimpleAgentLoop", () => {
         }),
         finalChunks,
       ]);
-      const bashTool = createMockTool("bash", { content: "should not execute" });
+      const bashTool = createMockTool("bash", {
+        content: "should not execute",
+      });
       const loop = new SimpleAgentLoop({
         provider: testProvider,
         toolRegistry: createMockToolRegistry([bashTool]),
@@ -1799,7 +1935,9 @@ describe("SimpleAgentLoop", () => {
         }),
         finalChunks,
       ]);
-      const bashTool = createMockTool("bash", { content: "should not execute" });
+      const bashTool = createMockTool("bash", {
+        content: "should not execute",
+      });
       const loop = new SimpleAgentLoop({
         provider: testProvider,
         toolRegistry: createMockToolRegistry([bashTool]),
@@ -1905,7 +2043,12 @@ describe("SimpleAgentLoop", () => {
       );
 
       expect(captured[0]).toEqual(
-        expect.arrayContaining(["web_search", "use_skill", "file_write", "bash"]),
+        expect.arrayContaining([
+          "web_search",
+          "use_skill",
+          "file_write",
+          "bash",
+        ]),
       );
       expect(captured[1]).toEqual(["bash"]);
     });
@@ -1943,7 +2086,7 @@ describe("SimpleAgentLoop", () => {
           if (currentCall === 0) {
             for (const chunk of createToolCallChunks("tc-inspect", "bash", {
               command:
-                "cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py inspect \"C:/Users/voroj/article.md\" --json",
+                'cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py inspect "C:/Users/voroj/article.md" --json',
             })) {
               yield chunk;
             }
@@ -2037,7 +2180,9 @@ describe("SimpleAgentLoop", () => {
       const toolResult = events.find((event) => event.type === "tool_result")!;
       const result = (toolResult.data as { result: ToolResult }).result;
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("file_write may only write the source Markdown");
+      expect(result.content).toContain(
+        "file_write may only write the source Markdown",
+      );
       expect(fileWriteTool.execute).not.toHaveBeenCalled();
     });
 
@@ -2142,7 +2287,7 @@ describe("SimpleAgentLoop", () => {
           toolUse: {
             id: "tc-shell",
             name: "",
-            input: "{\"command\":\"pwd\"}",
+            input: '{"command":"pwd"}',
           },
         },
         {
@@ -3075,7 +3220,8 @@ describe("SimpleAgentLoop", () => {
 
       const invalidToolMarkup =
         "<tool_call>\n<function=web_search>\n<parameter=query>more AI news</parameter>\n</function>\n</tool_call>";
-      const finalAnswer = "主人，今日 AI 简报：OpenAI 发布广告平台；Meta 推进 agentic AI。";
+      const finalAnswer =
+        "主人，今日 AI 简报：OpenAI 发布广告平台；Meta 推进 agentic AI。";
       const testProvider = createMockProvider([
         firstRoundChunks,
         [
@@ -3113,7 +3259,10 @@ describe("SimpleAgentLoop", () => {
       });
 
       const events = await collectEvents(
-        loop.runStream("在外网搜索今日AI界新闻生成简报", "conv-invalid-markup-retry"),
+        loop.runStream(
+          "在外网搜索今日AI界新闻生成简报",
+          "conv-invalid-markup-retry",
+        ),
       );
 
       const streamedText = events

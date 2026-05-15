@@ -88,7 +88,8 @@ const RETRYABLE_TOOLS = new Set([
 
 const MAX_RETRIES = 2;
 const RETRY_BASE_DELAY = 2000; // ms
-const INVALID_TOOL_MARKUP_RE = /<\/?tool_call\b|<function=|<\/function>|<parameter=/i;
+const INVALID_TOOL_MARKUP_RE =
+  /<\/?tool_call\b|<function=|<\/function>|<parameter=/i;
 const RESPONSE_STREAM_GUARD_CHARS = 64;
 
 function normalizeComparablePath(filePath: string, baseDir?: string): string {
@@ -694,7 +695,11 @@ function buildTaskToolProfile(
   isAiNewsTask: boolean,
   isPptxGenerationTask = false,
 ): TaskToolProfile {
-  if (/公众号|微信公众号|草稿箱|发布到公众号|发到公众号|发送到公众号|wechat/i.test(inputText)) {
+  if (
+    /公众号|微信公众号|草稿箱|发布到公众号|发到公众号|发送到公众号|wechat/i.test(
+      inputText,
+    )
+  ) {
     return {
       kind: "wechat_publish",
       allowedTools: new Set([
@@ -712,8 +717,7 @@ function buildTaskToolProfile(
         bash: 5,
       },
       webResearchToolLimit: 8,
-      hint:
-        "[任务工具边界]当前是微信公众号发布任务：可少量 web_search/web_fetch 补事实，但交付目标是写出 Markdown 并通过 wechat-publish 统一 CLI 发布。研究预算耗尽后禁止继续搜索，必须继续用 file_write 写 Markdown、use_skill 加载 wechat-publish、bash 调用 wechat_publish.py inspect/publish 完成交付；不要只输出阶段性总结。硬边界：没有可发布 Markdown 前不要用 bash；file_write 只写 .md 文章；bash 只允许执行 `cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py capabilities|inspect|publish ... --json`，禁止 preview/convert/help、手写 HTML/Node 转换或查找其他 skill 路径。所有 wechat_publish.py 命令必须从仓库根目录执行，inspect/publish/capabilities 都必须带 --json。如果用户说发布/发送到公众号，写完 Markdown 后必须 inspect，inspect 通过后必须直接 publish 创建草稿，不要停在 preview 或询问是否继续。默认不要传 --theme，publish 子命令不能传 --draft；publish 优先带 --out-dir，漏写时 CLI 会使用 Markdown 同目录的 wechat-output。",
+      hint: "[任务工具边界]当前是微信公众号发布任务：可少量 web_search/web_fetch 补事实，但交付目标是写出 Markdown 并通过 wechat-publish 统一 CLI 发布。研究预算耗尽后禁止继续搜索，必须继续用 file_write 写 Markdown、use_skill 加载 wechat-publish、bash 调用 wechat_publish.py inspect/publish 完成交付；不要只输出阶段性总结。硬边界：没有可发布 Markdown 前不要用 bash；file_write 只写 .md 文章；bash 只允许执行 `cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py capabilities|inspect|publish ... --json`，禁止 preview/convert/help、手写 HTML/Node 转换或查找其他 skill 路径。所有 wechat_publish.py 命令必须从仓库根目录执行，inspect/publish/capabilities 都必须带 --json。如果用户说发布/发送到公众号，写完 Markdown 后必须 inspect，inspect 通过后必须直接 publish 创建草稿，不要停在 preview 或询问是否继续。默认不要传 --theme，publish 子命令不能传 --draft；publish 优先带 --out-dir，漏写时 CLI 会使用 Markdown 同目录的 wechat-output。",
     };
   }
 
@@ -782,8 +786,7 @@ function buildTaskToolProfile(
         send_file: 2,
       },
       webResearchToolLimit: 0,
-      hint:
-        `[任务工具边界]当前是普通 PPTX 生成任务：不要调用 recall、glob、grep、file_read、web_search、web_fetch 做额外研究。直接 use_skill pptx；复杂 deck 可直接调用 claude_code 工具在会话工作目录生成，不要用 bash 运行 claude/claude-code；如果自己写 Python 生成脚本，必须先用 file_write 把脚本写入会话工作目录，再用 bash 运行 python，禁止运行尚不存在的 create_deck.py/create_pptx.py。生成 deck 后，必须用这个 verifier 绝对路径验证：python "${resolveBundledPptxVerifierPath().replace(/\\/g, "/")}" "<会话工作目录>/output.pptx" --out-dir "<会话工作目录>/previews" --require-text --json；然后 send_file 发送验证通过的 .pptx。只有用户明确要求基于仓库/代码/文件研究时，才允许项目读取工具。`,
+      hint: `[任务工具边界]当前是普通 PPTX 生成任务：不要调用 recall、glob、grep、file_read、web_search、web_fetch 做额外研究。直接 use_skill pptx；复杂 deck 可直接调用 claude_code 工具在会话工作目录生成，不要用 bash 运行 claude/claude-code；如果自己写 Python 生成脚本，必须先用 file_write 把脚本写入会话工作目录，再用 bash 运行 python，禁止运行尚不存在的 create_deck.py/create_pptx.py。生成 deck 后，必须用这个 verifier 绝对路径验证：python "${resolveBundledPptxVerifierPath().replace(/\\/g, "/")}" "<会话工作目录>/output.pptx" --out-dir "<会话工作目录>/previews" --require-text --json；然后 send_file 发送验证通过的 .pptx。只有用户明确要求基于仓库/代码/文件研究时，才允许项目读取工具。`,
     };
   }
 
@@ -812,8 +815,35 @@ function isPptxNonGenerationRequest(inputText: string): boolean {
   );
 }
 
+function isExplicitSubagentRequest(inputText: string): boolean {
+  return /subagent|sub-agent|子代理|子agent|分代理|并行代理|多代理|spawn\s+agent/i.test(
+    inputText,
+  );
+}
+
 function isOfficialPptxVerifierCommand(command: string): boolean {
   return /verify_pptx\.py/i.test(command) && /(^|\s)--json(\s|$)/.test(command);
+}
+
+function markdownForSentFiles(
+  files: Array<{ url: string; filename: string }>,
+): string {
+  return files
+    .map((f) => {
+      const isImage = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(f.filename);
+      return isImage
+        ? `![${f.filename}](${f.url})`
+        : `[${f.filename}](${f.url})`;
+    })
+    .join("\n");
+}
+
+function pptxOnlySentFileMarkdown(
+  files: Array<{ url: string; filename: string }>,
+): string | undefined {
+  const pptxFiles = files.filter((f) => /\.pptx$/i.test(f.filename));
+  if (pptxFiles.length === 0) return undefined;
+  return markdownForSentFiles(pptxFiles);
 }
 
 function hardenPptxClaudeCodeInput(
@@ -834,6 +864,8 @@ function hardenPptxClaudeCodeInput(
       /^\s*[-*]?\s*Install\s+python-pptx\s+first(?:\s+(?:if\s+needed|with))?:.*$/gim,
       "",
     )
+    .replace(/`?python\s+-c\s+["'][^"']*\bimport\s+pptx\b[^"']*["']`?/gi, "")
+    .replace(/fast import check/gi, "direct script execution")
     .replace(
       /`?pip\s+install\s+[^`\n]*`?/gi,
       "Use existing Python packages; do not install dependencies.",
@@ -841,7 +873,7 @@ function hardenPptxClaudeCodeInput(
   const prefix =
     "[PPTX dependency discipline]\n" +
     "- Do not run `pip install`, `python -m pip install`, npm install, or any package installation.\n" +
-    "- If you need to check dependencies, use a fast import check such as `python -c \"import pptx\"`; if missing, report the missing package instead of installing it.\n" +
+    "- Do not run standalone dependency preflight checks. Write and run the deck generation script directly; if it fails with ModuleNotFoundError for pptx, report the missing package instead of installing it.\n" +
     "- Generate the deck in the requested work directory only, preferably as `output.pptx`.\n" +
     "- Do not render PDF/PNG previews or run LibreOffice manually. The parent runtime will run the official verifier next.\n" +
     `- Official verifier path for the parent runtime: ${verifierPath}\n` +
@@ -1360,7 +1392,7 @@ export class SimpleAgentLoop implements AgentLoop {
       );
     const isPptxGenerationTask =
       isPptxMention &&
-      /生成|制作|做成|创建|导出|发送|发给|直接|produce|create|make|build|export|send/i.test(
+      /生成|制作|做成|做(?:个|一个|一份|一套)?|创建|导出|发送|发给|直接|produce|create|make|build|export|send/i.test(
         inputTextForHeuristics,
       ) &&
       !isPptxNonGenerationRequest(inputTextForHeuristics);
@@ -1681,16 +1713,16 @@ export class SimpleAgentLoop implements AgentLoop {
               this.toolRegistry.definitions(),
               taskToolProfile,
             );
-        if (
-          taskToolProfile.kind === "wechat_publish" &&
-          !forceSynthesisOnly
-        ) {
+        if (taskToolProfile.kind === "wechat_publish" && !forceSynthesisOnly) {
           if (wechatPublishSkillLoaded) {
             activeToolDefinitions = activeToolDefinitions.filter(
               (tool) => tool.name !== "use_skill",
             );
           }
-          if (wechatPublishReadyToPublish || wechatPublishMarkdownCreatedInRun) {
+          if (
+            wechatPublishReadyToPublish ||
+            wechatPublishMarkdownCreatedInRun
+          ) {
             activeToolDefinitions = activeToolDefinitions.filter(
               (tool) => tool.name === "bash",
             );
@@ -2037,16 +2069,7 @@ export class SimpleAgentLoop implements AgentLoop {
             (f) => !fullText.includes(f.filename),
           );
           if (newFiles.length > 0) {
-            const filesMd = newFiles
-              .map((f) => {
-                const isImage = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(
-                  f.filename,
-                );
-                return isImage
-                  ? `![${f.filename}](${f.url})`
-                  : `[${f.filename}](${f.url})`;
-              })
-              .join("\n");
+            const filesMd = markdownForSentFiles(newFiles);
             storedText = storedText ? `${storedText}\n${filesMd}` : filesMd;
           }
         }
@@ -2106,6 +2129,9 @@ export class SimpleAgentLoop implements AgentLoop {
 
         // If no tool calls, this is the final turn — store cumulative totals
         if (toolCalls.length === 0) {
+          if (isPptxGenerationTask || pptxSkillLoaded) {
+            storedText = pptxOnlySentFileMarkdown(allSentFiles) ?? storedText;
+          }
           const durationMs = Date.now() - startTime;
 
           const assistantTurn: ConversationTurn = {
@@ -2175,11 +2201,11 @@ export class SimpleAgentLoop implements AgentLoop {
           id: generateId(),
           conversationId: convId,
           role: "assistant",
-            content: storedText,
-            toolCalls: JSON.stringify(toolCalls),
-            model: usedModel,
-            reasoningContent: iterReasoningContent || undefined,
-            tokensIn: iterTokensIn,
+          content: storedText,
+          toolCalls: JSON.stringify(toolCalls),
+          model: usedModel,
+          reasoningContent: iterReasoningContent || undefined,
+          tokensIn: iterTokensIn,
           tokensOut: iterTokensOut,
           traceId: trace.id,
           createdAt: assistantTurnCreatedAt,
@@ -2241,6 +2267,20 @@ export class SimpleAgentLoop implements AgentLoop {
               effectiveToolName = modified.name;
               effectiveToolInput = modified.input;
             }
+          }
+
+          if (
+            !blockedByPolicy &&
+            effectiveToolName === "subagent" &&
+            (pptxSkillLoaded || isPptxGenerationTask) &&
+            !isExplicitSubagentRequest(inputTextForHeuristics)
+          ) {
+            result = {
+              content:
+                "Skipped for PPTX tasks: subagent preview checks add latency and cannot verify slide quality reliably. Continue in the main task with the official verify_pptx.py --json gate and send only the verified .pptx.",
+              isError: false,
+            };
+            blockedByPolicy = true;
           }
 
           if (
@@ -2411,11 +2451,22 @@ export class SimpleAgentLoop implements AgentLoop {
               };
               blockedByPolicy = true;
             } else if (
+              /\bpython(?:\d+(?:\.\d+)?)?\s+-c\s+["'][^"']*\bimport\s+pptx\b/i.test(
+                command,
+              )
+            ) {
+              result = {
+                content:
+                  "Skipped for PPTX tasks: do not run standalone python-pptx preflight checks. Write and run the deck generation script directly; if it fails with ModuleNotFoundError for pptx, report the missing dependency.",
+                isError: false,
+              };
+              blockedByPolicy = true;
+            } else if (
               /(?:^|\s)(?:python\s+-m\s+pip|pip)\s+install\b/i.test(command)
             ) {
               result = {
                 content:
-                  "Skipped for PPTX tasks: do not install Python packages during deck generation. Use the existing environment and a fast import check such as `python -c \"import pptx\"`; if a dependency is missing, report it instead of installing.",
+                  "Skipped for PPTX tasks: do not install Python packages during deck generation. Use the existing environment; write and run the deck generation script directly, and report ModuleNotFoundError instead of installing if a dependency is missing.",
                 isError: false,
               };
               blockedByPolicy = true;
@@ -2471,8 +2522,7 @@ export class SimpleAgentLoop implements AgentLoop {
                 isPathInside(normalizedRequestedPath, context.workDir);
               if (!inWorkDir) {
                 result = {
-                  content:
-                    `Blocked for PPTX delivery: the verified deck is outside the session work directory. Copy it into ${context?.workDir}, re-run verify_pptx.py on the copied file, then send that verified in-session .pptx.`,
+                  content: `Blocked for PPTX delivery: the verified deck is outside the session work directory. Copy it into ${context?.workDir}, re-run verify_pptx.py on the copied file, then send that verified in-session .pptx.`,
                   isError: true,
                 };
                 blockedByPolicy = true;
@@ -2507,8 +2557,7 @@ export class SimpleAgentLoop implements AgentLoop {
                   context?.skillsDir,
                 ).replace(/\\/g, "/");
                 result = {
-                  content:
-                    `Blocked for PPTX delivery: do not send a .pptx until the bundled verifier has reported ok:true for that exact file. Run \`python "${verifierPath}" "${context?.workDir}/deck.pptx" --out-dir "${context?.workDir}/previews" --require-text --json\`, then call send_file for the verified file.`,
+                  content: `Blocked for PPTX delivery: do not send a .pptx until the bundled verifier has reported ok:true for that exact file. Run \`python "${verifierPath}" "${context?.workDir}/deck.pptx" --out-dir "${context?.workDir}/previews" --require-text --json\`, then call send_file for the verified file.`,
                   isError: true,
                 };
                 blockedByPolicy = true;
@@ -2636,16 +2685,16 @@ export class SimpleAgentLoop implements AgentLoop {
                   "<pptx_research_budget_exhausted>Research budget is exhausted. Do not search or fetch again. Continue with use_skill pptx, deck generation, verify_pptx.py --json, and send_file.</pptx_research_budget_exhausted>",
                 );
               } else {
-              result = {
-                content:
-                  `You already made ${WEB_RESEARCH_TOOL_LIMIT} web_search/web_fetch call(s). ` +
-                  "Stop researching now. Do not call web_search, web_fetch, file_read, or grep for overflow files. Generate the final answer from the facts already in context.",
-                isError: true,
-              };
-              forceSynthesisOnly = true;
-              runtimeHints.push(
-                "<research_budget_exhausted>Research budget is exhausted. No more tools are available. Write the final answer from the gathered facts now.</research_budget_exhausted>",
-              );
+                result = {
+                  content:
+                    `You already made ${WEB_RESEARCH_TOOL_LIMIT} web_search/web_fetch call(s). ` +
+                    "Stop researching now. Do not call web_search, web_fetch, file_read, or grep for overflow files. Generate the final answer from the facts already in context.",
+                  isError: true,
+                };
+                forceSynthesisOnly = true;
+                runtimeHints.push(
+                  "<research_budget_exhausted>Research budget is exhausted. No more tools are available. Write the final answer from the gathered facts now.</research_budget_exhausted>",
+                );
               }
             } else if (
               isOverflowFileRead &&
@@ -2835,9 +2884,7 @@ export class SimpleAgentLoop implements AgentLoop {
             }
             if (
               (pptxSkillLoaded || isPptxGenerationTask) &&
-              ["bash", "claude_code", "file_write"].includes(
-                effectiveToolName,
-              )
+              ["bash", "claude_code", "file_write"].includes(effectiveToolName)
             ) {
               for (const pptxPath of extractPptxPathMentions(
                 String(result.content ?? ""),
@@ -3271,10 +3318,7 @@ export class SimpleAgentLoop implements AgentLoop {
         // Drain sentFiles from context into accumulator (dedup by URL)
         if (context?.sentFiles && context.sentFiles.length > 0) {
           for (const f of context.sentFiles) {
-            if (
-              isPptxGenerationTask &&
-              !/\.pptx$/i.test(f.filename)
-            ) {
+            if (isPptxGenerationTask && !/\.pptx$/i.test(f.filename)) {
               continue;
             }
             if (
@@ -3344,16 +3388,9 @@ export class SimpleAgentLoop implements AgentLoop {
           const durationMs = Date.now() - startTime;
 
           // Build response from sent files
-          const filesMd = allSentFiles
-            .map((f) => {
-              const isImage = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(
-                f.filename,
-              );
-              return isImage
-                ? `![${f.filename}](${f.url})`
-                : `[${f.filename}](${f.url})`;
-            })
-            .join("\n");
+          const filesMd =
+            pptxOnlySentFileMarkdown(allSentFiles) ??
+            markdownForSentFiles(allSentFiles);
           const responseText = filesMd || "Done.";
 
           // Store assistant turn
