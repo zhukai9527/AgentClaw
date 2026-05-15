@@ -5,6 +5,7 @@
 ### Added
 - **Active Memory 前置召回与记忆治理**：长期记忆注入前新增 provider-backed 主动选择器，按当前用户请求只注入最相关记忆并记录 `active_memory` telemetry；记忆管理页和 API 新增编辑、废弃、合并能力，修正内容更新后向量不刷新的问题，避免旧/错/重复记忆继续污染真实会话。
 - **记忆场景回放硬测试**：新增默认测试链会执行的 P0/P1 记忆场景回放，覆盖同一会话省略 PPTX 主题时的 Active Memory 精准召回，以及编辑重算 embedding、废弃隐藏、合并 canonical target 的真实治理闭环。
+- **记忆自动治理闭环**：新增记忆有效性/污染率 telemetry 聚合和 `memory janitor`，每日 consolidate 会自动废弃已被使用数据证明会污染上下文的记忆；同时提供机器可读的 effectiveness/janitor API，避免靠 UI 调参手工维护记忆库。
 
 ### Fixed
 - **MiMo 老会话工具历史 400**：当旧会话中历史 assistant 工具调用缺少 `reasoning_content` 时，OpenAI-compatible provider 会在发送给小米 MiMo 前移除这段不可回放的工具调用及对应 tool result，同时保留可见 assistant 文本，避免用户必须新开会话才能继续使用 Mimo。

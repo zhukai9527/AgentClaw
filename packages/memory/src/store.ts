@@ -30,6 +30,9 @@ import type {
   BackgroundJobUpdate,
   MemoryUsageEvent,
   MemoryUsageRecord,
+  MemoryEffectivenessStats,
+  MemoryJanitorOptions,
+  MemoryJanitorResult,
 } from "@agentclaw/types";
 import { cosineSimilarity, SimpleBagOfWords } from "./embeddings.js";
 
@@ -408,6 +411,143 @@ export class SQLiteMemoryStore implements MemoryStore {
       agentId: event.agentId,
       metadata: event.metadata,
       usedAt: new Date(usedAt),
+    };
+  }
+
+  async listMemoryEffectiveness(options?: {
+    namespace?: string;
+  }): Promise<MemoryEffectivenessStats[]> {
+    const where = options?.namespace ? "WHERE m.namespace = ?" : "";
+    const params = options?.namespace ? [options.namespace] : [];
+    const rows = this.db
+      .prepare(
+        `SELECT
+           m.id,
+           m.type,
+           m.content,
+           m.importance,
+           m.metadata AS memory_metadata,
+           u.source,
+           u.metadata AS usage_metadata,
+           u.used_at
+         FROM memories m
+         LEFT JOIN memory_usage u ON u.memory_id = m.id
+         ${where}
+         ORDER BY m.importance DESC, u.used_at DESC`,
+      )
+      .all(...params) as Array<{
+      id: string;
+      type: string;
+      content: string;
+      importance: number;
+      memory_metadata: string | null;
+      source: string | null;
+      usage_metadata: string | null;
+      used_at: string | null;
+    }>;
+
+    const byMemory = new Map<string, MemoryEffectivenessStats>();
+    for (const row of rows) {
+      const metadata = row.memory_metadata
+        ? (JSON.parse(row.memory_metadata) as Record<string, unknown>)
+        : undefined;
+      const current =
+        byMemory.get(row.id) ??
+        ({
+          memoryId: row.id,
+          type: row.type as MemoryEntry["type"],
+          content: row.content,
+          importance: row.importance,
+          status:
+            typeof metadata?.status === "string" ? metadata.status : undefined,
+          totalUses: 0,
+          activeMemoryUses: 0,
+          helpfulUses: 0,
+          pollutingUses: 0,
+          effectivenessRate: 0,
+          pollutionRate: 0,
+          metadata,
+        } satisfies MemoryEffectivenessStats);
+
+      if (row.used_at) {
+        current.totalUses++;
+        if (row.source === "active_memory") current.activeMemoryUses++;
+        const usageMetadata = row.usage_metadata
+          ? (JSON.parse(row.usage_metadata) as Record<string, unknown>)
+          : undefined;
+        const outcome = readMemoryUsageOutcome(usageMetadata);
+        if (outcome === "helpful") current.helpfulUses++;
+        if (outcome === "polluting") current.pollutingUses++;
+        const usedAt = new Date(row.used_at);
+        if (!current.lastUsedAt || usedAt > current.lastUsedAt) {
+          current.lastUsedAt = usedAt;
+        }
+      }
+
+      byMemory.set(row.id, current);
+    }
+
+    const stats = [...byMemory.values()];
+    for (const stat of stats) {
+      stat.effectivenessRate =
+        stat.totalUses > 0 ? roundRatio(stat.helpfulUses / stat.totalUses) : 0;
+      stat.pollutionRate =
+        stat.totalUses > 0
+          ? roundRatio(stat.pollutingUses / stat.totalUses)
+          : 0;
+    }
+    return stats.sort((a, b) => b.pollutionRate - a.pollutionRate);
+  }
+
+  async runMemoryJanitor(
+    options: MemoryJanitorOptions = {},
+  ): Promise<MemoryJanitorResult> {
+    const minUses = options.minUses ?? 2;
+    const pollutionRateThreshold = options.pollutionRateThreshold ?? 0.5;
+    const stats = await this.listMemoryEffectiveness({
+      namespace: options.namespace,
+    });
+    const candidates = stats.filter(
+      (stat) =>
+        stat.status !== "deprecated" &&
+        stat.status !== "superseded" &&
+        stat.totalUses >= minUses &&
+        stat.pollutingUses > stat.helpfulUses &&
+        stat.pollutionRate >= pollutionRateThreshold,
+    );
+
+    if (!options.dryRun && candidates.length > 0) {
+      const updatedAt = new Date().toISOString();
+      const updateMetadata = this.db.prepare(
+        "UPDATE memories SET metadata = ? WHERE id = ?",
+      );
+      const txn = this.db.transaction(() => {
+        for (const candidate of candidates) {
+          updateMetadata.run(
+            JSON.stringify({
+              ...candidate.metadata,
+              status: "deprecated",
+              deprecatedReason: "memory_janitor:pollution",
+              deprecatedAt: updatedAt,
+              janitor: {
+                reason: "pollution",
+                totalUses: candidate.totalUses,
+                helpfulUses: candidate.helpfulUses,
+                pollutingUses: candidate.pollutingUses,
+                pollutionRate: candidate.pollutionRate,
+              },
+            }),
+            candidate.memoryId,
+          );
+        }
+      });
+      txn();
+    }
+
+    return {
+      reviewed: stats.length,
+      deprecated: candidates.length,
+      deprecatedIds: candidates.map((candidate) => candidate.memoryId),
     };
   }
 
@@ -1210,6 +1350,7 @@ export class SQLiteMemoryStore implements MemoryStore {
     decayed: number;
     merged: number;
     pruned: number;
+    janitorDeprecated: number;
   }> {
     const nsFilter = namespace ? "WHERE namespace = ?" : "";
     const nsParams = namespace ? [namespace] : [];
@@ -1358,10 +1499,12 @@ export class SQLiteMemoryStore implements MemoryStore {
       batchFn();
     }
 
+    const janitor = await this.runMemoryJanitor({ namespace });
+
     console.log(
-      `[memory-consolidation] namespace=${namespace || "all"} decayed=${decayed} merged=${merged} pruned=${pruned}`,
+      `[memory-consolidation] namespace=${namespace || "all"} decayed=${decayed} merged=${merged} pruned=${pruned} janitorDeprecated=${janitor.deprecated}`,
     );
-    return { decayed, merged, pruned };
+    return { decayed, merged, pruned, janitorDeprecated: janitor.deprecated };
   }
 
   // ─── Reindex ──────────────────────────────────────────────────
@@ -2587,6 +2730,31 @@ function rowToMemoryEntry(row: MemoryRow): MemoryEntry {
       ? (JSON.parse(row.metadata) as Record<string, unknown>)
       : undefined,
   };
+}
+
+function readMemoryUsageOutcome(
+  metadata: Record<string, unknown> | undefined,
+): "helpful" | "polluting" | undefined {
+  if (!metadata) return undefined;
+  if (metadata.helpful === true || metadata.effective === true) {
+    return "helpful";
+  }
+  if (metadata.polluting === true || metadata.harmful === true) {
+    return "polluting";
+  }
+  const outcome = metadata.outcome;
+  if (typeof outcome !== "string") return undefined;
+  if (["helpful", "effective", "success"].includes(outcome)) {
+    return "helpful";
+  }
+  if (["polluting", "harmful", "wrong", "incorrect"].includes(outcome)) {
+    return "polluting";
+  }
+  return undefined;
+}
+
+function roundRatio(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 function rowToSkillUsageStats(row: SkillUsageRow): SkillUsageStats {

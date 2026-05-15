@@ -641,6 +641,68 @@ describe("Memory 路由", () => {
       merged.target.id,
     );
   });
+
+  it("记忆质量 API 应暴露有效性统计并可触发自动 janitor", async () => {
+    const helpful = await store.add({
+      type: "preference",
+      content: "PPTX 交付必须发送最终 pptx。",
+      importance: 0.9,
+      metadata: { layer: "L2", confidence: 0.95 },
+    });
+    const polluting = await store.add({
+      type: "preference",
+      content: "用户喜欢川菜。",
+      importance: 0.9,
+      metadata: { layer: "L3", confidence: 0.95 },
+    });
+    await store.recordMemoryUsage({
+      memoryId: helpful.id,
+      source: "active_memory",
+      metadata: { outcome: "helpful" },
+    });
+    await store.recordMemoryUsage({
+      memoryId: polluting.id,
+      source: "active_memory",
+      metadata: { outcome: "polluting" },
+    });
+    await store.recordMemoryUsage({
+      memoryId: polluting.id,
+      source: "active_memory",
+      metadata: { outcome: "polluting" },
+    });
+
+    const statsRes = await app.inject({
+      method: "GET",
+      url: "/api/memories/effectiveness?namespace=default",
+    });
+    expect(statsRes.statusCode).toBe(200);
+    expect(statsRes.json()).toContainEqual(
+      expect.objectContaining({
+        memoryId: polluting.id,
+        totalUses: 2,
+        pollutingUses: 2,
+        pollutionRate: 1,
+      }),
+    );
+
+    const janitorRes = await app.inject({
+      method: "POST",
+      url: "/api/memories/janitor",
+      payload: {
+        namespace: "default",
+        minUses: 2,
+        pollutionRateThreshold: 0.5,
+      },
+    });
+    expect(janitorRes.statusCode).toBe(200);
+    expect(janitorRes.json()).toMatchObject({
+      deprecated: 1,
+      deprecatedIds: [polluting.id],
+    });
+    expect((await store.get(polluting.id))?.metadata?.status).toBe(
+      "deprecated",
+    );
+  });
 });
 
 describe("Preview 路由", () => {

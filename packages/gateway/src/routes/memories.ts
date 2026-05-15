@@ -115,6 +115,68 @@ export function registerMemoryRoutes(
     }
   });
 
+  // GET /api/memories/effectiveness - Machine-readable memory quality stats
+  app.get<{ Querystring: { namespace?: string } }>(
+    "/api/memories/effectiveness",
+    async (req, reply) => {
+      try {
+        const store = ctx.memoryStore as {
+          listMemoryEffectiveness?: (options?: {
+            namespace?: string;
+          }) => Promise<unknown>;
+        };
+        if (!store.listMemoryEffectiveness) {
+          return reply
+            .status(501)
+            .send({ error: "Memory effectiveness is not supported" });
+        }
+        const result = await store.listMemoryEffectiveness({
+          namespace: req.query.namespace || undefined,
+        });
+        return reply.send(result);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // POST /api/memories/janitor - Deprecate memories proven harmful by telemetry
+  app.post<{
+    Body: {
+      namespace?: string;
+      minUses?: number;
+      pollutionRateThreshold?: number;
+      dryRun?: boolean;
+    };
+  }>("/api/memories/janitor", async (req, reply) => {
+    try {
+      const store = ctx.memoryStore as {
+        runMemoryJanitor?: (options?: {
+          namespace?: string;
+          minUses?: number;
+          pollutionRateThreshold?: number;
+          dryRun?: boolean;
+        }) => Promise<unknown>;
+      };
+      if (!store.runMemoryJanitor) {
+        return reply
+          .status(501)
+          .send({ error: "Memory janitor is not supported" });
+      }
+      const result = await store.runMemoryJanitor({
+        namespace: req.body?.namespace,
+        minUses: req.body?.minUses,
+        pollutionRateThreshold: req.body?.pollutionRateThreshold,
+        dryRun: req.body?.dryRun,
+      });
+      return reply.send(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.status(500).send({ error: message });
+    }
+  });
+
   // POST /api/memories/consolidate - Decay, dedup, prune memories
   app.post<{ Querystring: { namespace?: string } }>(
     "/api/memories/consolidate",

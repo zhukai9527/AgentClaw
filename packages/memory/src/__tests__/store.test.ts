@@ -270,6 +270,148 @@ describe("SQLiteMemoryStore — 记忆分层与 telemetry", () => {
     expect(updated.embedding).toBeDefined();
     expect(updated.embedding).not.toEqual(beforeEmbedding);
   });
+
+  it("应聚合每条记忆的有效命中率和污染率，给自动治理提供信号", async () => {
+    const helpful = await store.add({
+      type: "preference",
+      content: "PPTX 交付必须发送最终 pptx。",
+      importance: 0.9,
+      metadata: { layer: "L2", confidence: 0.95 },
+    });
+    const polluting = await store.add({
+      type: "preference",
+      content: "用户喜欢川菜。",
+      importance: 0.9,
+      metadata: { layer: "L3", confidence: 0.95 },
+    });
+
+    await store.recordMemoryUsage({
+      memoryId: helpful.id,
+      source: "active_memory",
+      conversationId: "conv-effectiveness",
+      metadata: { outcome: "helpful" },
+    });
+    await store.recordMemoryUsage({
+      memoryId: helpful.id,
+      source: "active_memory",
+      conversationId: "conv-effectiveness",
+      metadata: { outcome: "helpful" },
+    });
+    await store.recordMemoryUsage({
+      memoryId: polluting.id,
+      source: "active_memory",
+      conversationId: "conv-effectiveness",
+      metadata: { outcome: "polluting" },
+    });
+    await store.recordMemoryUsage({
+      memoryId: polluting.id,
+      source: "active_memory",
+      conversationId: "conv-effectiveness",
+      metadata: { outcome: "polluting" },
+    });
+
+    const stats = await store.listMemoryEffectiveness({
+      namespace: "default",
+    });
+
+    expect(stats).toContainEqual(
+      expect.objectContaining({
+        memoryId: helpful.id,
+        totalUses: 2,
+        activeMemoryUses: 2,
+        helpfulUses: 2,
+        pollutingUses: 0,
+        effectivenessRate: 1,
+        pollutionRate: 0,
+      }),
+    );
+    expect(stats).toContainEqual(
+      expect.objectContaining({
+        memoryId: polluting.id,
+        totalUses: 2,
+        activeMemoryUses: 2,
+        helpfulUses: 0,
+        pollutingUses: 2,
+        effectivenessRate: 0,
+        pollutionRate: 1,
+      }),
+    );
+  });
+
+  it("memory janitor 应自动废弃高污染记忆而不是等待人手调参", async () => {
+    const helpful = await store.add({
+      type: "preference",
+      content: "PPTX 交付必须发送最终 pptx。",
+      importance: 0.9,
+      metadata: { layer: "L2", confidence: 0.95 },
+    });
+    const polluting = await store.add({
+      type: "preference",
+      content: "用户喜欢川菜。",
+      importance: 0.9,
+      metadata: { layer: "L3", confidence: 0.95 },
+    });
+
+    await store.recordMemoryUsage({
+      memoryId: helpful.id,
+      source: "active_memory",
+      metadata: { outcome: "helpful" },
+    });
+    await store.recordMemoryUsage({
+      memoryId: polluting.id,
+      source: "active_memory",
+      metadata: { outcome: "polluting" },
+    });
+    await store.recordMemoryUsage({
+      memoryId: polluting.id,
+      source: "active_memory",
+      metadata: { outcome: "polluting" },
+    });
+
+    const result = await store.runMemoryJanitor({
+      namespace: "default",
+      minUses: 2,
+      pollutionRateThreshold: 0.5,
+    });
+
+    expect(result).toMatchObject({ deprecated: 1 });
+    expect((await store.get(helpful.id))?.metadata?.status).toBeUndefined();
+    expect((await store.get(polluting.id))?.metadata).toMatchObject({
+      status: "deprecated",
+      deprecatedReason: "memory_janitor:pollution",
+    });
+    const results = await store.search({ query: "川菜", limit: 10 });
+    expect(results.map((result) => result.entry.id)).not.toContain(
+      polluting.id,
+    );
+  });
+
+  it("每日 consolidate 应包含 memory janitor，自动治理已证明污染的记忆", async () => {
+    const polluting = await store.add({
+      type: "preference",
+      content: "用户喜欢川菜。",
+      importance: 0.9,
+      metadata: { layer: "L3", confidence: 0.95 },
+    });
+    await store.recordMemoryUsage({
+      memoryId: polluting.id,
+      source: "active_memory",
+      metadata: { outcome: "polluting" },
+    });
+    await store.recordMemoryUsage({
+      memoryId: polluting.id,
+      source: "active_memory",
+      metadata: { outcome: "polluting" },
+    });
+
+    const result = await store.consolidate("default");
+
+    expect(result.janitorDeprecated).toBe(1);
+    expect((await store.get(polluting.id))?.metadata).toMatchObject({
+      status: "deprecated",
+      deprecatedReason: "memory_janitor:pollution",
+    });
+  });
 });
 
 describe("SQLiteMemoryStore — 对话轮次", () => {

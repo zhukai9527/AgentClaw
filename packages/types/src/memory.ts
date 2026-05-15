@@ -378,6 +378,35 @@ export interface MemoryUsageRecord extends Omit<MemoryUsageEvent, "usedAt"> {
   usedAt: Date;
 }
 
+export interface MemoryEffectivenessStats {
+  memoryId: string;
+  type: MemoryType;
+  content: string;
+  importance: number;
+  status?: string;
+  totalUses: number;
+  activeMemoryUses: number;
+  helpfulUses: number;
+  pollutingUses: number;
+  effectivenessRate: number;
+  pollutionRate: number;
+  lastUsedAt?: Date;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MemoryJanitorOptions {
+  namespace?: string;
+  minUses?: number;
+  pollutionRateThreshold?: number;
+  dryRun?: boolean;
+}
+
+export interface MemoryJanitorResult {
+  reviewed: number;
+  deprecated: number;
+  deprecatedIds: string[];
+}
+
 /** Memory store interface */
 export interface MemoryStore {
   /** Store a new memory (namespace for per-agent isolation, defaults to "default") */
@@ -571,6 +600,14 @@ export interface MemoryStore {
 
   /** Record memory usage telemetry for injected/recalled/drilled-down memories. */
   recordMemoryUsage?(event: MemoryUsageEvent): Promise<MemoryUsageRecord>;
+
+  /** Aggregate per-memory effectiveness/pollution telemetry. */
+  listMemoryEffectiveness?(
+    options?: { namespace?: string },
+  ): Promise<MemoryEffectivenessStats[]>;
+
+  /** Automatically deprecate memories proven harmful by usage telemetry. */
+  runMemoryJanitor?(options?: MemoryJanitorOptions): Promise<MemoryJanitorResult>;
 }
 
 /** A single conversation turn stored in memory */
