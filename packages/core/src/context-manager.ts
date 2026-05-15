@@ -366,7 +366,7 @@ export class SimpleContextManager implements ContextManager {
         const lines: string[] = [];
         let totalChars = 0;
         for (const m of allMemories) {
-          const line = formatMemoryForPrompt(m);
+          const line = formatMemoryForPrompt(m, searchQuery);
           if (!line) continue;
           if (totalChars + line.length > 2000) break;
           lines.push(line);
@@ -1296,10 +1296,18 @@ ${transcript}`;
   }
 }
 
-function formatMemoryForPrompt(memory: MemorySearchResult): string | null {
+function formatMemoryForPrompt(
+  memory: MemorySearchResult,
+  currentInput = "",
+): string | null {
   const metadata = memory.entry.metadata;
   const status = readStringMetadata(metadata, "status", "");
   if (status === "deprecated" || status === "superseded") return null;
+  const content = adaptMemoryContentForPrompt(
+    memory.entry.content,
+    memory.entry.type,
+    currentInput,
+  );
   if (isLayer(metadata, "L3")) {
     const confidence = readNumericMetadata(metadata, "confidence");
     if (confidence < 0.75) return null;
@@ -1307,7 +1315,7 @@ function formatMemoryForPrompt(memory: MemorySearchResult): string | null {
     const ids = readStringArrayMetadata(metadata, "sourceMemoryIds");
     if (ids.length > 0) tags.push(`evidence:${ids.slice(0, 3).join(",")}`);
     tags.push(`conf:${formatConfidence(confidence)}`);
-    return `- [profile] ${memory.entry.content} (${tags.join(" ")})`;
+    return `- [profile] ${content} (${tags.join(" ")})`;
   }
   if (isLayer(metadata, "L2")) {
     const confidence = readNumericMetadata(metadata, "confidence");
@@ -1317,7 +1325,7 @@ function formatMemoryForPrompt(memory: MemorySearchResult): string | null {
     const tags = [`layer:L2`, `scene:${sceneName}`];
     if (ids.length > 0) tags.push(`evidence:${ids.slice(0, 3).join(",")}`);
     tags.push(`conf:${formatConfidence(confidence)}`);
-    return `- [scene] ${memory.entry.content} (${tags.join(" ")})`;
+    return `- [scene] ${content} (${tags.join(" ")})`;
   }
   const isL1 = metadata?.layer === "L1";
   if (isL1) {
@@ -1329,7 +1337,7 @@ function formatMemoryForPrompt(memory: MemorySearchResult): string | null {
     const conversationId = readStringMetadata(metadata, "conversationId", "");
     if (conversationId && !traceId) tags.push(`conv:${conversationId}`);
     tags.push(`conf:${formatConfidence(confidence)}`);
-    return `- [${memory.entry.type}] ${memory.entry.content} (${tags.join(" ")})`;
+    return `- [${memory.entry.type}] ${content} (${tags.join(" ")})`;
   }
 
   if (
@@ -1339,7 +1347,38 @@ function formatMemoryForPrompt(memory: MemorySearchResult): string | null {
   ) {
     return null;
   }
-  return `- [${memory.entry.type}] ${memory.entry.content} (src:legacy)`;
+  return `- [${memory.entry.type}] ${content} (src:legacy)`;
+}
+
+function adaptMemoryContentForPrompt(
+  content: string,
+  type: MemoryType,
+  currentInput: string,
+): string {
+  if (
+    type !== "preference" ||
+    !isPptxInput(currentInput) ||
+    !isPptxVisualStyleMemory(content) ||
+    content.includes("可选参考")
+  ) {
+    return content;
+  }
+  return `可选视觉参考，必须服从本次PPT用途与用户明确要求，不能作为默认强制主题：${content}`;
+}
+
+function isPptxInput(input: string): boolean {
+  return /\b(pptx|ppt|powerpoint)\b|PPT|幻灯片|演示文稿|slide deck|presentation deck/i.test(
+    input,
+  );
+}
+
+function isPptxVisualStyleMemory(content: string): boolean {
+  return (
+    /PPTX?|演示稿|幻灯片|presentation|slide/i.test(content) &&
+    /风格|背景|深色|暗色|白底|配色|颜色|青绿|青绿色|teal|cyan|渐变|大标题|少文字/i.test(
+      content,
+    )
+  );
 }
 
 function isLayer(

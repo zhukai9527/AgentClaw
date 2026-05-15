@@ -678,6 +678,111 @@ describe("SimpleAgentLoop", () => {
       expect(bashTool.execute).not.toHaveBeenCalled();
     });
 
+    it("拉赞助 PPT 默认应使用商业提案风格而不是套用暗色偏好", async () => {
+      const capturedMessages: Message[][] = [];
+      const styleProvider: LLMProvider = {
+        name: "style-provider",
+        models: [
+          {
+            id: "style-model",
+            provider: "style",
+            name: "Style",
+            tier: "fast",
+            contextWindow: 4096,
+            supportsTools: true,
+            supportsStreaming: true,
+          },
+        ] as ModelInfo[],
+        chat: vi.fn(),
+        stream: vi.fn(async function* (request: LLMRequest) {
+          capturedMessages.push(request.messages);
+          yield { type: "text", text: "done" } as LLMStreamChunk;
+          yield {
+            type: "done",
+            usage: { tokensIn: 5, tokensOut: 2 },
+            model: "style-model",
+          } as LLMStreamChunk;
+        }) as unknown as LLMProvider["stream"],
+      };
+      const loop = new SimpleAgentLoop({
+        provider: styleProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          createMockTool("bash"),
+          createMockTool("claude_code"),
+          createMockTool("file_write"),
+          createMockTool("send_file"),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 1 },
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "生成本活动的PPT，拉赞助用的，目标清晰。",
+          "conv-pptx-sponsor-style",
+        ),
+      );
+
+      const promptText = JSON.stringify(capturedMessages[0]);
+      expect(promptText).toContain("拉赞助/招商/商业合作类 PPTX");
+      expect(promptText).toContain("默认使用明亮、干净、商业提案风");
+      expect(promptText).toContain("不要因为长期记忆里的暗色偏好就全 deck 使用暗色");
+    });
+
+    it("只询问 PPT 视觉风格时不触发 PPTX 生成链路", async () => {
+      const capturedMessages: Message[][] = [];
+      const styleProvider: LLMProvider = {
+        name: "style-provider",
+        models: [
+          {
+            id: "style-model",
+            provider: "style",
+            name: "Style",
+            tier: "fast",
+            contextWindow: 4096,
+            supportsTools: true,
+            supportsStreaming: true,
+          },
+        ] as ModelInfo[],
+        chat: vi.fn(),
+        stream: vi.fn(async function* (request: LLMRequest) {
+          capturedMessages.push(request.messages);
+          yield { type: "text", text: "done" } as LLMStreamChunk;
+          yield {
+            type: "done",
+            usage: { tokensIn: 5, tokensOut: 2 },
+            model: "style-model",
+          } as LLMStreamChunk;
+        }) as unknown as LLMProvider["stream"],
+      };
+      const loop = new SimpleAgentLoop({
+        provider: styleProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          createMockTool("bash"),
+          createMockTool("claude_code"),
+          createMockTool("file_write"),
+          createMockTool("send_file"),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 1 },
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "生成本活动的PPT，拉赞助用的。只回答默认视觉风格，不要实际生成文件。",
+          "conv-pptx-style-only",
+        ),
+      );
+
+      const promptText = JSON.stringify(capturedMessages[0]);
+      expect(promptText).not.toContain("[PPTX视觉决策]");
+      expect(promptText).not.toContain("当前是普通 PPTX 生成任务");
+    });
+
     it("明确要求基于仓库研究的 PPTX 任务保留项目读取工具", async () => {
       const captured: string[][] = [];
       const provider = createToolCaptureProvider(captured);

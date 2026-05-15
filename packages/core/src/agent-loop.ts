@@ -800,6 +800,18 @@ function shouldAllowProjectResearchForPptx(inputText: string): boolean {
   );
 }
 
+function isCommercialPptxTask(inputText: string): boolean {
+  return /拉赞助|赞助|招商|商业合作|合作方案|商务|提案|proposal|sponsor|sponsorship|pitch deck|sales deck/i.test(
+    inputText,
+  );
+}
+
+function isPptxNonGenerationRequest(inputText: string): boolean {
+  return /不用生成|先不用生成|不要生成|别生成|无需生成|不用做|先别做|不实际生成|不要实际生成|无需实际生成|不要创建文件|不用创建文件|不创建文件|不要实际创建|只回答|只说明|只说|only answer|do not generate|don't generate|no file/i.test(
+    inputText,
+  );
+}
+
 function currentLocalDateString(date = new Date()): string {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const parts = new Intl.DateTimeFormat("zh-CN", {
@@ -1311,11 +1323,17 @@ export class SimpleAgentLoop implements AgentLoop {
       /生成|制作|做成|创建|导出|发送|发给|直接|produce|create|make|build|export|send/i.test(
         inputTextForHeuristics,
       ) &&
-      !/不用生成|先不用生成|不要生成|别生成|无需生成|不用做|先别做/i.test(
-        inputTextForHeuristics,
-      );
+      !isPptxNonGenerationRequest(inputTextForHeuristics);
     if (isPptxGenerationTask) {
       ensureSessionTmpDir();
+      runtimeHints.push(
+        "[PPTX视觉决策]必须先根据本次用途选择视觉风格。长期记忆里的视觉偏好只作为可选参考，不是默认强制主题；用户没有明确要求暗色时，不要因为记忆里的暗色偏好就全 deck 使用暗色。",
+      );
+      if (isCommercialPptxTask(inputTextForHeuristics)) {
+        runtimeHints.push(
+          "[PPTX商业提案风格]当前是拉赞助/招商/商业合作类 PPTX。默认使用明亮、干净、商业提案风：白底或浅灰底、品牌色点缀、少量深色封面/章节页可以，但正文页应以高可读、可信、专业为主。不要因为长期记忆里的暗色偏好就全 deck 使用暗色。",
+        );
+      }
     }
     if (isNewsBriefTask) {
       runtimeHints.push(

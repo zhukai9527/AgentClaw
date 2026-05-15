@@ -57,12 +57,41 @@ describe("SimpleContextManager — controlled L1 memory recall", () => {
 
     const context = await manager.buildContext("conv-context", "做一个 PPTX");
 
+    expect(context.systemPrompt).toContain(
+      "可选视觉参考，必须服从本次PPT用途与用户明确要求，不能作为默认强制主题",
+    );
     expect(context.systemPrompt).toContain("演示稿偏好：深色背景、青绿色强调色。");
     expect(context.systemPrompt).toContain("src:remember_tool");
     expect(context.systemPrompt).toContain("trace:trace-high");
     expect(context.systemPrompt).toContain("conf:0.91");
     expect(context.systemPrompt).not.toContain("低置信偏好不应该进入 prompt");
     expect(context.systemPrompt).not.toContain("trace-low");
+  });
+
+  it("PPTX 视觉偏好记忆只能作为可选参考，不能强制默认暗色", async () => {
+    const manager = new SimpleContextManager({
+      systemPrompt: "system",
+      memoryStore: createMemoryStore([
+        memory("m-dark", "preference", "演示稿风格偏好：深色背景、青绿色强调色、每页少文字大标题", {
+          layer: "L1",
+          source: "remember_tool",
+          traceId: "trace-dark",
+          confidence: 0.93,
+        }),
+      ]),
+    });
+
+    const context = await manager.buildContext(
+      "conv-sponsor-pptx",
+      "生成本活动的PPT，拉赞助用的，目标清晰。",
+    );
+
+    expect(context.systemPrompt).toContain(
+      "可选视觉参考，必须服从本次PPT用途与用户明确要求，不能作为默认强制主题",
+    );
+    expect(context.systemPrompt).not.toContain(
+      "- [preference] 演示稿风格偏好：深色背景、青绿色强调色、每页少文字大标题",
+    );
   });
 
   it("优先注入 L3/L2 分层记忆，跳过废弃记忆，并记录注入 telemetry", async () => {
