@@ -3191,7 +3191,15 @@ export class SimpleAgentLoop implements AgentLoop {
           );
         const todoComplete =
           todoItems.length === 0 || todoAutoIndex >= todoItems.length;
-        if (allToolsAreAutoSend && iterationErrorCount === 0 && todoComplete) {
+        const pptxDeliverySatisfied =
+          !isPptxGenerationTask ||
+          allSentFiles.some((f) => /\.pptx$/i.test(f.filename));
+        if (
+          allToolsAreAutoSend &&
+          iterationErrorCount === 0 &&
+          todoComplete &&
+          pptxDeliverySatisfied
+        ) {
           const durationMs = Date.now() - startTime;
 
           // Build response from sent files

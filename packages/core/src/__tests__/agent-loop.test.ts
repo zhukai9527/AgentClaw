@@ -1224,6 +1224,62 @@ describe("SimpleAgentLoop", () => {
       );
     });
 
+    it("PPTX 任务只发送 PDF 预览时不得自动完成，必须继续发送已验证 PPTX", async () => {
+      const convId = "conv-pptx-preview-not-final";
+      const workDir = resolve(process.cwd(), "data", "tmp", convId).replace(
+        /\\/g,
+        "/",
+      );
+      const deckPath = `${workDir}/output.pptx`;
+      const previewPath = `${workDir}/previews/output.pdf`;
+      const bashTool = createMockTool("bash", {
+        content: JSON.stringify({ ok: true, pptx: deckPath }),
+      });
+      const sentPaths: string[] = [];
+      const sendFileTool: Tool = {
+        ...createMockTool("send_file"),
+        execute: vi.fn(async (input, context) => {
+          const filePath = String(input.path);
+          const filename = filePath.split(/[\\/]/).pop() || "file";
+          sentPaths.push(filePath);
+          context?.sentFiles?.push({ url: `/files/${filename}`, filename });
+          return { content: `File sent: ${filename}`, autoComplete: true };
+        }),
+      };
+      const emptyFinal: LLMStreamChunk[] = [
+        {
+          type: "done",
+          usage: { tokensIn: 20, tokensOut: 1 },
+          model: "mock-model",
+          stopReason: "end_turn",
+        },
+      ];
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-skill", "use_skill", { name: "pptx" }),
+        createToolCallChunks("tc-preview", "send_file", { path: previewPath }),
+        emptyFinal,
+        createToolCallChunks("tc-verify", "bash", {
+          command: `python D:/mycode/agentclaw/skills/pptx/scripts/verify_pptx.py "${deckPath}" --json`,
+        }),
+        createToolCallChunks("tc-send", "send_file", { path: deckPath }),
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          bashTool,
+          sendFileTool,
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 6 },
+      });
+
+      await collectEvents(loop.runStream("生成一个 PPTX 并发送", convId, {}));
+
+      expect(sentPaths).toEqual([previewPath, deckPath]);
+    });
+
     it("PPTX 任务不得发送会话目录外的已验证 deck", async () => {
       const deckPath = "C:/Users/voroj/Desktop/deck.pptx";
       const bashTool = createMockTool("bash", {
