@@ -548,6 +548,99 @@ describe("Memory 路由", () => {
       body.target.id,
     );
   });
+
+  it("记忆治理真实闭环：编辑重算 embedding、废弃隐藏、合并隐藏来源并保留 canonical target", async () => {
+    const testRun = "memory-governance-scenario-replay";
+    const editable = await store.add({
+      type: "preference",
+      content: `LIVE ${testRun}: 旧内容`,
+      importance: 0.7,
+      metadata: { testRun, status: "active", tag: "old" },
+    });
+    const beforeEmbedding = (await store.get(editable.id))?.embedding?.join(",");
+
+    const patchRes = await app.inject({
+      method: "PATCH",
+      url: `/api/memories/${editable.id}`,
+      payload: {
+        content: `LIVE ${testRun}: 新内容，需要重新生成 embedding`,
+        importance: 0.91,
+        metadata: { tag: "new", reviewer: "scenario-replay" },
+      },
+    });
+    expect(patchRes.statusCode).toBe(200);
+    const patched = patchRes.json();
+    const afterPatch = await store.get(editable.id);
+    expect(patched.content).toContain("新内容");
+    expect(patched.importance).toBe(0.91);
+    expect(patched.metadata).toMatchObject({
+      testRun,
+      tag: "new",
+      reviewer: "scenario-replay",
+    });
+    expect(afterPatch?.embedding?.join(",")).toBeTruthy();
+    expect(afterPatch?.embedding?.join(",")).not.toBe(beforeEmbedding);
+
+    const deprecated = await store.add({
+      type: "preference",
+      content: `LIVE ${testRun}: 待废弃记忆`,
+      importance: 0.7,
+      metadata: { testRun, status: "active" },
+    });
+    const deprecateRes = await app.inject({
+      method: "POST",
+      url: `/api/memories/${deprecated.id}/deprecate`,
+      payload: { reason: "scenario replay stale memory" },
+    });
+    expect(deprecateRes.statusCode).toBe(200);
+    expect(deprecateRes.json().metadata).toMatchObject({
+      status: "deprecated",
+      deprecatedReason: "scenario replay stale memory",
+    });
+    expect(
+      (await store.search({ query: testRun, limit: 20 })).map(
+        (result) => result.entry.id,
+      ),
+    ).not.toContain(deprecated.id);
+
+    const sourceA = await store.add({
+      type: "preference",
+      content: `LIVE ${testRun}: merge source A`,
+      importance: 0.7,
+      metadata: { testRun, status: "active" },
+    });
+    const sourceB = await store.add({
+      type: "preference",
+      content: `LIVE ${testRun}: merge source B`,
+      importance: 0.7,
+      metadata: { testRun, status: "active" },
+    });
+    const mergeRes = await app.inject({
+      method: "POST",
+      url: "/api/memories/merge",
+      payload: {
+        sourceIds: [sourceA.id, sourceB.id],
+        content: `LIVE ${testRun}: merged target`,
+        type: "preference",
+        importance: 0.93,
+      },
+    });
+    expect(mergeRes.statusCode).toBe(200);
+    const merged = mergeRes.json();
+    const visibleIds = (
+      await store.search({ query: testRun, limit: 20 })
+    ).map((result) => result.entry.id);
+    expect(visibleIds).toContain(merged.target.id);
+    expect(visibleIds).not.toContain(sourceA.id);
+    expect(visibleIds).not.toContain(sourceB.id);
+    expect(merged.deprecatedIds).toEqual([sourceA.id, sourceB.id]);
+    expect((await store.get(sourceA.id))?.metadata?.status).toBe(
+      "superseded",
+    );
+    expect((await store.get(sourceB.id))?.metadata?.supersededBy).toBe(
+      merged.target.id,
+    );
+  });
 });
 
 describe("Preview 路由", () => {

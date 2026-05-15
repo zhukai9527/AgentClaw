@@ -24,6 +24,7 @@
     "lru-cache": "^11.2.7"
   },
   "devDependencies": {
+    "@agentclaw/memory": "workspace:*",
     "tsup": "^8.4.0",
     "typescript": "^5.7.0"
   }

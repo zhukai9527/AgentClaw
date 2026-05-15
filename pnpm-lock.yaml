@@ -93,6 +93,9 @@ importers:
         specifier: ^11.2.7
         version: 11.2.7
     devDependencies:
+      '@agentclaw/memory':
+        specifier: workspace:*
+        version: link:../memory
       tsup:
         specifier: ^8.4.0
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.12)(tsx@4.21.0)(typescript@5.9.3)
