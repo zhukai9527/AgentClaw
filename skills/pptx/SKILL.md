@@ -19,6 +19,12 @@ Build the deck, verify the saved `.pptx`, then deliver it. Keep the interaction 
 
 For substantial decks, also save `brand-spec.md` beside the output with logo/image paths, color tokens, fonts, and no-go style rules.
 
+## Dependency discipline
+
+- Do not run `pip install`, `python -m pip install`, `npm install`, or other package installation during a deck task.
+- Use the existing environment. If you need to check whether `python-pptx` is available, run a fast import check such as `python -c "import pptx"`.
+- If a required dependency is missing, stop and report the missing dependency instead of installing it inside the user task.
+
 ## Short prompt in an existing session
 
 When the user says only `生成 ppt`, `做成PPT`, `导出pptx`, or similar in an existing session:

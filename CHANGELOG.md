@@ -7,6 +7,7 @@
 - **PPTX 生成收尾跑偏**：普通 PPTX 任务重新暴露结构化 `claude_code` 工具，并禁止通过 `bash` 直接运行 Claude Code，避免模型绕路调用不存在的 `./tools/claude-code`、搜索验证脚本或在 deck 已生成后因 bash 限流撞到 `max_iterations_reached`。
 - **PPTX 暗色偏好污染**：PPTX 视觉风格记忆现在只作为可选参考，不能覆盖本次用途；拉赞助/招商/商业合作类 PPTX 默认注入明亮、干净、商业提案风规则，避免长期记忆把所有 deck 都带成暗色。
 - **PPTX 预览误当交付**：PPTX 任务只发送 PDF/PNG 预览时不再触发自动完成，必须继续到已验证 `.pptx` 被发送，避免“生成 ppt”最终只收到 PDF 预览。
+- **PPTX 依赖安装和自造预览绕路**：PPTX skill 明确禁止任务内 `pip install`，agent-loop 会硬化 `claude_code` 委托提示；生成 `.pptx` 候选文件后，非官方 `verify_pptx.py --json` 的自定义 Bash 检查/LibreOffice 预览会被跳过，避免卡在依赖安装、手写预览和最终不发送 `.pptx`。
 
 ## [1.5.27] - 2026-05-15
 

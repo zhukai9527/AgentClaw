@@ -812,6 +812,46 @@ function isPptxNonGenerationRequest(inputText: string): boolean {
   );
 }
 
+function isOfficialPptxVerifierCommand(command: string): boolean {
+  return /verify_pptx\.py/i.test(command) && /(^|\s)--json(\s|$)/.test(command);
+}
+
+function hardenPptxClaudeCodeInput(
+  input: Record<string, unknown>,
+  workDir?: string,
+  skillsDir?: string,
+): Record<string, unknown> {
+  const prompt = typeof input.prompt === "string" ? input.prompt : "";
+  if (!prompt || prompt.includes("[PPTX dependency discipline]")) {
+    return input;
+  }
+  const verifierPath = resolveBundledPptxVerifierPath(skillsDir).replace(
+    /\\/g,
+    "/",
+  );
+  const sanitizedPrompt = prompt
+    .replace(
+      /^\s*[-*]?\s*Install\s+python-pptx\s+first(?:\s+(?:if\s+needed|with))?:.*$/gim,
+      "",
+    )
+    .replace(
+      /`?pip\s+install\s+[^`\n]*`?/gi,
+      "Use existing Python packages; do not install dependencies.",
+    );
+  const prefix =
+    "[PPTX dependency discipline]\n" +
+    "- Do not run `pip install`, `python -m pip install`, npm install, or any package installation.\n" +
+    "- If you need to check dependencies, use a fast import check such as `python -c \"import pptx\"`; if missing, report the missing package instead of installing it.\n" +
+    "- Generate the deck in the requested work directory only, preferably as `output.pptx`.\n" +
+    "- Do not render PDF/PNG previews or run LibreOffice manually. The parent runtime will run the official verifier next.\n" +
+    `- Official verifier path for the parent runtime: ${verifierPath}\n` +
+    `- Work directory: ${workDir?.replace(/\\/g, "/") ?? "{WORKDIR}"}`;
+  return {
+    ...input,
+    prompt: `${prefix}\n\n${sanitizedPrompt.trim()}`,
+  };
+}
+
 function currentLocalDateString(date = new Date()): string {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const parts = new Intl.DateTimeFormat("zh-CN", {
@@ -1462,6 +1502,7 @@ export class SimpleAgentLoop implements AgentLoop {
     let wechatPublishSkillLoaded = false;
     let pptxSkillLoaded = false;
     const verifiedPptxPaths = new Set<string>();
+    const unverifiedPptxCandidates = new Set<string>();
     let forceSynthesisOnly = false;
     let invalidFinalMarkupRetries = 0;
     let pptxMissingDeliveryRetries = 0;
@@ -2179,6 +2220,18 @@ export class SimpleAgentLoop implements AgentLoop {
             }
           }
 
+          if (
+            !blockedByPolicy &&
+            effectiveToolName === "claude_code" &&
+            (pptxSkillLoaded || isPptxGenerationTask)
+          ) {
+            effectiveToolInput = hardenPptxClaudeCodeInput(
+              effectiveToolInput,
+              context?.workDir,
+              context?.skillsDir,
+            );
+          }
+
           if (!blockedByPolicy && taskToolProfile.kind === "wechat_publish") {
             if (effectiveToolName === "use_skill" && wechatPublishSkillLoaded) {
               result = {
@@ -2317,6 +2370,31 @@ export class SimpleAgentLoop implements AgentLoop {
                 isError: true,
               };
               blockedByPolicy = true;
+            } else if (
+              /(?:^|\s)(?:python\s+-m\s+pip|pip)\s+install\b/i.test(command)
+            ) {
+              result = {
+                content:
+                  "Skipped for PPTX tasks: do not install Python packages during deck generation. Use the existing environment and a fast import check such as `python -c \"import pptx\"`; if a dependency is missing, report it instead of installing.",
+                isError: false,
+              };
+              blockedByPolicy = true;
+            } else if (
+              Array.from(unverifiedPptxCandidates).some(
+                (candidate) => !verifiedPptxPaths.has(candidate),
+              ) &&
+              !isOfficialPptxVerifierCommand(command)
+            ) {
+              const verifierPath = resolveBundledPptxVerifierPath(
+                context?.skillsDir,
+              ).replace(/\\/g, "/");
+              result = {
+                content:
+                  "Skipped for PPTX tasks: a .pptx candidate already exists. Do not run custom inspection, LibreOffice conversion, PDF/PNG preview rendering, or dependency installation before verification. " +
+                  `Run the official verifier with --json next, e.g. \`python "${verifierPath}" "${context?.workDir ?? "."}/output.pptx" --out-dir "${context?.workDir ?? "."}/previews" --require-text --json\`; then send_file the verified .pptx.`,
+                isError: false,
+              };
+              blockedByPolicy = true;
             }
           }
 
@@ -2358,9 +2436,12 @@ export class SimpleAgentLoop implements AgentLoop {
                   skillsDir: context.skillsDir,
                 });
                 for (const pptxPath of verification.verifiedPaths) {
-                  verifiedPptxPaths.add(
-                    normalizeComparablePath(pptxPath, context.workDir),
+                  const normalizedVerifiedPath = normalizeComparablePath(
+                    pptxPath,
+                    context.workDir,
                   );
+                  verifiedPptxPaths.add(normalizedVerifiedPath);
+                  unverifiedPptxCandidates.delete(normalizedVerifiedPath);
                 }
                 if (!verification.ok) {
                   result = {
@@ -2704,6 +2785,7 @@ export class SimpleAgentLoop implements AgentLoop {
               );
               if (normalized) {
                 verifiedPptxPaths.add(normalized);
+                unverifiedPptxCandidates.delete(normalized);
                 runtimeHints.push(
                   `<pptx_verified>${pptxPath.replace(/\\/g, "/")}</pptx_verified>`,
                 );
@@ -2711,7 +2793,9 @@ export class SimpleAgentLoop implements AgentLoop {
             }
             if (
               (pptxSkillLoaded || isPptxGenerationTask) &&
-              effectiveToolName !== "send_file"
+              ["bash", "claude_code", "file_write"].includes(
+                effectiveToolName,
+              )
             ) {
               for (const pptxPath of extractPptxPathMentions(
                 String(result.content ?? ""),
@@ -2721,6 +2805,7 @@ export class SimpleAgentLoop implements AgentLoop {
                   context?.workDir,
                 );
                 if (normalized && !verifiedPptxPaths.has(normalized)) {
+                  unverifiedPptxCandidates.add(normalized);
                   const verifierPath = resolveBundledPptxVerifierPath(
                     context?.skillsDir,
                   ).replace(/\\/g, "/");
@@ -2790,6 +2875,16 @@ export class SimpleAgentLoop implements AgentLoop {
 
           // Emit tool_call events for all tools in this batch
           for (const tc of batch.calls) {
+            if (
+              tc.name === "claude_code" &&
+              (pptxSkillLoaded || isPptxGenerationTask)
+            ) {
+              tc.input = hardenPptxClaudeCodeInput(
+                tc.input,
+                context?.workDir,
+                context?.skillsDir,
+              );
+            }
             const eventData: Record<string, unknown> = {
               name: tc.name,
               input: tc.input,

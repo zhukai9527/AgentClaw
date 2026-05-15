@@ -678,6 +678,154 @@ describe("SimpleAgentLoop", () => {
       expect(bashTool.execute).not.toHaveBeenCalled();
     });
 
+    it("PPTX 委托给 claude_code 时应禁止临时 pip install", async () => {
+      const claudeCodeTool = createMockTool("claude_code", {
+        content: "created output.pptx",
+      });
+      const loop = new SimpleAgentLoop({
+        provider: createMockProvider([
+          createToolCallChunks("tc-skill", "use_skill", { name: "pptx" }),
+          createToolCallChunks("tc-claude", "claude_code", {
+            cwd: "D:/mycode/agentclaw/data/tmp/conv-pptx-no-pip",
+            prompt:
+              "Create a deck.\nInstall python-pptx first with: pip install python-pptx Pillow\nSave output.pptx.",
+          }),
+          finalChunks,
+        ]),
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          claudeCodeTool,
+          createMockTool("bash"),
+          createMockTool("send_file"),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("生成一个优质培训 PPT", "conv-pptx-no-pip", {}),
+      );
+
+      const executedPrompt = String(
+        (claudeCodeTool.execute as ReturnType<typeof vi.fn>).mock.calls[0][0]
+          .prompt,
+      );
+      expect(executedPrompt).toContain("[PPTX dependency discipline]");
+      expect(executedPrompt).toContain("Do not run `pip install`");
+      expect(executedPrompt).not.toContain("Install python-pptx first");
+      expect(executedPrompt).not.toContain("pip install python-pptx");
+      const claudeCodeEvent = events.find(
+        (event) =>
+          event.type === "tool_call" &&
+          (event.data as { name?: string }).name === "claude_code",
+      );
+      const tracedPrompt = String(
+        (claudeCodeEvent?.data as { input?: { prompt?: string } }).input
+          ?.prompt ?? "",
+      );
+      expect(tracedPrompt).toContain("[PPTX dependency discipline]");
+      expect(tracedPrompt).not.toContain("pip install python-pptx");
+    });
+
+    it("PPTX skill 文档中的示例路径不应被当成已生成候选文件", async () => {
+      const bashTool = createMockTool("bash", { content: "ok" });
+      const loop = new SimpleAgentLoop({
+        provider: createMockProvider([
+          createToolCallChunks("tc-skill", "use_skill", { name: "pptx" }),
+          createToolCallChunks("tc-import-check", "bash", {
+            command: 'python -c "import pptx; print(\'ok\')"',
+          }),
+          finalChunks,
+        ]),
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill", {
+            content:
+              "Run verifier on D:/mycode/agentclaw/data/tmp/conv/output.pptx after generation.",
+          }),
+          bashTool,
+          createMockTool("send_file"),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      await collectEvents(
+        loop.runStream("生成一个优质培训 PPT", "conv-pptx-skill-doc-path", {}),
+      );
+
+      expect(bashTool.execute).toHaveBeenCalledWith(
+        { command: 'python -c "import pptx; print(\'ok\')"' },
+        expect.anything(),
+      );
+    });
+
+    it("PPTX 候选文件出现后应拦截自定义预览 Bash，强制先跑官方 verifier", async () => {
+      const convId = "conv-pptx-block-custom-preview";
+      const workDir = resolve(process.cwd(), "data", "tmp", convId).replace(
+        /\\/g,
+        "/",
+      );
+      const deckPath = `${workDir}/output.pptx`;
+      const claudeCodeTool = createMockTool("claude_code", {
+        content: `Generated deck: ${deckPath}`,
+      });
+      const bashTool = createMockTool("bash", {
+        content: JSON.stringify({ ok: true, pptx: deckPath }),
+      });
+      const sendFileTool = createMockTool("send_file", {
+        content: "File sent",
+        autoComplete: true,
+      });
+      const loop = new SimpleAgentLoop({
+        provider: createMockProvider([
+          createToolCallChunks("tc-skill", "use_skill", { name: "pptx" }),
+          createToolCallChunks("tc-claude", "claude_code", {
+            cwd: workDir,
+            prompt: "Create output.pptx.",
+          }),
+          createToolCallChunks("tc-custom-preview", "bash", {
+            command: `cd "${workDir}" && python -c "from pptx import Presentation; Presentation('output.pptx')"`,
+          }),
+          createToolCallChunks("tc-verify", "bash", {
+            command: `python D:/mycode/agentclaw/skills/pptx/scripts/verify_pptx.py "${deckPath}" --json`,
+          }),
+          createToolCallChunks("tc-send", "send_file", { path: deckPath }),
+        ]),
+        toolRegistry: createMockToolRegistry([
+          createMockTool("use_skill"),
+          claudeCodeTool,
+          bashTool,
+          sendFileTool,
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("生成一个优质培训 PPT", convId, {}),
+      );
+      const blockedCustomPreview = events
+        .filter((event) => event.type === "tool_result")
+        .map((event) => (event.data as { result: ToolResult }).result.content)
+        .find((content) => content.includes("a .pptx candidate already exists"));
+
+      expect(blockedCustomPreview).toContain("official verifier");
+      expect(bashTool.execute).toHaveBeenCalledTimes(1);
+      expect(bashTool.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: expect.stringContaining("verify_pptx.py"),
+        }),
+        expect.anything(),
+      );
+      expect(sendFileTool.execute).toHaveBeenCalledWith(
+        { path: deckPath },
+        expect.objectContaining({ workDir }),
+      );
+    });
+
     it("拉赞助 PPT 默认应使用商业提案风格而不是套用暗色偏好", async () => {
       const capturedMessages: Message[][] = [];
       const styleProvider: LLMProvider = {
