@@ -359,6 +359,7 @@ export type ObservationReadInput = Omit<ObservationRead, "id" | "readAt">;
 
 export type MemoryUsageSource =
   | "prompt_injection"
+  | "active_memory"
   | "recall_tool"
   | "drill_down";
 

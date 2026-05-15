@@ -391,6 +391,7 @@ export interface MemoryInfo {
   content: string;
   importance: number;
   namespace?: string;
+  metadata?: Record<string, unknown>;
   createdAt: string;
   accessedAt: string;
   accessCount: number;
@@ -418,6 +419,45 @@ export function searchMemories(
 
 export function deleteMemory(id: string): Promise<void> {
   return request(`/memories/${id}`, { method: "DELETE" });
+}
+
+export function updateMemory(
+  id: string,
+  updates: {
+    type?: string;
+    content?: string;
+    importance?: number;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<MemoryInfo> {
+  return request(`/memories/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export function deprecateMemory(
+  id: string,
+  reason?: string,
+): Promise<MemoryInfo> {
+  return request(`/memories/${encodeURIComponent(id)}/deprecate`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function mergeMemories(input: {
+  sourceIds: string[];
+  targetId?: string;
+  content: string;
+  type?: string;
+  importance?: number;
+  namespace?: string;
+}): Promise<{ target: MemoryInfo; deprecatedIds: string[] }> {
+  return request("/memories/merge", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export function getMemoryNamespaces(): Promise<MemoryNamespaceInfo[]> {
@@ -499,11 +539,7 @@ export type EvolutionRunStatus =
   | "failed"
   | "rolled_back";
 
-export type EvolutionResult =
-  | "improved"
-  | "neutral"
-  | "regressed"
-  | "unknown";
+export type EvolutionResult = "improved" | "neutral" | "regressed" | "unknown";
 
 export type EvolutionEventType =
   | "proposal"

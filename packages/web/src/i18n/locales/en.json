@@ -102,7 +102,18 @@
     "error": "ERROR",
     "stopped": "Stopped",
     "appError": "Application error",
-    "thinking": ["Thinking", "Pondering", "Processing", "Musing", "Computing", "Synthesizing", "Generating", "Brewing", "Cooking", "Imagining"]
+    "thinking": [
+      "Thinking",
+      "Pondering",
+      "Processing",
+      "Musing",
+      "Computing",
+      "Synthesizing",
+      "Generating",
+      "Brewing",
+      "Cooking",
+      "Imagining"
+    ]
   },
   "tasks": {
     "title": "Tasks",
@@ -350,6 +361,11 @@
     "loadingMemories": "Loading memories...",
     "noMemories": "No memories found",
     "deleteConfirm": "Delete?",
+    "selectMemory": "Select memory",
+    "selectedCount": "{{count}} selected",
+    "mergeSelected": "Merge selected",
+    "saveMerge": "Save merge",
+    "deprecate": "Deprecate",
     "created": "Created:",
     "accessed": "Accessed:",
     "views": "Views:"

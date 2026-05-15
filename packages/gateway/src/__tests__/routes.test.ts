@@ -7,7 +7,9 @@ import { registerSessionRoutes } from "../routes/sessions.js";
 import { registerConfigRoutes } from "../routes/config.js";
 import { registerToolRoutes } from "../routes/tools.js";
 import { registerPreviewRoutes } from "../routes/preview.js";
+import { registerMemoryRoutes } from "../routes/memories.js";
 import type { AppContext } from "../bootstrap.js";
+import { initDatabase, SQLiteMemoryStore } from "@agentclaw/memory";
 
 /**
  * 创建 mock AppContext，只包含测试需要的最小依赖
@@ -429,6 +431,122 @@ describe("Tool 路由", () => {
       eventType: "online_regression",
       success: true,
     });
+  });
+});
+
+describe("Memory 路由", () => {
+  let app: FastifyInstance;
+  let ctx: AppContext;
+  let db: ReturnType<typeof initDatabase>;
+  let store: SQLiteMemoryStore;
+
+  beforeEach(async () => {
+    db = initDatabase(":memory:");
+    store = new SQLiteMemoryStore(db);
+    ctx = createMockContext({ memoryStore: store as any });
+    app = Fastify({ logger: false });
+    registerMemoryRoutes(app, ctx);
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    await app.close();
+    db.close();
+  });
+
+  it("PATCH /api/memories/:id 应更新内容、重要性并保留 metadata", async () => {
+    const memory = await store.add({
+      type: "preference",
+      content: "用户偏好深色 PPTX。",
+      importance: 0.7,
+      metadata: { layer: "L1", confidence: 0.9 },
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/memories/${memory.id}`,
+      payload: {
+        content: "用户偏好白底蓝色 PPTX。",
+        importance: 0.95,
+        metadata: { reason: "manual correction" },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      id: memory.id,
+      content: "用户偏好白底蓝色 PPTX。",
+      importance: 0.95,
+      metadata: {
+        layer: "L1",
+        confidence: 0.9,
+        reason: "manual correction",
+      },
+    });
+  });
+
+  it("POST /api/memories/:id/deprecate 应软废弃记忆而不是物理删除", async () => {
+    const memory = await store.add({
+      type: "preference",
+      content: "旧偏好。",
+      importance: 0.7,
+      metadata: { layer: "L1", confidence: 0.9 },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/memories/${memory.id}/deprecate`,
+      payload: { reason: "manual stale memory" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().metadata).toMatchObject({
+      status: "deprecated",
+      deprecatedReason: "manual stale memory",
+    });
+    const results = await store.search({ query: "旧偏好", limit: 10 });
+    expect(results.map((result) => result.entry.id)).not.toContain(memory.id);
+  });
+
+  it("POST /api/memories/merge 应生成合并记忆并把来源标记为 superseded", async () => {
+    const a = await store.add({
+      type: "preference",
+      content: "用户 PPTX 偏好白底。",
+      importance: 0.8,
+      metadata: { layer: "L1", confidence: 0.9 },
+    });
+    const b = await store.add({
+      type: "preference",
+      content: "用户 PPTX 偏好蓝色强调。",
+      importance: 0.75,
+      metadata: { layer: "L1", confidence: 0.88 },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/memories/merge",
+      payload: {
+        sourceIds: [a.id, b.id],
+        content: "用户 PPTX 偏好白底和蓝色强调。",
+        type: "preference",
+        importance: 0.9,
+        namespace: "default",
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.target).toMatchObject({
+      content: "用户 PPTX 偏好白底和蓝色强调。",
+      type: "preference",
+      importance: 0.9,
+    });
+    expect(body.target.metadata.sourceMemoryIds).toEqual([a.id, b.id]);
+    expect(body.deprecatedIds).toEqual([a.id, b.id]);
+    expect((await store.get(a.id))?.metadata?.status).toBe("superseded");
+    expect((await store.get(b.id))?.metadata?.supersededBy).toBe(
+      body.target.id,
+    );
   });
 });
 

@@ -4,6 +4,9 @@ import { PageHeader } from "../components/PageHeader";
 import {
   searchMemories,
   deleteMemory,
+  updateMemory,
+  deprecateMemory,
+  mergeMemories,
   getMemoryNamespaces,
   listAgents,
   type MemoryInfo,
@@ -23,6 +26,12 @@ const MEMORY_TYPES = [
 ];
 
 type SortMode = "importance" | "time";
+
+interface EditDraft {
+  content: string;
+  type: string;
+  importance: string;
+}
 
 function typeBadgeClass(type: string): string {
   switch (type) {
@@ -59,6 +68,16 @@ export function MemoryPage() {
   const [sortMode, setSortMode] = useState<SortMode>("importance");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<EditDraft>({
+    content: "",
+    type: "fact",
+    importance: "0.8",
+  });
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [mergeDraft, setMergeDraft] = useState("");
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [merging, setMerging] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -128,6 +147,7 @@ export function MemoryPage() {
       setDeletingId(id);
       await deleteMemory(id);
       setMemories((prev) => prev.filter((m) => m.id !== id));
+      setSelectedIds((prev) => prev.filter((selectedId) => selectedId !== id));
       setConfirmDeleteId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete memory");
@@ -138,6 +158,93 @@ export function MemoryPage() {
 
   const cancelDelete = () => {
     setConfirmDeleteId(null);
+  };
+
+  const beginEdit = (mem: MemoryInfo) => {
+    setEditingId(mem.id);
+    setEditDraft({
+      content: mem.content,
+      type: mem.type,
+      importance: String(mem.importance),
+    });
+  };
+
+  const saveEdit = async (id: string) => {
+    try {
+      setSavingId(id);
+      const updated = await updateMemory(id, {
+        content: editDraft.content.trim(),
+        type: editDraft.type,
+        importance: Number(editDraft.importance),
+        metadata: { editedAt: new Date().toISOString() },
+      });
+      setMemories((prev) => prev.map((mem) => (mem.id === id ? updated : mem)));
+      setEditingId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update memory");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleDeprecate = async (id: string) => {
+    try {
+      setSavingId(id);
+      const updated = await deprecateMemory(id, "manual review");
+      setMemories((prev) => prev.filter((mem) => mem.id !== updated.id));
+      setSelectedIds((prev) => prev.filter((selectedId) => selectedId !== id));
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to deprecate memory",
+      );
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id)
+        ? prev.filter((selectedId) => selectedId !== id)
+        : [...prev, id],
+    );
+  };
+
+  const startMerge = () => {
+    const selected = memories.filter((mem) => selectedIds.includes(mem.id));
+    setMergeDraft(selected.map((mem) => mem.content).join("\n"));
+    setMerging(true);
+  };
+
+  const saveMerge = async () => {
+    const selected = memories.filter((mem) => selectedIds.includes(mem.id));
+    if (selected.length < 2) return;
+    try {
+      setSavingId("merge");
+      const result = await mergeMemories({
+        sourceIds: selectedIds,
+        content: mergeDraft.trim(),
+        type: selected[0].type,
+        importance: Math.max(...selected.map((mem) => mem.importance)),
+        namespace:
+          namespaceFilter === "all" ? selected[0].namespace : namespaceFilter,
+      });
+      setMemories((prev) => [
+        result.target,
+        ...prev.filter(
+          (mem) =>
+            !result.deprecatedIds.includes(mem.id) &&
+            mem.id !== result.target.id,
+        ),
+      ]);
+      setSelectedIds([]);
+      setMerging(false);
+      setMergeDraft("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to merge memories");
+    } finally {
+      setSavingId(null);
+    }
   };
 
   // Resolve namespace to agent name for display
@@ -215,6 +322,45 @@ export function MemoryPage() {
                 : t("memory.memoriesCount", { count: memories.length })}
             </span>
           </div>
+          {selectedIds.length >= 2 && (
+            <div className="memory-merge-row">
+              <span>
+                {t("memory.selectedCount", { count: selectedIds.length })}
+              </span>
+              <button className="btn-secondary" onClick={startMerge}>
+                {t("memory.mergeSelected")}
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={() => setSelectedIds([])}
+              >
+                {t("common.cancel")}
+              </button>
+            </div>
+          )}
+          {merging && (
+            <div className="memory-merge-editor">
+              <textarea
+                value={mergeDraft}
+                onChange={(e) => setMergeDraft(e.target.value)}
+              />
+              <div className="memory-edit-actions">
+                <button
+                  className="btn-primary"
+                  onClick={saveMerge}
+                  disabled={savingId === "merge" || !mergeDraft.trim()}
+                >
+                  {savingId === "merge" ? "..." : t("memory.saveMerge")}
+                </button>
+                <button
+                  className="btn-secondary"
+                  onClick={() => setMerging(false)}
+                >
+                  {t("common.cancel")}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {error && <div className="memory-error">{error}</div>}
@@ -232,9 +378,21 @@ export function MemoryPage() {
             <div key={mem.id} className="card memory-card">
               <div className="memory-card-top">
                 <div className="memory-card-left">
+                  <input
+                    type="checkbox"
+                    className="memory-select"
+                    checked={selectedIds.includes(mem.id)}
+                    onChange={() => toggleSelected(mem.id)}
+                    aria-label={t("memory.selectMemory")}
+                  />
                   <span className={typeBadgeClass(mem.type)}>
                     {t(`memory.types.${mem.type}`, mem.type)}
                   </span>
+                  {typeof mem.metadata?.status === "string" && (
+                    <span className="memory-status-tag">
+                      {String(mem.metadata.status)}
+                    </span>
+                  )}
                   {mem.namespace &&
                     mem.namespace !== "default" &&
                     namespaceFilter === "all" && (
@@ -270,16 +428,94 @@ export function MemoryPage() {
                       </button>
                     </span>
                   ) : (
-                    <button
-                      className="btn-secondary memory-delete-btn"
-                      onClick={() => handleDelete(mem.id)}
-                    >
-                      {t("common.delete")}
-                    </button>
+                    <>
+                      <button
+                        className="btn-secondary memory-delete-btn"
+                        onClick={() => beginEdit(mem)}
+                      >
+                        {t("common.edit")}
+                      </button>
+                      <button
+                        className="btn-secondary memory-delete-btn"
+                        onClick={() => handleDeprecate(mem.id)}
+                        disabled={savingId === mem.id}
+                      >
+                        {t("memory.deprecate")}
+                      </button>
+                      <button
+                        className="btn-secondary memory-delete-btn"
+                        onClick={() => handleDelete(mem.id)}
+                      >
+                        {t("common.delete")}
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
-              <div className="memory-content">{mem.content}</div>
+              {editingId === mem.id ? (
+                <div className="memory-edit-form">
+                  <textarea
+                    value={editDraft.content}
+                    onChange={(e) =>
+                      setEditDraft((draft) => ({
+                        ...draft,
+                        content: e.target.value,
+                      }))
+                    }
+                  />
+                  <div className="memory-edit-fields">
+                    <select
+                      value={editDraft.type}
+                      onChange={(e) =>
+                        setEditDraft((draft) => ({
+                          ...draft,
+                          type: e.target.value,
+                        }))
+                      }
+                    >
+                      {MEMORY_TYPES.filter((type) => type !== "all").map(
+                        (type) => (
+                          <option key={type} value={type}>
+                            {t(`memory.types.${type}`, type)}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                    <input
+                      type="number"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={editDraft.importance}
+                      onChange={(e) =>
+                        setEditDraft((draft) => ({
+                          ...draft,
+                          importance: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="memory-edit-actions">
+                    <button
+                      className="btn-primary"
+                      onClick={() => saveEdit(mem.id)}
+                      disabled={
+                        savingId === mem.id || !editDraft.content.trim()
+                      }
+                    >
+                      {savingId === mem.id ? "..." : t("common.save")}
+                    </button>
+                    <button
+                      className="btn-secondary"
+                      onClick={() => setEditingId(null)}
+                    >
+                      {t("common.cancel")}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="memory-content">{mem.content}</div>
+              )}
               <div className="memory-card-meta">
                 <span>
                   {t("memory.created")} {formatDateTime(mem.createdAt)}

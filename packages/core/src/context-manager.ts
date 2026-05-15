@@ -40,9 +40,9 @@ export class SimpleContextManager implements ContextManager {
 
   /**
    * Frozen snapshot of dynamic context (memories + skills) per conversation.
-   * Built once on the first turn, reused for the entire session.
-   * Memory writes during session persist to DB but don't alter the system prompt,
-   * keeping it stable for prefix cache efficiency (Anthropic prompt caching).
+   * Used only when no provider-backed Active Memory selector is configured.
+   * Active Memory must re-evaluate each user turn, otherwise old-session cache
+   * hides newly relevant memories from later requests.
    */
   private dynamicContextCache = new LRUCache<
     string,
@@ -164,10 +164,15 @@ export class SimpleContextManager implements ContextManager {
     let dynamicSuffix: string;
     let skillMatch: { name: string; confidence: number } | undefined;
 
-    // Frozen snapshot: once built for a conversation, reuse for entire session.
-    // Memory changes during session are persisted to DB but don't alter the
-    // system prompt — this keeps the prompt stable for prefix cache efficiency.
-    if (this.dynamicContextCache.has(conversationId)) {
+    // Frozen snapshot: once built for a conversation, reuse for entire session
+    // only when there is no provider-backed Active Memory selector. With a
+    // selector, memory relevance is turn-specific and must not be hidden by
+    // old conversation cache.
+    const canReuseDynamicContext = !this.provider;
+    if (
+      canReuseDynamicContext &&
+      this.dynamicContextCache.has(conversationId)
+    ) {
       const cached = this.dynamicContextCache.get(conversationId)!;
       dynamicSuffix = cached.suffix;
       skillMatch = cached.skillMatch;
@@ -175,16 +180,19 @@ export class SimpleContextManager implements ContextManager {
       const result = await this.buildDynamicContext(
         conversationId,
         currentInput,
+        turns,
         options,
         options?.memoryNamespace,
         options?.disabledSkills,
       );
       dynamicSuffix = result.suffix;
       skillMatch = result.skillMatch;
-      this.dynamicContextCache.set(conversationId, {
-        suffix: dynamicSuffix,
-        skillMatch,
-      });
+      if (canReuseDynamicContext) {
+        this.dynamicContextCache.set(conversationId, {
+          suffix: dynamicSuffix,
+          skillMatch,
+        });
+      }
     }
 
     // ── 2.5. Large content extraction — persist oversized tool results to disk ──
@@ -282,6 +290,7 @@ export class SimpleContextManager implements ContextManager {
   private async buildDynamicContext(
     conversationId: string,
     currentInput: string | ContentBlock[],
+    turns: ConversationTurn[] = [],
     options?: { preSelectedSkillName?: string },
     memoryNamespace = "default",
     disabledSkills?: string[],
@@ -293,15 +302,8 @@ export class SimpleContextManager implements ContextManager {
     let skillMatch: { name: string; confidence: number } | undefined;
 
     // ── Memories ──
-    const searchQuery =
-      typeof currentInput === "string"
-        ? currentInput
-        : currentInput
-            .filter(
-              (b): b is { type: "text"; text: string } => b.type === "text",
-            )
-            .map((b) => b.text)
-            .join(" ");
+    const currentQuery = inputToSearchText(currentInput);
+    const searchQuery = buildMemorySearchQuery(currentQuery, turns);
 
     try {
       // Always load identity memories (user personal info: email, name, age).
@@ -362,10 +364,21 @@ export class SimpleContextManager implements ContextManager {
         }
       }
 
-      if (allMemories.length > 0) {
+      const activeSelection = await this.selectActiveMemories(
+        searchQuery,
+        allMemories,
+        conversationId,
+        memoryNamespace,
+      );
+      const activeMemories =
+        activeSelection === undefined ? allMemories : activeSelection;
+      const usageSource =
+        activeMemories === allMemories ? "prompt_injection" : "active_memory";
+
+      if (activeMemories.length > 0) {
         const lines: string[] = [];
         let totalChars = 0;
-        for (const m of allMemories) {
+        for (const m of activeMemories) {
           const line = formatMemoryForPrompt(m, searchQuery);
           if (!line) continue;
           if (totalChars + line.length > 2000) break;
@@ -374,11 +387,13 @@ export class SimpleContextManager implements ContextManager {
           if (this.memoryStore.recordMemoryUsage) {
             await this.memoryStore.recordMemoryUsage({
               memoryId: m.entry.id,
-              source: "prompt_injection",
+              source: usageSource,
               conversationId,
               metadata: {
                 layer: readStringMetadata(m.entry.metadata, "layer", "legacy"),
                 namespace: memoryNamespace,
+                activeMemory:
+                  usageSource === "active_memory" ? true : undefined,
               },
             });
           }
@@ -452,6 +467,82 @@ export class SimpleContextManager implements ContextManager {
       suffix: parts.join("\n\n"),
       skillMatch,
     };
+  }
+
+  private async selectActiveMemories(
+    query: string,
+    candidates: MemorySearchResult[],
+    conversationId: string,
+    memoryNamespace: string,
+  ): Promise<MemorySearchResult[] | undefined> {
+    if (!this.provider || candidates.length <= 1 || !query.trim()) {
+      return undefined;
+    }
+
+    const rankedCandidates = rankActiveMemoryCandidates(query, candidates);
+    const deterministicSelection = rankedCandidates
+      .filter((item) => item.score >= 0.12)
+      .slice(0, 5)
+      .map((item) => item.memory);
+    const shortlist =
+      rankedCandidates.length > 0
+        ? rankedCandidates.slice(0, 8).map((item) => item.memory)
+        : candidates.slice(0, 8);
+
+    const compactCandidates = shortlist.map((memory) => ({
+      id: memory.entry.id,
+      type: memory.entry.type,
+      score: Number(memory.score.toFixed(3)),
+      layer: readStringMetadata(memory.entry.metadata, "layer", "legacy"),
+      sceneName: readStringMetadata(memory.entry.metadata, "sceneName", ""),
+      content: memory.entry.content.slice(0, 120),
+    }));
+
+    try {
+      const response = await this.provider.chat({
+        systemPrompt:
+          'Return only compact JSON matching {"ids":string[]}. Select at most 5 memory ids directly useful for the user request. Return {"ids":[]} when none are useful.',
+        messages: [
+          {
+            id: `active-memory-${conversationId}`,
+            role: "user",
+            content: JSON.stringify({
+              request: query,
+              namespace: memoryNamespace,
+              candidates: compactCandidates,
+            }),
+            createdAt: new Date(),
+          },
+        ],
+        temperature: 0,
+        maxTokens: 1024,
+      });
+
+      const text =
+        typeof response.message.content === "string"
+          ? response.message.content
+          : response.message.content
+              .filter((block) => block.type === "text")
+              .map((block) => ("text" in block ? block.text : ""))
+              .join("");
+      if (!text.trim()) {
+        return deterministicSelection;
+      }
+      const parsed = JSON.parse(
+        text
+          .replace(/```json?\s*/g, "")
+          .replace(/```\s*/g, "")
+          .trim(),
+      ) as { ids?: unknown };
+      const ids = Array.isArray(parsed.ids)
+        ? parsed.ids.filter((id): id is string => typeof id === "string")
+        : [];
+      if (ids.length === 0) return [];
+      const idSet = new Set(ids.slice(0, 5));
+      return candidates.filter((memory) => idSet.has(memory.entry.id));
+    } catch {
+      return deterministicSelection;
+    }
   }
 
   /** Clear cached context for a conversation (call on session close) */
@@ -1311,7 +1402,10 @@ function formatMemoryForPrompt(
   if (isLayer(metadata, "L3")) {
     const confidence = readNumericMetadata(metadata, "confidence");
     if (confidence < 0.75) return null;
-    const tags = [`layer:L3`, `src:${readStringMetadata(metadata, "source", "persona")}`];
+    const tags = [
+      `layer:L3`,
+      `src:${readStringMetadata(metadata, "source", "persona")}`,
+    ];
     const ids = readStringArrayMetadata(metadata, "sourceMemoryIds");
     if (ids.length > 0) tags.push(`evidence:${ids.slice(0, 3).join(",")}`);
     tags.push(`conf:${formatConfidence(confidence)}`);
@@ -1379,6 +1473,86 @@ function isPptxVisualStyleMemory(content: string): boolean {
       content,
     )
   );
+}
+
+function inputToSearchText(input: string | ContentBlock[]): string {
+  if (typeof input === "string") return input;
+  return input
+    .filter((block): block is { type: "text"; text: string } =>
+      block.type === "text",
+    )
+    .map((block) => block.text)
+    .join(" ");
+}
+
+function buildMemorySearchQuery(
+  currentQuery: string,
+  turns: ConversationTurn[],
+): string {
+  const recentUserTurns = turns
+    .filter((turn) => turn.role === "user" && turn.content.trim())
+    .slice(-2)
+    .map((turn) => turn.content.trim());
+  const parts = [...recentUserTurns, currentQuery.trim()].filter(Boolean);
+  return [...new Set(parts)].join("\n");
+}
+
+function rankActiveMemoryCandidates(
+  query: string,
+  candidates: MemorySearchResult[],
+): Array<{ memory: MemorySearchResult; score: number }> {
+  const queryTokens = tokenizeForOverlap(query);
+  const isPptxQuery = isPptxInput(query);
+
+  return candidates
+    .map((memory) => {
+      const content = memory.entry.content;
+      const contentTokens = tokenizeForOverlap(content);
+      let overlap = 0;
+      for (const token of queryTokens) {
+        if (contentTokens.has(token)) overlap++;
+      }
+      const overlapScore =
+        queryTokens.size > 0 ? overlap / queryTokens.size : 0;
+      const domainScore = isPptxQuery && isPptxInput(content) ? 0.5 : 0;
+      const related = overlapScore > 0 || domainScore > 0;
+      const foodLike = /吃|辣|菜|川菜|餐饮|食物|食品|美食/i.test(content);
+      const foodRequested = /吃|辣|菜|川菜|餐饮|食物|食品|美食/i.test(query);
+      if (isPptxQuery && foodLike && !foodRequested) {
+        return { memory, score: 0 };
+      }
+      let score = related
+        ? overlapScore * 2 + domainScore + memory.score * 0.1
+        : 0;
+
+      if (related && isLayer(memory.entry.metadata, "L2")) score += 0.12;
+      if (related && isLayer(memory.entry.metadata, "L3")) score += 0.06;
+      if (
+        isPptxQuery &&
+        /吃|辣|菜|川菜|生日|邮箱|地址|机型|年龄|MBTI|女儿|所在地|located/i.test(
+          content,
+        )
+      ) {
+        score -= 0.6;
+      }
+
+      return { memory, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+}
+
+function tokenizeForOverlap(text: string): Set<string> {
+  const tokens = new Set<string>();
+  const parts = text
+    .toLowerCase()
+    .match(
+      /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[\p{L}\p{N}]{2,}/gu,
+    );
+  if (parts) {
+    for (const part of parts) tokens.add(part);
+  }
+  return tokens;
 }
 
 function isLayer(

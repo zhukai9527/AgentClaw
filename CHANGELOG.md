@@ -2,6 +2,9 @@
 
 ## [1.5.28] - 2026-05-15
 
+### Added
+- **Active Memory 前置召回与记忆治理**：长期记忆注入前新增 provider-backed 主动选择器，按当前用户请求只注入最相关记忆并记录 `active_memory` telemetry；记忆管理页和 API 新增编辑、废弃、合并能力，修正内容更新后向量不刷新的问题，避免旧/错/重复记忆继续污染真实会话。
+
 ### Fixed
 - **MiMo 老会话工具历史 400**：当旧会话中历史 assistant 工具调用缺少 `reasoning_content` 时，OpenAI-compatible provider 会在发送给小米 MiMo 前移除这段不可回放的工具调用及对应 tool result，同时保留可见 assistant 文本，避免用户必须新开会话才能继续使用 Mimo。
 - **PPTX 生成收尾跑偏**：普通 PPTX 任务重新暴露结构化 `claude_code` 工具，并禁止通过 `bash` 直接运行 Claude Code，避免模型绕路调用不存在的 `./tools/claude-code`、搜索验证脚本或在 deck 已生成后因 bash 限流撞到 `max_iterations_reached`。

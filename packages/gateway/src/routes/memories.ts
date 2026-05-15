@@ -1,6 +1,45 @@
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../bootstrap.js";
-import type { MemoryType } from "@agentclaw/types";
+import type { MemoryEntry, MemoryType } from "@agentclaw/types";
+
+const MEMORY_TYPES = new Set([
+  "identity",
+  "fact",
+  "preference",
+  "entity",
+  "episodic",
+]);
+
+function serializeMemory(memory: MemoryEntry) {
+  return {
+    id: memory.id,
+    type: memory.type,
+    content: memory.content,
+    importance: memory.importance,
+    namespace:
+      (memory as unknown as Record<string, unknown>).namespace || "default",
+    createdAt: memory.createdAt.toISOString(),
+    accessedAt: memory.accessedAt.toISOString(),
+    accessCount: memory.accessCount,
+    metadata: memory.metadata,
+  };
+}
+
+function validateMemoryType(type: unknown): MemoryType | undefined {
+  if (type === undefined) return undefined;
+  if (typeof type !== "string" || !MEMORY_TYPES.has(type)) {
+    throw new Error(`Invalid memory type: ${String(type)}`);
+  }
+  return type as MemoryType;
+}
+
+function validateImportance(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || value < 0 || value > 1) {
+    throw new Error("importance must be a number between 0 and 1");
+  }
+  return value;
+}
 
 export function registerMemoryRoutes(
   app: FastifyInstance,
@@ -39,18 +78,7 @@ export function registerMemoryRoutes(
           namespace: namespace || undefined,
         });
 
-        const memories = results.map((r) => ({
-          id: r.entry.id,
-          type: r.entry.type,
-          content: r.entry.content,
-          importance: r.entry.importance,
-          namespace:
-            (r.entry as unknown as Record<string, unknown>).namespace ||
-            "default",
-          createdAt: r.entry.createdAt.toISOString(),
-          accessedAt: r.entry.accessedAt.toISOString(),
-          accessCount: r.entry.accessCount,
-        }));
+        const memories = results.map((r) => serializeMemory(r.entry));
 
         return reply.send(memories);
       } catch (err: unknown) {
@@ -107,6 +135,214 @@ export function registerMemoryRoutes(
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // PATCH /api/memories/:id - Correct memory content/type/importance/metadata
+  app.patch<{
+    Params: { id: string };
+    Body: {
+      type?: string;
+      content?: string;
+      importance?: number;
+      metadata?: Record<string, unknown>;
+    };
+  }>(
+    "/api/memories/:id",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1 } },
+        },
+        body: {
+          type: "object",
+          properties: {
+            type: { type: "string" },
+            content: { type: "string", minLength: 1 },
+            importance: { type: "number", minimum: 0, maximum: 1 },
+            metadata: { type: "object", additionalProperties: true },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        const existing = await ctx.memoryStore.get(req.params.id);
+        if (!existing) {
+          return reply.status(404).send({ error: "Memory not found" });
+        }
+        const type = validateMemoryType(req.body.type);
+        const importance = validateImportance(req.body.importance);
+        const updated = await ctx.memoryStore.update(req.params.id, {
+          type,
+          content: req.body.content?.trim(),
+          importance,
+          metadata: req.body.metadata
+            ? { ...existing.metadata, ...req.body.metadata }
+            : undefined,
+        });
+        return reply.send(serializeMemory(updated));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(400).send({ error: message });
+      }
+    },
+  );
+
+  // POST /api/memories/:id/deprecate - Soft-hide stale memory with audit metadata
+  app.post<{
+    Params: { id: string };
+    Body: { reason?: string };
+  }>(
+    "/api/memories/:id/deprecate",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1 } },
+        },
+        body: {
+          type: "object",
+          properties: { reason: { type: "string" } },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        const existing = await ctx.memoryStore.get(req.params.id);
+        if (!existing) {
+          return reply.status(404).send({ error: "Memory not found" });
+        }
+        const updated = await ctx.memoryStore.update(req.params.id, {
+          metadata: {
+            ...existing.metadata,
+            status: "deprecated",
+            deprecatedReason: req.body?.reason?.trim() || "manual",
+            deprecatedAt: new Date().toISOString(),
+          },
+        });
+        return reply.send(serializeMemory(updated));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // POST /api/memories/merge - Create/update a canonical memory and supersede sources
+  app.post<{
+    Body: {
+      sourceIds: string[];
+      targetId?: string;
+      content: string;
+      type?: string;
+      importance?: number;
+      namespace?: string;
+    };
+  }>(
+    "/api/memories/merge",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["sourceIds", "content"],
+          properties: {
+            sourceIds: {
+              type: "array",
+              minItems: 2,
+              items: { type: "string", minLength: 1 },
+            },
+            targetId: { type: "string" },
+            content: { type: "string", minLength: 1 },
+            type: { type: "string" },
+            importance: { type: "number", minimum: 0, maximum: 1 },
+            namespace: { type: "string" },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        const sourceIds = [...new Set(req.body.sourceIds)];
+        if (sourceIds.length < 2) {
+          return reply
+            .status(400)
+            .send({ error: "sourceIds must contain at least two memories" });
+        }
+        const sources = (
+          await Promise.all(sourceIds.map((id) => ctx.memoryStore.get(id)))
+        ).filter((memory): memory is MemoryEntry => Boolean(memory));
+        if (sources.length !== sourceIds.length) {
+          return reply
+            .status(404)
+            .send({ error: "Some source memories were not found" });
+        }
+
+        const targetType = validateMemoryType(req.body.type) ?? sources[0].type;
+        const importance =
+          validateImportance(req.body.importance) ??
+          Math.max(...sources.map((source) => source.importance));
+        const sourceMemoryIds = sources.map((source) => source.id);
+        const metadata = {
+          layer: "L1",
+          source: "manual_merge",
+          confidence: Math.max(
+            ...sources.map((source) =>
+              typeof source.metadata?.confidence === "number"
+                ? source.metadata.confidence
+                : 0.8,
+            ),
+          ),
+          sourceMemoryIds,
+          evidence: { merged: sourceMemoryIds },
+          mergedAt: new Date().toISOString(),
+        };
+
+        const target = req.body.targetId
+          ? await ctx.memoryStore.update(req.body.targetId, {
+              type: targetType,
+              content: req.body.content.trim(),
+              importance,
+              metadata: {
+                ...(await ctx.memoryStore.get(req.body.targetId))?.metadata,
+                ...metadata,
+              },
+            })
+          : await ctx.memoryStore.add(
+              {
+                type: targetType,
+                content: req.body.content.trim(),
+                importance,
+                metadata,
+              },
+              req.body.namespace || "default",
+            );
+
+        const deprecatedIds: string[] = [];
+        for (const source of sources) {
+          if (source.id === target.id) continue;
+          await ctx.memoryStore.update(source.id, {
+            metadata: {
+              ...source.metadata,
+              status: "superseded",
+              supersededBy: target.id,
+              supersededAt: new Date().toISOString(),
+            },
+          });
+          deprecatedIds.push(source.id);
+        }
+
+        return reply.send({
+          target: serializeMemory(target),
+          deprecatedIds,
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(400).send({ error: message });
       }
     },
   );

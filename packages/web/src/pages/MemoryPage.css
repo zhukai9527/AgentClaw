@@ -59,6 +59,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .memory-sort-label {
@@ -81,6 +82,46 @@
   margin-left: auto;
   font-size: 14px;
   color: var(--text-muted);
+}
+
+.memory-merge-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.memory-merge-editor,
+.memory-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.memory-merge-editor textarea,
+.memory-edit-form textarea {
+  min-height: 92px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: 10px 12px;
+  font: inherit;
+  line-height: 1.5;
+  outline: none;
+}
+
+.memory-merge-editor textarea:focus,
+.memory-edit-form textarea:focus,
+.memory-edit-fields select:focus,
+.memory-edit-fields input:focus {
+  border-color: var(--accent);
 }
 
 .memory-loading,
@@ -125,6 +166,24 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.memory-select {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.memory-status-tag {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--warning-subtle-bg);
+  color: var(--warning);
+  font-weight: 500;
 }
 
 .memory-importance {
@@ -137,6 +196,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .memory-confirm-delete {
@@ -168,6 +229,30 @@
   word-break: break-word;
 }
 
+.memory-edit-fields {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.memory-edit-fields select,
+.memory-edit-fields input {
+  min-width: 120px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: 8px 10px;
+  font: inherit;
+  outline: none;
+}
+
+.memory-edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .memory-card-meta {
   display: flex;
   gap: 16px;
@@ -180,4 +265,21 @@
 .badge-muted {
   background: var(--accent-subtle-bg);
   color: var(--text-muted);
+}
+
+@media (max-width: 720px) {
+  .memory-search-row,
+  .memory-card-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .memory-count {
+    margin-left: 0;
+  }
+
+  .memory-card-actions,
+  .memory-edit-actions {
+    justify-content: flex-start;
+  }
 }

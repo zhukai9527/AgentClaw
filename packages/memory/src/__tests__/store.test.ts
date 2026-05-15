@@ -2,10 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { initDatabase } from "../database.js";
 import type { DbAdapter } from "../db-adapter.js";
 import { SQLiteMemoryStore } from "../store.js";
-import type {
-  SessionData,
-  ConversationTurn,
-} from "@agentclaw/types";
+import type { SessionData, ConversationTurn } from "@agentclaw/types";
 
 // ── 辅助函数 ──
 
@@ -68,9 +65,9 @@ describe("initDatabase — 数据库初始化", () => {
 
   it("WAL 模式在文件数据库中应启用（:memory: 回退为 memory）", () => {
     const db = initDatabase(":memory:");
-    const { journal_mode } = db
-      .prepare("PRAGMA journal_mode")
-      .get() as { journal_mode: string };
+    const { journal_mode } = db.prepare("PRAGMA journal_mode").get() as {
+      journal_mode: string;
+    };
     // :memory: 数据库不支持 WAL，SQLite 会回退为 "memory" journal mode
     expect(journal_mode).toBe("memory");
     db.close();
@@ -255,6 +252,23 @@ describe("SQLiteMemoryStore — 记忆分层与 telemetry", () => {
       metadata: { layer: "L1" },
     });
     expect(usage.usedAt).toEqual(new Date("2026-05-15T10:00:00.000Z"));
+  });
+
+  it("更新记忆内容时应同步重新生成 embedding，避免旧语义污染召回", async () => {
+    const memory = await store.add({
+      type: "preference",
+      content: "用户偏好深色 PPTX。",
+      importance: 0.8,
+      metadata: { layer: "L1", confidence: 0.9 },
+    });
+    const beforeEmbedding = memory.embedding;
+
+    const updated = await store.update(memory.id, {
+      content: "用户偏好白底蓝色 PPTX。",
+    });
+
+    expect(updated.embedding).toBeDefined();
+    expect(updated.embedding).not.toEqual(beforeEmbedding);
   });
 });
 
@@ -457,13 +471,28 @@ describe("SQLiteMemoryStore — 记忆 CRUD", () => {
     });
 
     const fetched = await store.get(entry.id);
-    expect(fetched!.metadata).toEqual({ source: "conversation", confidence: 0.95 });
+    expect(fetched!.metadata).toEqual({
+      source: "conversation",
+      confidence: 0.95,
+    });
   });
 
   it("search 应返回相关记忆", async () => {
-    await store.add({ type: "fact", content: "用户使用 macOS 系统", importance: 0.8 });
-    await store.add({ type: "fact", content: "用户喜欢 vim 编辑器", importance: 0.7 });
-    await store.add({ type: "preference", content: "偏好深色主题", importance: 0.6 });
+    await store.add({
+      type: "fact",
+      content: "用户使用 macOS 系统",
+      importance: 0.8,
+    });
+    await store.add({
+      type: "fact",
+      content: "用户喜欢 vim 编辑器",
+      importance: 0.7,
+    });
+    await store.add({
+      type: "preference",
+      content: "偏好深色主题",
+      importance: 0.6,
+    });
 
     const results = await store.search({ query: "用户使用什么系统", limit: 5 });
     expect(results.length).toBeGreaterThan(0);
@@ -484,7 +513,11 @@ describe("SQLiteMemoryStore — 记忆 CRUD", () => {
 
   it("search 应支持按 type 过滤", async () => {
     await store.add({ type: "fact", content: "这是一个事实", importance: 0.5 });
-    await store.add({ type: "preference", content: "这是一个偏好", importance: 0.5 });
+    await store.add({
+      type: "preference",
+      content: "这是一个偏好",
+      importance: 0.5,
+    });
 
     const results = await store.search({ type: "fact", limit: 10 });
     expect(results.length).toBe(1);
@@ -509,7 +542,11 @@ describe("SQLiteMemoryStore — 记忆 CRUD", () => {
   });
 
   it("findSimilar 没有相似记忆时应返回 null", async () => {
-    await store.add({ type: "fact", content: "完全不相关的内容", importance: 0.5 });
+    await store.add({
+      type: "fact",
+      content: "完全不相关的内容",
+      importance: 0.5,
+    });
 
     const result = await store.findSimilar("天气预报明天下雨", "fact", 0.99);
     expect(result).toBeNull();
@@ -525,7 +562,11 @@ describe("SQLiteMemoryStore — FTS5 全文搜索", () => {
   });
 
   it("添加记忆后应同步到 FTS 索引", async () => {
-    await store.add({ type: "fact", content: "Python 是一门编程语言", importance: 0.7 });
+    await store.add({
+      type: "fact",
+      content: "Python 是一门编程语言",
+      importance: 0.7,
+    });
 
     const ftsRow = db
       .prepare("SELECT COUNT(*) AS cnt FROM memories_fts")
@@ -817,8 +858,16 @@ describe("SQLiteMemoryStore — 边界情况", () => {
   });
 
   it("search 带中文查询应正常工作", async () => {
-    await store.add({ type: "fact", content: "用户在北京工作", importance: 0.8 });
-    await store.add({ type: "fact", content: "用户喜欢喝咖啡", importance: 0.7 });
+    await store.add({
+      type: "fact",
+      content: "用户在北京工作",
+      importance: 0.8,
+    });
+    await store.add({
+      type: "fact",
+      content: "用户喜欢喝咖啡",
+      importance: 0.7,
+    });
 
     const results = await store.search({ query: "北京", limit: 5 });
     expect(results.length).toBeGreaterThan(0);

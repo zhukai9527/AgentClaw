@@ -300,30 +300,44 @@ export class SQLiteMemoryStore implements MemoryStore {
 
     const sets: string[] = [];
     const params: unknown[] = [];
+    const normalizedUpdates = { ...updates };
 
-    if (updates.type !== undefined) {
+    if (
+      normalizedUpdates.content !== undefined &&
+      normalizedUpdates.embedding === undefined
+    ) {
+      normalizedUpdates.embedding = await this.generateEmbedding(
+        normalizedUpdates.content,
+      );
+    }
+
+    if (normalizedUpdates.type !== undefined) {
       sets.push("type = ?");
-      params.push(updates.type);
+      params.push(normalizedUpdates.type);
     }
-    if (updates.content !== undefined) {
+    if (normalizedUpdates.content !== undefined) {
       sets.push("content = ?");
-      params.push(updates.content);
+      params.push(normalizedUpdates.content);
     }
-    if (updates.importance !== undefined) {
+    if (normalizedUpdates.importance !== undefined) {
       sets.push("importance = ?");
-      params.push(updates.importance);
+      params.push(normalizedUpdates.importance);
     }
-    if (updates.embedding !== undefined) {
+    if (normalizedUpdates.embedding !== undefined) {
       sets.push("embedding = ?");
       params.push(
-        updates.embedding
-          ? Buffer.from(new Float64Array(updates.embedding).buffer)
+        normalizedUpdates.embedding
+          ? Buffer.from(new Float64Array(normalizedUpdates.embedding).buffer)
           : null,
       );
     }
-    if (updates.metadata !== undefined) {
+    if (normalizedUpdates.metadata !== undefined) {
       sets.push("metadata = ?");
-      params.push(updates.metadata ? JSON.stringify(updates.metadata) : null);
+      params.push(
+        normalizedUpdates.metadata
+          ? JSON.stringify(normalizedUpdates.metadata)
+          : null,
+      );
     }
 
     const updateFn = this.db.transaction(() => {
@@ -335,11 +349,11 @@ export class SQLiteMemoryStore implements MemoryStore {
       }
 
       // Sync FTS5 index when content changes
-      if (updates.content !== undefined && this.hasFts) {
+      if (normalizedUpdates.content !== undefined && this.hasFts) {
         this.db.prepare("DELETE FROM memories_fts WHERE id = ?").run(id);
         this.db
           .prepare("INSERT INTO memories_fts (id, content) VALUES (?, ?)")
-          .run(id, updates.content);
+          .run(id, normalizedUpdates.content);
       }
     });
     updateFn();
@@ -363,9 +377,7 @@ export class SQLiteMemoryStore implements MemoryStore {
     deleteFn();
   }
 
-  async recordMemoryUsage(
-    event: MemoryUsageEvent,
-  ): Promise<MemoryUsageRecord> {
+  async recordMemoryUsage(event: MemoryUsageEvent): Promise<MemoryUsageRecord> {
     const id = randomUUID();
     const usedAt = (event.usedAt ?? new Date()).toISOString();
     const metadata = event.metadata ? JSON.stringify(event.metadata) : null;
@@ -589,8 +601,7 @@ export class SQLiteMemoryStore implements MemoryStore {
     const next = {
       status: updates.status ?? existing.status,
       result: updates.result ?? existing.result,
-      reason:
-        updates.reason !== undefined ? updates.reason : existing.reason,
+      reason: updates.reason !== undefined ? updates.reason : existing.reason,
       baselineScore:
         updates.baselineScore !== undefined
           ? updates.baselineScore
@@ -799,7 +810,9 @@ export class SQLiteMemoryStore implements MemoryStore {
     return row ? rowToObservation(row) : null;
   }
 
-  async findObservationByHash(contentHash: string): Promise<Observation | null> {
+  async findObservationByHash(
+    contentHash: string,
+  ): Promise<Observation | null> {
     const row = this.db
       .prepare(
         `SELECT * FROM observations
@@ -843,7 +856,9 @@ export class SQLiteMemoryStore implements MemoryStore {
     return rowToObservationRead(row);
   }
 
-  async listObservationReads(observationId: string): Promise<ObservationRead[]> {
+  async listObservationReads(
+    observationId: string,
+  ): Promise<ObservationRead[]> {
     const rows = this.db
       .prepare(
         `SELECT * FROM observation_reads
