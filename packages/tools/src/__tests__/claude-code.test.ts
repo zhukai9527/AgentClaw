@@ -96,7 +96,9 @@ describe("claude_code 外部委托", () => {
     expect(String(spawnMock.mock.calls[0][0]).toLowerCase()).toContain("codex");
   });
 
-  it("Windows Store/Codex 杞帴璺緞搴旇В鏋愪负 Node 鍙?spawn 鐨勭湡瀹炶矾寰?", async () => {
+  it.runIf(process.platform === "win32")(
+    "Windows Store/Codex 转接路径应解析为可 spawn 的真实路径",
+    async () => {
     const aliasPath =
       "C:\\Users\\voroj\\AppData\\Local\\OpenAI\\Codex\\bin\\codex.exe";
     const realPath =
@@ -145,5 +147,6 @@ describe("claude_code 外部委托", () => {
     expect(result.isError).toBe(false);
     expect(spawnMock).toHaveBeenCalledTimes(1);
     expect(spawnMock.mock.calls[0][0]).toBe(realPath);
-  });
+    },
+  );
 });
