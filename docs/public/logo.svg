@@ -1,6 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Agent Engineering">
   <rect x="-1" y="-1" width="66" height="66" rx="13" fill="#101820"/>
-  <path d="M17 42V21h9c6 0 10 4 10 10s-4 11-10 11h-9zm7-6h2c2 0 4-2 4-5s-2-4-4-4h-2v9z" fill="#14b8a6"/>
-  <path d="M39 21h8v15h-8v6h8c4 0 7-3 7-7V21h-7v15h-2V21h-6z" fill="#f59e0b"/>
-  <path d="M12 50h40" stroke="#f8fafc" stroke-width="4" stroke-linecap="round"/>
+  <path d="M10 47L20.5 17h7L38 47h-7.4l-1.7-5.6h-9.8L17.4 47H10zm11.1-12h5.8L24 25.7 21.1 35z" fill="#e4573f"/>
+  <path d="M39 18h15v6.2h-7.8v5.6h7.1V36h-7.1v5.8H54V48H39V18z" fill="#1f4f8f"/>
 </svg>
