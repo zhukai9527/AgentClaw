@@ -1621,7 +1621,10 @@ describe("SimpleAgentLoop", () => {
     });
 
     it("PPTX 任务不得发送会话目录外的已验证 deck", async () => {
-      const deckPath = "C:/Users/voroj/Desktop/deck.pptx";
+      const deckPath =
+        process.platform === "win32"
+          ? "C:/Users/voroj/Desktop/deck.pptx"
+          : "/tmp/agentclaw-outside/deck.pptx";
       const bashTool = createMockTool("bash", {
         content: JSON.stringify({ ok: true, pptx: deckPath }),
       });
