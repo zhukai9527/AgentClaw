@@ -113,7 +113,6 @@ export default defineConfig({
             { text: "13 生产化", link: "/book/13-production" },
             { text: "14 复盘", link: "/book/14-lessons" },
             { text: "15 未来", link: "/book/15-future" },
-            { text: "Outline", link: "/book/outline" },
             { text: "Appendix", link: "/book/appendix" },
           ],
         },
