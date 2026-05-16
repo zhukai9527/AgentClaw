@@ -52,10 +52,11 @@ describe("claude_code 外部委托", () => {
 
   it("Claude 不可用时应快速改用 Codex", async () => {
     execFileSyncMock.mockImplementation((command: string, args: string[]) => {
-      if (command === "where" && args[0] === "claude") {
+      const isLocator = command === "where" || command === "which";
+      if (isLocator && args[0] === "claude") {
         throw new Error("INFO: Could not find files");
       }
-      if (command === "where" && args[0] === "codex") {
+      if (isLocator && args[0] === "codex") {
         return "C:\\Users\\voroj\\AppData\\Local\\OpenAI\\Codex\\bin\\codex.exe\r\n";
       }
       return "";
@@ -102,10 +103,11 @@ describe("claude_code 外部委托", () => {
       "C:\\Users\\voroj\\AppData\\Local\\Packages\\OpenAI.Codex_2p2nqsd0c76g0\\LocalCache\\Local\\OpenAI\\Codex\\bin\\codex.exe";
 
     execFileSyncMock.mockImplementation((command: string, args: string[]) => {
-      if (command === "where" && args[0] === "claude") {
+      const isLocator = command === "where" || command === "which";
+      if (isLocator && args[0] === "claude") {
         throw new Error("INFO: Could not find files");
       }
-      if (command === "where" && args[0] === "codex") {
+      if (isLocator && args[0] === "codex") {
         return `${aliasPath}\r\n`;
       }
       return "";
