@@ -2,11 +2,11 @@
 
 > A skill is valuable when it removes unsafe freedom from the agent. If it only adds advice, it is documentation with better branding.
 
-The slow part of the PowerPoint workflow was not slide generation. It was the agent repeatedly checking whether `python-pptx` existed, sometimes trying to install it, and sometimes routing through unnecessary subtasks before writing the actual generation script.
+The slow part of one PowerPoint workflow was not slide generation. It was the agent repeatedly checking whether `python-pptx` existed, sometimes trying to install it, and sometimes routing through unnecessary subtasks before writing the actual generation script.
 
 Each step looked reasonable in isolation. Check the dependency. Install if missing. Use a helper. Verify output. But in a real user flow, those checks added latency, created more failure points, and distracted the agent from the simple path: write the script, run it, deliver the `.pptx`, and only repair environment problems if they actually occur.
 
-That incident changed how we think about skills.
+That trace exposes a broader rule for agent engineering teams:
 
 > A production skill should encode the shortest safe path, the hard stops, and the verifier. It should not invite the model to rediscover the workflow every time.
 
@@ -45,7 +45,7 @@ flowchart TD
 
 The trigger says when the skill applies. The fast path says what to do first. Allowed tools keep the model inside the right surface area. Forbidden detours prevent slow rituals. The verifier defines what success means. The repair path runs only after the verifier fails.
 
-For a PPTX generation skill, that means:
+For a PPTX generation skill, this contract means:
 
 - Do not install dependencies unless import or execution fails with a missing-package error.
 - Do not spawn a subagent for a straightforward deck generation task.
@@ -84,7 +84,7 @@ A skill test should not only check that the prompt contains the right words. It 
 | PPTX request with preview | Final response includes `.pptx`; previews are secondary |
 | Real trace replay | The old slow or wrong-delivery path is blocked |
 
-This turns a skill from a reminder into a guardrail.
+This turns a skill from a reminder into a runtime boundary.
 
 ---
 
@@ -104,4 +104,4 @@ The deciding question is: does the environment uncertainty block the first meani
 - Cache stable environment facts outside the per-task model loop.
 - Convert repeated trace failures into hard skill constraints.
 
-A good skill makes the agent look decisive because the system already made the boring decisions.
+A good skill makes the agent look decisive because the runtime already made the boring decisions.

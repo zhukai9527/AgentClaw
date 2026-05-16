@@ -3,9 +3,9 @@
 const base = process.env.DOCS_BASE ?? "/AgentClaw/";
 
 export default defineConfig({
-  title: "AgentClaw Engineering",
+  title: "Agent Engineering",
   description:
-    "Engineering essays, system documentation, and book chapters for AgentClaw, an open-source AI agent framework.",
+    "A publication for global agent engineers and teams learning from real failures, mechanisms, and production methods.",
   base,
   cleanUrls: true,
   lastUpdated: true,
@@ -20,29 +20,29 @@ export default defineConfig({
     ["link", { rel: "icon", href: `${base}logo.svg`, type: "image/svg+xml" }],
     ["meta", { name: "theme-color", content: "#101820" }],
     ["meta", { property: "og:type", content: "website" }],
-    ["meta", { property: "og:title", content: "AgentClaw Engineering" }],
+    ["meta", { property: "og:title", content: "Agent Engineering" }],
     [
       "meta",
       {
         property: "og:description",
         content:
-          "Production lessons on reliable AI agents: memory, traces, tools, delivery, and operations.",
+          "A publication for global agent engineers and teams learning from real failures, mechanisms, and production methods.",
       },
     ],
   ],
   themeConfig: {
-    logo: { src: "/logo.svg", alt: "AgentClaw" },
+    logo: { src: "/logo.svg", alt: "Agent Engineering" },
     nav: [
       { text: "Blog", link: "/blog/" },
-      { text: "Agent Series", link: "/blog/building-ai-agents/" },
-      { text: "Guide", link: "/guide/" },
-      { text: "Compare", link: "/compare/" },
+      { text: "Series", link: "/blog/building-ai-agents/" },
+      { text: "Field Guides", link: "/guide/" },
+      { text: "Systems", link: "/compare/" },
       { text: "Book", link: "/book/" },
     ],
     sidebar: {
       "/blog/building-ai-agents/": [
         {
-          text: "Building AI Agent Frameworks",
+          text: "Series",
           items: [
             { text: "Series Home", link: "/blog/building-ai-agents/" },
             { text: "Agent Loop Safety", link: "/blog/building-ai-agents/01-the-agent-loop" },
@@ -60,7 +60,7 @@ export default defineConfig({
       ],
       "/blog/": [
         {
-          text: "Engineering Blog",
+          text: "Blog",
           items: [
             { text: "Blog Home", link: "/blog/" },
             { text: "Memory Control System", link: "/blog/memory-control-system" },
@@ -74,9 +74,9 @@ export default defineConfig({
       ],
       "/guide/": [
         {
-          text: "System Guide",
+          text: "Field Guides",
           items: [
-            { text: "Guide Home", link: "/guide/" },
+            { text: "Field Guides Home", link: "/guide/" },
             { text: "Architecture", link: "/guide/architecture" },
             { text: "Roadmap", link: "/guide/roadmap" },
             { text: "Engineering Lessons", link: "/guide/engineering-lessons" },
@@ -85,10 +85,10 @@ export default defineConfig({
       ],
       "/compare/": [
         {
-          text: "Comparisons",
+          text: "Systems",
           items: [
-            { text: "Compare Home", link: "/compare/" },
-            { text: "AgentClaw vs OpenClaw", link: "/compare/agentclaw-vs-openclaw" },
+            { text: "Systems Home", link: "/compare/" },
+            { text: "Assistant Presence vs Control Planes", link: "/compare/agentclaw-vs-openclaw" },
           ],
         },
       ],
@@ -129,8 +129,8 @@ export default defineConfig({
       level: [2, 3],
     },
     footer: {
-      message: "Built from production traces, not imagined happy paths.",
-      copyright: "AgentClaw Engineering",
+      message: "A publication built from production traces, not imagined happy paths.",
+      copyright: "Agent Engineering",
     },
   },
 });

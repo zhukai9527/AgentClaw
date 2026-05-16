@@ -1,8 +1,8 @@
-﻿# Browser Agents Need Perception, Not HTML Dumps
+﻿# 08. Browser Agents Need Perception, Not HTML Dumps
 
 > A browser agent does not need the whole page. It needs the actionable structure of the page.
 
-The naive browser tool sends raw HTML or screenshots to the model. Both fail differently. HTML is complete but enormous. Screenshots are intuitive but expensive and hard to act on precisely.
+Browser automation is the curriculum's first full-system exercise: tool design, context control, verification, and security all meet on a live page. The naive browser tool sends raw HTML or screenshots to the model. Both fail differently. HTML is complete but enormous. Screenshots are intuitive but expensive and hard to act on precisely.
 
 A production browser agent needs a perception layer.
 
@@ -20,6 +20,8 @@ A production browser agent needs a perception layer.
 | Accessibility snapshot | Action-oriented | Needs stable element IDs and refresh discipline |
 
 The accessibility snapshot is usually the best default because it already represents what a user can perceive and operate.
+
+The production lesson is to separate perception from execution. The model should reason over a compact page representation and act through stable handles.
 
 ---
 
@@ -47,6 +49,8 @@ Element IDs matter. The model should not click by vague coordinate unless visual
 | Button click | Resulting element, toast, or network response appears |
 | Download | File exists and type matches request |
 | Responsive layout | Screenshot or DOM check across viewport sizes |
+
+The curriculum exercise is to make the agent prove every browser action with a page-state check. A click without verification is only an input event, not task progress.
 
 A browser action is not complete because Playwright clicked something. It is complete when the page state proves the click mattered.
 

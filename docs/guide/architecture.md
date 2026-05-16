@@ -1,35 +1,37 @@
-﻿# AgentClaw Architecture
+﻿# Field Guide: Agent Control-Plane Architecture
 
-> AgentClaw is an agent control plane: it turns user intent into governed loops, tool actions, memory reads, artifact delivery, and traceable outcomes.
+> A production agent is not a model wrapper. It is a control plane for intent, authority, memory, tools, artifacts, and proof.
 
-The architecture exists because a production agent cannot be only a model wrapper. The model proposes actions. The system decides what authority those actions have, what context the model receives, how tools are executed, how memory is allowed to influence decisions, and whether the final result is actually delivered.
+This guide describes a reusable architecture pattern for agents that must do work with side effects. AgentClaw is one implementation example, but the pattern is broader: separate the model's cognitive role from the system responsibilities that make work safe, repeatable, and deliverable.
 
 ## Thesis
 
 > A useful agent framework separates cognition from authority.
 
-The model should not own persistence, permissions, delivery, provider compatibility, channel semantics, or release discipline. Those are system responsibilities.
+The model can propose actions and interpret observations. It should not own persistence, permissions, delivery, provider compatibility, channel semantics, or release discipline. Those are system boundaries.
 
 ## High-Level Shape
 
 ```mermaid
 flowchart TD
-  UI["User interfaces\nWeb, CLI, chat gateways"] --> GW["Gateway\nHTTP, WebSocket, channel adapters"]
+  UI["User surfaces\nWeb, CLI, chat, API"] --> GW["Gateway\nnormalization, auth, channel adapters"]
   GW --> SM["Session manager\nidentity, lifecycle, timeout"]
   SM --> LOOP["Agent loop\nplan, act, observe, stop"]
   LOOP --> CTX["Context manager\nstatic contract, fresh intent, compressed evidence"]
   LOOP --> MEM["Memory system\nactive recall, governance, telemetry"]
   LOOP --> TOOLS["Tool runtime\nschema, policy, side effects, artifacts"]
-  LOOP --> PROV["Provider adapters\nOpenAI-compatible, Claude, Gemini, local"]
+  LOOP --> PROV["Provider adapters\nrequest normalization, streaming, error taxonomy"]
   TOOLS --> ART["Artifact store\nsource, preview, final deliverable"]
   LOOP --> TRACE["Trace system\nsteps, tools, artifacts, replay evidence"]
 ```
+
+The diagram is intentionally layered. A failure should have a home: stale preference belongs in memory governance, provider incompatibility belongs in an adapter, a missing final file belongs in the artifact pipeline, and repeated action belongs in loop control.
 
 ## Core Boundaries
 
 | Boundary | Owned by | Why it matters |
 |---|---|---|
-| User/channel normalization | Gateway and adapters | Prevents Telegram, web, and desktop from becoming different agents |
+| User/channel normalization | Gateway and adapters | Prevents web, chat, and desktop from becoming different agents |
 | Task lifecycle | Session manager and agent loop | Stops long-running work from becoming invisible or immortal |
 | Context influence | Context manager | Keeps fresh user intent stronger than stale history |
 | Memory authority | Memory system | Prevents old preferences from becoming unreviewed policy |
@@ -64,7 +66,7 @@ sequenceDiagram
   G-->>U: platform-specific delivery
 ```
 
-The trace is not an afterthought. It is written throughout the flow so a production failure can be replayed at the right layer later.
+Trace capture is part of the flow, not a logging afterthought. If the final result fails, the team needs enough evidence to replay the path at the layer where the failure occurred.
 
 ## Reliability Mechanisms
 
@@ -78,15 +80,21 @@ The trace is not an afterthought. It is written throughout the flow so a product
 | Delivery contracts | Preview artifacts replacing requested final outputs |
 | Scenario replay | Fixes that pass local tests but fail real user paths |
 
-## Deployment Shape
+## Field Evidence
 
-AgentClaw is a TypeScript monorepo with a web control plane, gateway surfaces, core agent runtime, tools, memory, and integrations. The deployment boundary should be drawn around the runtime that owns user sessions and tool execution. High-authority tools should be sandboxed or constrained by policy. Generated artifacts should be stored where the delivery channel can actually reach them.
+AgentClaw's implementation record is useful here as a case study, not as a requirement. Its failures around file delivery, memory influence, provider compatibility, and trace replay point to the same architectural conclusion: the model can be strong and the system can still fail if authority, evidence, and final delivery are not owned outside the prompt.
+
+The transferable lesson is to assign each class of failure to a deterministic boundary. Prompt instructions can explain the policy, but code, schemas, stores, adapters, and tests have to enforce it.
+
+## Deployment Boundary
+
+Draw the deployment boundary around the runtime that owns sessions and tool execution. High-authority tools should be sandboxed or constrained by policy. Generated artifacts should be stored where the delivery channel can actually reach them. Provider configuration, memory migrations, and trace retention are production dependencies, not optional plugins.
 
 ## What This Architecture Optimizes For
 
-AgentClaw optimizes for finishing real tasks under changing context: long conversations, memory, file delivery, browser work, multiple channels, and provider variability. It does not optimize for being the smallest possible chat wrapper.
+This architecture optimizes for finishing real tasks under changing context: long conversations, memory, file delivery, browser work, multiple channels, and provider variability. It does not optimize for being the smallest possible chat wrapper.
 
-The trade-off is more system surface area. The payoff is that failures can be isolated: a provider bug belongs in the adapter, a stale preference belongs in memory governance, a wrong file belongs in delivery gates, and a repeated action belongs in loop control.
+The trade-off is more system surface area. The payoff is failure isolation. When each responsibility has a boundary, fixes become architectural instead of conversational.
 
 ## Principle
 

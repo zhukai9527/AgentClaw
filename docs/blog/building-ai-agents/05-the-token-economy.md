@@ -1,8 +1,8 @@
-﻿# The Token Economy Is a Systems Problem
+﻿# 05. The Token Economy Is a Systems Problem
 
 > Token waste is usually not one expensive model call. It is repeated context, hidden background work, and tool output that should never have entered the prompt.
 
-Teams often optimize the visible part of agent cost: choose a cheaper model, shorten the answer, reduce temperature. Those help, but they miss the larger system effect.
+At the midpoint of the curriculum, cost becomes a design constraint rather than an accounting afterthought. Teams often optimize the visible part of agent cost: choose a cheaper model, shorten the answer, reduce temperature. Those help, but they miss the larger system effect.
 
 An agent pays for the same facts repeatedly: tool schemas, system rules, conversation history, memory snippets, logs, summaries, retries, and background extraction.
 
@@ -22,6 +22,8 @@ An agent pays for the same facts repeatedly: tool schemas, system rules, convers
 | Multi-channel wrappers | Platform metadata duplicated into every turn |
 
 The largest savings usually come from removing repeated input, not shaving a few words from output.
+
+Token work is therefore architecture work: caching, routing, tool loading, summarization, and measurement all shape both cost and behavior.
 
 ---
 
@@ -51,6 +53,8 @@ A good token system tracks both cost and correctness. If token usage falls while
 | Output previews | Prevents raw logs from dominating the context |
 | Deterministic truncation | Keeps the agent alive under pressure |
 | Scenario replay | Catches optimizations that break behavior |
+
+A production exercise should require every cost reduction to carry a paired behavior check. The goal is not fewer tokens in isolation; it is the same or better task completion with less repeated influence.
 
 ---
 

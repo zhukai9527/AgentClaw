@@ -1,8 +1,8 @@
-﻿# Tool Systems Fail at the Interface, Not the Function Body
+﻿# 02. Tool Systems Fail at the Interface, Not the Function Body
 
 > Most tool bugs are not inside the tool. They are in the contract the model believes the tool has.
 
-A shell command can be correct. A browser click can work. A file reader can return exactly what it found. The agent can still choose the wrong tool, pass the wrong argument, or treat a preview as the final artifact.
+After the loop can stop, the next curriculum layer is tool authority. A shell command can be correct. A browser click can work. A file reader can return exactly what it found. The agent can still choose the wrong tool, pass the wrong argument, or treat a preview as the final artifact.
 
 That is why tool design is not API design with natural-language labels. It is model-facing interface design.
 
@@ -53,6 +53,8 @@ A tool that returns "failed" has given the agent a dead end. A tool that returns
 | Can a dangerous tool be selected casually? | Require explicit permission or route through a safer wrapper |
 
 These tests are cheap and catch more agent bugs than another paragraph of prompt advice.
+
+For a production curriculum, each new tool should pass these tests before it is exposed to the model. The implementation can be ordinary code; the interface must be engineered as a teaching surface.
 
 ---
 

@@ -1,8 +1,8 @@
-﻿# Every LLM Call Is a Failure Boundary
+﻿# 06. Every LLM Call Is a Failure Boundary
 
 > Treat every model call as an unreliable network boundary, even when the provider returns 200 OK.
 
-An agent can fail before the first token, after the first token, inside a JSON field, inside a provider-specific compatibility rule, or after a response that sounds valid but cannot be parsed by the next step.
+The sixth curriculum layer treats the model provider as infrastructure. An agent can fail before the first token, after the first token, inside a JSON field, inside a provider-specific compatibility rule, or after a response that sounds valid but cannot be parsed by the next step.
 
 The model is not a local function. It is a remote dependency with probabilistic output and provider-specific behavior.
 
@@ -22,6 +22,8 @@ The model is not a local function. It is a remote dependency with probabilistic 
 | Context too large | Retry without compression repeats the failure |
 
 A retry loop without classification is just a faster way to waste tokens.
+
+The system must distinguish transport success from contract success. Otherwise the agent loop inherits provider ambiguity and turns it into user-visible confusion.
 
 ---
 
@@ -52,6 +54,8 @@ The adapter owns provider weirdness. The agent loop should receive normalized su
 | Invalid contract | Ask model to repair only the invalid structure |
 | Provider incompatibility | Strip or map unsupported fields in adapter |
 | Mid-stream failure | Surface partial-state limitation; do not pretend seamless fallback |
+
+The production exercise is to inject one failure from each class and verify that the adapter, not the agent prompt, owns the recovery decision.
 
 ---
 

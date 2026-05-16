@@ -1,5 +1,12 @@
 # 更新日志
 
+## [1.5.31] - 2026-05-16
+
+### Changed
+- **技术站定位改为 Agent Engineering 刊物**：站点标题、首页、导航、侧边栏、footer 和栏目入口从 AgentClaw 产品/文档站收敛为面向全球 agent 工程师和团队的工程刊物；AgentClaw 仅作为 production workbench、case study 和真实 trace 证据来源出现。
+- **栏目体系刊物化**：导航改为 Blog、Series、Field Guides、Systems、Book；Guide 改为 Field Guides，Compare 改为 Systems Analysis，系列首页改为 production agent engineering curriculum。
+- **文章主语去产品化**：旗舰文章、Agent Series、Field Guides 和 Systems Analysis 进一步弱化产品中心表达，强调通用 failure mode、机制、边界、验收证据和可迁移原则。
+
 ## [1.5.30] - 2026-05-16
 
 ### Added

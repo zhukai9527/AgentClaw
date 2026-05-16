@@ -1,12 +1,12 @@
-﻿# Agent Loops Need Brakes Before They Need Speed
+﻿# 01. Agent Loops Need Brakes Before They Need Speed
 
 > The first production problem in an agent loop is not making it act. It is making it stop for the right reason.
 
-The earliest version of an agent loop feels magical. The model thinks, calls a tool, observes the result, and calls another tool. Add a browser, a shell, and file access, and it begins to look like work.
+This curriculum starts where most agent demos stop: the loop. The earliest version feels magical. The model thinks, calls a tool, observes the result, and calls another tool. Add a browser, a shell, and file access, and it begins to look like work.
 
 Then it runs the same failed command again. Then it searches a path it already proved does not exist. Then it asks a subtask to verify a fact the parent already knows. The loop is alive, but it is not governed.
 
-The thesis of this article is the same one we use in AgentClaw design reviews:
+The thesis of this lesson is the foundation for the rest of the series:
 
 > Autonomy is useful only when the system has independent stopping conditions.
 
@@ -25,6 +25,8 @@ An unconstrained agent can create a convincing transcript while making no real p
 | User fatigue | It asks broad questions instead of reporting a blocker | Escalation rule |
 
 A loop is not safe because it has a `maxIterations` number. That only limits damage after the system has already lost control. A safer loop knows why another iteration is justified.
+
+In production terms, this is the first curriculum gate: every agent action must be tied to an observable state change, a remaining budget, or an explicit blocker.
 
 ---
 
@@ -74,6 +76,8 @@ A loop change is not verified because the model sounds better. It is verified wh
 | Tool outage | Retry according to policy, then surface the blocker |
 | Long artifact task | Keep the final artifact type through substeps |
 | User correction | Change strategy immediately instead of finishing the old plan |
+
+These are not unit tests for a helper function. They are trace-level tests for the control loop. A curriculum implementation should keep a small corpus of bad traces and require each one to stop for the right reason.
 
 ---
 

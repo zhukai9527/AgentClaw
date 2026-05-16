@@ -2,51 +2,51 @@
 layout: home
 
 hero:
-  name: AgentClaw Engineering
-  text: Building agents that finish real work
-  tagline: Production lessons on memory, trace replay, tool contracts, artifact delivery, and agent operations.
+  name: Agent Engineering
+  text: A publication for teams building agents that finish real work
+  tagline: Field notes for global agent engineers and teams learning from real failures, mechanisms, and methods.
   actions:
     - theme: brand
-      text: Read the memory essay
+      text: Read the latest essay
       link: /blog/memory-control-system
     - theme: alt
-      text: Explore the book
-      link: /book/
-    - theme: alt
-      text: Browse the agent series
+      text: Follow a series
       link: /blog/building-ai-agents/
+    - theme: alt
+      text: Open the book
+      link: /book/
   image:
     src: /logo.svg
-    alt: AgentClaw mark
+    alt: Agent Engineering publication mark
 
 features:
-  - title: Memory as a control system
-    details: Why production agent memory needs selective recall, provenance, governance, telemetry, cleanup, and replay tests.
+  - title: Failures before frameworks
+    details: Start from broken memory, flaky tools, missed artifacts, and runaway loops, then extract mechanisms that survive production.
     link: /blog/memory-control-system
-  - title: Trace replay over happy paths
-    details: How real user traces become permanent scenario tests for memory, tools, channels, and final artifacts.
+  - title: Methods you can reuse
+    details: Turn traces, contracts, delivery checks, and operating rules into repeatable engineering practice for agent teams.
     link: /blog/trace-replay-testing
-  - title: A complete Chinese agent book
-    details: 16 chapters on loops, tools, memory, token economics, security, browser automation, channels, and production readiness.
+  - title: Workbench evidence, not brand gravity
+    details: AgentClaw appears as the production workbench and case-study source, not the center of the publication.
     link: /book/
 ---
 
 ## Start Here
 
-AgentClaw is an open-source AI commander: a task-running agent framework with tool use, memory, browser automation, multi-channel gateways, scheduled work, and a web control plane.
+Agent Engineering is a publication for people who build agents under real constraints: long-running work, tool contracts, memory governance, browser automation, artifact delivery, multi-channel operations, and production review.
 
-This site has two public layers. The English engineering site publishes compact, globally reusable lessons. The Chinese book section gives a longer learning path for people who want to understand how to build a real agent from zero to production.
+The publication helps global agent engineers and teams learn from real failures, mechanisms, and methods. AgentClaw remains the production workbench behind many examples: a place where traces, defects, delivery gaps, and operating rules become evidence for broader engineering lessons.
 
 | Path | What It Gives You |
 |---|---|
-| [Engineering Blog](/blog/) | Flagship essays written from production failures, mechanisms, tests, and reusable principles. |
-| [Building AI Agent Frameworks](/blog/building-ai-agents/) | A structured 10-part engineering series on the core surfaces of production agents. |
-| [System Guide](/guide/) | Architecture, roadmap, and durable lessons for contributors and reviewers. |
-| [Comparisons](/compare/) | Fair positioning documents that explain trade-offs with related agent systems. |
+| [Blog](/blog/) | Flagship essays written from production failures, mechanisms, tests, and reusable principles. |
+| [Series](/blog/building-ai-agents/) | Multi-part editorial tracks on the core surfaces of production agents. |
+| [Field Guides](/guide/) | Practical operating guides for architecture, roadmap thinking, and engineering review. |
+| [Systems](/compare/) | System dossiers and trade-off notes drawn from adjacent agent frameworks and production workbenches. |
 | [Book](/book/) | The full Chinese manuscript of 《造一个真能用的 AI Agent》. |
 
 ## Editorial Bar
 
-Public AgentClaw writing must earn its place. A publishable article starts from a real failure, states a reusable thesis, explains the mechanism, names the boundary, and leaves the reader with a principle they can apply in their own agent system.
+Every Agent Engineering piece must earn its place. A publishable article starts from a real failure, states a reusable thesis, explains the mechanism, names the boundary, and leaves the reader with a principle they can apply in their own agent system.
 
-The site intentionally excludes temporary audit reports, one-off task lists, local cache files, and private package materials. The only exception is the curated Book section, which republishes the complete manuscript as a coherent standalone work.
+The site intentionally excludes temporary audit reports, one-off task lists, local cache files, and private package materials. AgentClaw may appear when it supplies concrete production evidence, but the editorial center is the global practice of agent engineering.

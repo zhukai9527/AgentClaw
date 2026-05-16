@@ -1,8 +1,8 @@
-﻿# Multi-Channel Agents Need One Brain and Many Adapters
+﻿# 09. Multi-Channel Agents Need One Brain and Many Adapters
 
 > A Telegram agent, web agent, Slack agent, and desktop agent should not become four personalities with four memories.
 
-The first version of a multi-channel system often copies message handling for each platform. It works until behavior drifts: one channel has timeouts, another has streaming, another splits long messages, another forgets memory, another cannot deliver files.
+Near the end of the curriculum, distribution becomes the problem. The first version of a multi-channel system often copies message handling for each platform. It works until behavior drifts: one channel has timeouts, another has streaming, another splits long messages, another forgets memory, another cannot deliver files.
 
 > Multi-channel architecture should centralize cognition and decentralize transport.
 
@@ -19,6 +19,8 @@ The first version of a multi-channel system often copies message handling for ea
 | Separate formatting | Model learns channel quirks instead of task logic |
 
 The channel should adapt messages. It should not own the agent brain.
+
+The engineering target is a shared cognitive core with adapter-specific transport rules. If the channel changes the task semantics, it has crossed the boundary.
 
 ---
 
@@ -48,6 +50,8 @@ Adapters translate platform events into a shared internal message. The core owns
 | Timeouts | Task lifecycle policy | Typing indicators or keepalive |
 | Artifacts | Final deliverable contract | Upload/link mechanism |
 | Formatting | Semantic response blocks | Markdown/platform escaping |
+
+A production exercise should run the same artifact task through two channels and verify that identity, memory, delivery, and final response semantics remain consistent.
 
 ---
 

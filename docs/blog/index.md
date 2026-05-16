@@ -1,10 +1,14 @@
-﻿# Engineering Blog
+# Agent Engineering
 
 Production agents do not fail like chatbots. They fail by looping one more time, remembering the wrong preference, handing back the wrong file type, or passing a green unit test while the user still cannot use the result.
 
-AgentClaw articles are written from those failures. Each essay starts with a concrete incident, extracts the system mechanism, shows the boundary conditions, and ends with principles another team can reuse.
+This publication is about agent engineering as a real software discipline: control loops, tool authority, memory governance, browser perception, artifact delivery, trace replay, release discipline, and the economics of model calls.
+
+AgentClaw appears here as source material and a case study, not the subject. The subject is the engineering fieldwork behind production agents: where autonomy breaks, how systems contain it, and which mechanisms other teams can reuse.
 
 ## Flagship Essays
+
+Start here if you want the highest-leverage arguments. These pieces define the editorial spine of the site: agents become reliable when probabilistic behavior is surrounded by explicit contracts, replayable evidence, and delivery checks that measure the user's finished job.
 
 | Article | Core Thesis |
 |---|---|
@@ -16,7 +20,7 @@ AgentClaw articles are written from those failures. Each essay starts with a con
 
 ## Series
 
-The Agent Series turns the same production lessons into a structured path through loops, tools, context, memory, cost, failure handling, security, browser automation, channels, and release discipline.
+The Series turns the same fieldwork into a production agent engineering curriculum. Read it as a sequence: first learn how an agent acts, then how it observes, remembers, spends, fails, secures authority, operates in browsers, serves multiple channels, and finally ships work a user can actually finish.
 
 | # | Article |
 |---|---|

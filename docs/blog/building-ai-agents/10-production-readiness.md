@@ -1,8 +1,8 @@
-﻿# Production Readiness Means the User Can Finish the Job
+﻿# 10. Production Readiness Means the User Can Finish the Job
 
 > A trace that ends is not the same as a task that is done.
 
-The hardest production bugs in agent systems often happen after the impressive part. The model planned correctly. Tools ran. Logs looked green. Then the user could not open the file, the channel dropped the response, the server restarted mid-task, or the artifact path was local to the worker.
+The final curriculum lesson returns to the user-visible outcome. The hardest production bugs in agent systems often happen after the impressive part. The model planned correctly. Tools ran. Logs looked green. Then the user could not open the file, the channel dropped the response, the server restarted mid-task, or the artifact path was local to the worker.
 
 > Production readiness is the set of boring systems that preserve user-visible outcomes after the model has finished reasoning.
 
@@ -20,6 +20,8 @@ The hardest production bugs in agent systems often happen after the impressive p
 | Tests pass | Real trace with old state still fails |
 
 Production is not one more environment. It is the place where all hidden assumptions are audited by users.
+
+This is where the earlier lessons become a release discipline: loop control, tool contracts, context, memory, cost, provider adapters, security, browser perception, and channels all have to preserve the same deliverable contract.
 
 ---
 
@@ -50,6 +52,8 @@ Each layer answers a different question. Can the code run? Can the data evolve? 
 | Artifacts | Final deliverables are type-checked and reachable |
 | Traces | User-visible failures become replay scenarios |
 | Release | Changelog and commits explain one coherent change |
+
+The capstone exercise is a full trace: user request, planning, tools, artifact creation, delivery, replay evidence, and release note. The task is not complete until the user can use the result outside the worker that created it.
 
 ---
 

@@ -1,10 +1,12 @@
-﻿# Building AI Agent Frameworks
+# Building Production AI Agents
 
 > A production agent is not a bigger chatbot. It is a control system around a probabilistic model.
 
-This series is the structured version of AgentClaw's engineering record. Each article starts from a failure mode we saw while turning an agent from a demo into a system that can run tools, preserve memory, use browsers, serve multiple channels, and finish user-visible work.
+This series is a production agent engineering curriculum. It starts where demos usually stop: the moment an agent is allowed to loop, call tools, remember, spend money, browse the web, touch user files, and claim that work is done.
 
-The series is intentionally narrower than a textbook. It focuses on the surfaces that break in production: loops, tools, context, memory, token cost, model failures, security, browser perception, channel adapters, and release discipline.
+The curriculum is intentionally narrower than a textbook. It focuses on the surfaces that break in production: loops, tools, context, memory, token cost, model failures, security, browser perception, channel adapters, and release discipline.
+
+AgentClaw is one source of the field data behind these lessons. The goal is not to document a framework. The goal is to give engineers a transferable sequence of mechanisms, failure modes, and acceptance criteria for building agents that can survive contact with real users.
 
 ## Reading Path
 
@@ -23,7 +25,7 @@ The series is intentionally narrower than a textbook. It focuses on the surfaces
 
 ## Editorial Contract
 
-Every article in this series follows the same bar:
+Every lesson in this curriculum follows the same bar:
 
 - a concrete failure or conflict at the start;
 - one reusable thesis;

@@ -8,7 +8,7 @@ Then a real user got a PDF.
 
 Nothing in the small test suite failed because the test suite was checking the developer's imagined path. It did not replay the user's exact wording. It did not include the old conversation state. It did not include the memory that biased the design. It did not check the final user-visible artifact after the tool chain finished.
 
-That is the difference between testing an agent component and testing an agent capability.
+That is the difference between testing an agent component and testing an agent capability. Teams shipping agents globally hit this boundary as soon as memory, tools, model adapters, and user-visible artifacts share the same trace.
 
 The thesis is blunt:
 
@@ -56,7 +56,7 @@ flowchart LR
   G --> H["User-visible assertion"]
 ```
 
-The replay fixture should include the user wording, the prior turns that change meaning, the memory rows that could influence the answer, the tool outputs that drive branching, and the expected final result.
+The replay fixture should include the user wording, the prior turns that change meaning, the memory rows that could influence the answer, the tool outputs that drive branching, the model or provider configuration that changes behavior, and the expected final result.
 
 The expected result should be stated at the same level the user experiences. For a file task, the assertion is not "exporter called." It is "the final delivered file exists, is a `.pptx`, is reachable from the response, and is not replaced by a PDF preview."
 
@@ -87,7 +87,7 @@ A replay test earns its keep only when it would have failed before the fix. For 
 - A retry loop must stop and explain the blocker instead of repeating the same failed command.
 - A browser automation task must verify the DOM or screenshot, not merely claim navigation happened.
 
-This turns a user complaint into a permanent system boundary. The next developer does not need to remember the incident. The test remembers it.
+This turns a user complaint into a permanent system boundary. The next developer does not need to remember the incident because the runtime contract now remembers it.
 
 ---
 

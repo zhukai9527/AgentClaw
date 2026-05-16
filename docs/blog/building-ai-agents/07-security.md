@@ -1,8 +1,8 @@
-﻿# Agent Security Starts With Tool Authority
+﻿# 07. Agent Security Starts With Tool Authority
 
 > The dangerous question is not what the model knows. It is what the model is allowed to do after reading hostile text.
 
-An agent with shell, browser, file, memory, and network tools is not a chatbot. It is an execution surface. Prompt injection matters because untrusted text can become instructions for tools with real authority.
+Security appears late in many agent projects, but in this curriculum it follows naturally from tool authority. An agent with shell, browser, file, memory, and network tools is not a chatbot. It is an execution surface. Prompt injection matters because untrusted text can become instructions for tools with real authority.
 
 > Agent security is permission design around a suggestible planner.
 
@@ -20,6 +20,8 @@ An agent with shell, browser, file, memory, and network tools is not a chatbot. 
 | Memory poisoning | Malicious instruction is stored as future preference |
 
 Traditional web security still applies, but the model adds a new bridge between text and action.
+
+That bridge is the curriculum target. Secure agent design is less about making the model immune to hostile text and more about preventing hostile text from receiving permission.
 
 ---
 
@@ -48,6 +50,8 @@ The model can propose. Policy decides. The sandbox limits damage. The audit log 
 | Shell constraints | Reduce command injection and destructive operations |
 | Memory write scan | Prevent hostile text from becoming future policy |
 | Tool permission tiers | Keep high-authority tools out of low-trust contexts |
+
+A production exercise should feed hostile page text, malicious filenames, and poisoned memory candidates into the same task path. Passing behavior means the planner may see the text, but policy still blocks the authority transfer.
 
 ---
 

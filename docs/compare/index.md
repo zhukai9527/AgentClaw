@@ -1,7 +1,9 @@
-﻿# Compare
+# Systems Analysis
 
-Comparisons on this site are not scoreboards. They are positioning documents: what each system appears to optimize for, which trade-offs follow, and where AgentClaw should learn rather than boast.
+Systems Analysis is not competitive marketing. It is a way to study agent systems by asking what each one optimizes for, which constraints those choices create, and what production engineers can learn from the differences.
 
-| Comparison | Focus |
+The goal is to compare architectures, operating assumptions, authority models, delivery guarantees, and failure surfaces. AgentClaw may appear as one reference point or case study, but the useful question is broader: what does each system make easy, what does it make risky, and what should another team borrow or avoid?
+
+| Analysis | Focus |
 |---|---|
-| [AgentClaw vs OpenClaw](./agentclaw-vs-openclaw.md) | Personal assistant breadth versus controlled task execution, with methodology and caveats. |
+| [Assistant Presence vs Control Planes](./agentclaw-vs-openclaw.md) | Personal assistant breadth versus controlled task execution, with methodology and caveats. |

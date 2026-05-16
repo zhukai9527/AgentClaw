@@ -2,7 +2,7 @@
 
 > Agent memory is not a storage problem. It is a control-system problem.
 
-We learned this the annoying way.
+This failure usually appears only after memory feels like it is working.
 
 A user asked for a PowerPoint. The agent had a long-term memory that the user liked dark, technical slide decks. That memory was real. It had been true in an earlier context. But the new task was a business sponsorship deck, where the right default was bright, clean, and commercially credible.
 
@@ -14,7 +14,7 @@ Then a second failure appeared. In the same conversation, the user asked a follo
 
 The sentence did not contain the word “PowerPoint.” A naive memory selector looking only at the current turn could lose the task context. Worse, because the trace contained shared test phrases, an unrelated preference such as “the user likes spicy food” could be ranked as a candidate. It sounds absurd until you inspect real traces. Weak lexical overlap, stale preferences, and missing conversation context are enough to make an agent remember the wrong thing.
 
-That is the moment we stopped treating memory as “RAG over user facts.”
+That is the moment an agent team has to stop treating memory as “RAG over user facts.”
 
 RAG asks: “What documents are relevant to this query?”
 
@@ -23,10 +23,10 @@ Agent memory has to ask harder questions:
 - Should this memory influence the current decision?
 - Is it a stable preference, a scene-specific rule, or a one-off fact?
 - What happens if two memories conflict?
-- How do we know whether this memory helped or polluted the answer?
+- How can the runtime know whether this memory helped or polluted the answer?
 - When a memory is proven harmful, how does it leave the system?
 
-This article describes how we rebuilt AgentClaw’s memory layer into a controlled system: active recall, layered memory, governance, telemetry, scenario replay, and automatic cleanup.
+This article describes the control-system pattern behind a production memory layer: active recall, layered memory, governance, telemetry, scenario replay, and automatic cleanup. AgentClaw is the case study, but the design problem belongs to every team shipping memory-enabled agents.
 
 The result is not “more memory.” The result is safer memory.
 
@@ -45,7 +45,7 @@ This is enough for a demo. It is not enough for production.
 
 The problem is that memory inside an agent prompt is not passive context. It becomes part of the policy the model follows. If the memory is stale, too broad, or in the wrong scene, the agent does not merely “retrieve a bad document.” It makes a bad decision.
 
-Here are the failures we saw in real traces.
+These failures show up in real traces across agent systems.
 
 | Failure | What it looks like | Why normal retrieval fails |
 |---|---|---|
@@ -63,7 +63,7 @@ The core mistake is assuming that remembering is always good. In agent systems, 
 
 ## The Thesis: Memory Needs a Control Loop
 
-We redesigned memory around one principle:
+A reliable memory system should be designed around one principle:
 
 > A memory should not be allowed to influence an agent unless the system can explain why it was recalled, measure whether it helped, and remove it when it causes harm.
 
@@ -84,7 +84,7 @@ flowchart TD
 
 The key word is “loop.” A memory is not done when it is written. It has to survive recall, use, evaluation, and cleanup.
 
-This design changed how we judged memory quality. We no longer ask only whether a memory can be found. We ask whether it should have been found, whether it helped, and whether the system can prevent a similar mistake from returning.
+This changes how memory quality is judged. The important question is not only whether a memory can be found. It is whether the memory should have been found, whether it helped, and whether the system can prevent a similar mistake from returning.
 
 ---
 
@@ -92,7 +92,7 @@ This design changed how we judged memory quality. We no longer ask only whether 
 
 Flat memory becomes noise. If every extracted fact competes equally for prompt space, the agent gets a pile of fragments instead of a decision aid.
 
-We split long-term memory into three layers.
+The first structural move is to split long-term memory into three layers.
 
 | Layer | Meaning | Example | Role |
 |---|---|---|---|
@@ -116,8 +116,8 @@ A scene memory carries provenance:
 
 This gives us two properties that flat memory does not:
 
-- We can recall compact, high-level behavior without flooding the prompt.
-- We can audit where the behavior came from.
+- The runtime can recall compact, high-level behavior without flooding the prompt.
+- The team can audit where the behavior came from.
 
 For agent teams, this is the first important design move: do not treat every memory as the same kind of thing.
 
@@ -133,7 +133,7 @@ Classic retrieval says:
 query -> vector / BM25 search -> top-k -> prompt
 ```
 
-For agent memory, top-k is too blunt. A memory can be textually related and still not be decision-relevant. So we added Active Memory selection before prompt injection.
+For agent memory, top-k is too blunt. A memory can be textually related and still not be decision-relevant. A safer runtime adds Active Memory selection before prompt injection.
 
 The pipeline is:
 
@@ -170,7 +170,7 @@ This sounds obvious after the fact, but it is a common production trap. A failed
 
 ## Conversation Continuity: The Current Turn Is Not the Task
 
-The most important recall bug we fixed was not an embedding bug. It was a context bug.
+The most important recall bug in this class is often not an embedding bug. It is a context bug.
 
 Users write follow-ups:
 
@@ -192,7 +192,7 @@ const memoryQuery = [
 
 This one change made the system much closer to how real users speak. People do not restate the full task every turn. An agent memory system that ignores recent user messages will eventually recall the wrong memory for an underspecified follow-up.
 
-In our scenario replay, this became a hard test:
+In the AgentClaw scenario replay, this became a hard test:
 
 - Seed a relevant PPTX delivery memory.
 - Seed an irrelevant “likes spicy food” memory.
@@ -208,7 +208,7 @@ That test now runs in the default test chain.
 
 A memory system with only `add` and `search` is not a memory system. It is a landfill.
 
-We added three governance primitives.
+A mature memory runtime needs three governance primitives.
 
 ### Edit
 
@@ -224,7 +224,7 @@ This is a subtle bug. The UI looks correct, but search still behaves as if the o
 
 ### Deprecate
 
-Bad memory should not always be physically deleted. Deletion erases evidence. We mark it instead:
+Bad memory should not always be physically deleted. Deletion erases evidence. Mark it instead:
 
 ```json
 {
@@ -255,7 +255,7 @@ This is not an admin-panel feature. It is part of the runtime safety model. If m
 
 ## Telemetry: Measure Whether Memory Helped
 
-Once a memory reaches the prompt, we record it.
+Once a memory reaches the prompt, the runtime should record it.
 
 The `memory_usage` event captures:
 
@@ -281,7 +281,7 @@ or:
 { "outcome": "polluting" }
 ```
 
-From this, we compute per-memory quality:
+From this, the system can compute per-memory quality:
 
 | Metric | Meaning |
 |---|---|
@@ -298,7 +298,7 @@ This changes the operational posture. Memory quality is no longer a feeling. It 
 
 ## The Janitor: Forgetting With Evidence
 
-The most important piece we added is automatic cleanup.
+The most important piece is automatic cleanup.
 
 If a memory has enough usage history and is repeatedly marked polluting, the system deprecates it automatically.
 
@@ -350,7 +350,7 @@ Real agent failures often depend on:
 - what side effects happened,
 - and what the user ultimately saw.
 
-So after a memory failure, we extract the trace into a scenario replay test. The test does not merely check a helper function. It recreates the shape of the real failure.
+After a memory failure, extract the trace into a scenario replay test. The test should not merely check a helper function. It should recreate the shape of the real failure.
 
 For the PPTX follow-up bug, the replay verifies:
 
@@ -370,7 +370,7 @@ For governance, the replay verifies:
 | Merge memories | canonical target visible, sources superseded |
 | Janitor | polluting memory deprecated, helpful memory retained |
 
-This matters more than the exact implementation. If a future refactor breaks the behavior, the test fails. We are no longer relying on a developer remembering the incident.
+This matters more than the exact implementation. If a future refactor breaks the behavior, the test fails. The team is no longer relying on a developer remembering the incident.
 
 ---
 
@@ -387,7 +387,7 @@ Here is the before and after.
 | Bad memory repeatedly pollutes context | Human must notice and delete | Janitor deprecates it with evidence |
 | A real trace fails | Prompt patched once | Scenario replay enters default tests |
 
-We also ran production-like validation, not just unit tests:
+In the AgentClaw case study, the validation was production-like, not just unit-level:
 
 | Validation | Result |
 |---|---|
@@ -476,7 +476,7 @@ The safest memory system is one that earns the right to remember.
 
 That requires more than embeddings. It requires lifecycle, provenance, selective recall, telemetry, governance, automatic cleanup, and scenario replay.
 
-The lesson we took from this work is simple:
+The transferable lesson is simple:
 
 > The hard part of agent memory is not remembering. It is forgetting with evidence.
 

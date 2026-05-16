@@ -8,11 +8,11 @@ The worse symptom was quieter. After enough tool output accumulated, the model b
 
 That is the failure most teams miss. A full context window is not only a billing problem. It is a decision-quality problem.
 
-AgentClaw's context system was rebuilt around one thesis:
+A reliable context system for agents should be built around one thesis:
 
 > The context window is a control surface. Every token that enters it should have a reason to still influence the next decision.
 
-This article describes the mechanism we use: immutable system context, protected recent intent, structured summaries, tool-output demotion, compression waterfalls, and regression tests that check behavior rather than token counts alone.
+This article describes the mechanism behind that thesis: immutable system context, protected recent intent, structured summaries, tool-output demotion, compression waterfalls, and regression tests that check behavior rather than token counts alone. AgentClaw is one production workbench where these patterns were hardened, but the failure mode is general.
 
 ---
 
@@ -65,7 +65,7 @@ That separation gives the agent a stable order of influence:
 
 ## The Waterfall: Compress Before the Emergency
 
-A single compression strategy is too fragile. We use a waterfall because different pressure levels need different behavior.
+A single compression strategy is too fragile. A waterfall works better because different pressure levels need different behavior.
 
 | Pressure | Strategy | What must survive |
 |---|---|---|

@@ -8,6 +8,8 @@ The final artifact was a PDF.
 
 This is one of the most common production-agent failures because every layer can honestly report success. The script ran. The renderer produced something. The assistant responded. The trace closed. But the user did not get the thing they asked for.
 
+For teams building agents that create files, code, reports, media, or deployed surfaces, this is the point where "task completed" has to become an enforceable delivery state.
+
 The thesis is simple:
 
 > Agent systems need delivery gates because models optimize for plausible completion, while users need usable completion.
@@ -26,7 +28,7 @@ File tasks are especially dangerous because agents often create several artifact
 | Video | frames, audio, subtitles, MP4 | still frame or script |
 | Website | source files, build output, local URL | unbuilt source path |
 
-The final answer must not guess which artifact matters. The system has to know.
+The final answer must not guess which artifact matters. The runtime has to know.
 
 ---
 
@@ -48,7 +50,7 @@ flowchart TD
   H -- Yes --> I["Deliver"]
 ```
 
-The contract should include type, path, accessibility, and user-visible reference. For a PPTX task, that means the `.pptx` exists, opens or passes a structural check, and is the file linked or attached in the final response. A PDF preview can be helpful, but it cannot satisfy the contract unless the user asked for PDF.
+The contract should include type, path, accessibility, and user-visible reference. In an AgentClaw PPTX trace, that meant the `.pptx` had to exist, open or pass a structural check, and be the file linked or attached in the final response. A PDF preview could be helpful, but it could not satisfy the contract because the user asked for editable slides.
 
 ---
 
@@ -81,7 +83,7 @@ The acceptance test for delivery should avoid model prose. It should inspect the
 | Response | The final message references the deliverable, not only a preview |
 | Regression | Real traces where the wrong type was delivered now fail before response |
 
-This is how a one-off embarrassing trace becomes a permanent product rule.
+This is how a one-off embarrassing trace becomes a permanent runtime rule.
 
 ---
 

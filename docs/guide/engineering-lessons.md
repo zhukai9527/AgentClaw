@@ -1,8 +1,8 @@
-﻿# Engineering Lessons
+﻿# Field Guide: Agent Engineering Lessons
 
-> The hardest agent bugs were not caused by a weak model. They were caused by systems that gave the model too much freedom and too little proof.
+> The hardest agent bugs are rarely caused by a weak model. They are caused by systems that give the model too much freedom and too little proof.
 
-These lessons are the reusable engineering principles behind AgentClaw. They are written as design-review rules: if a future change violates one, it should explain why.
+These lessons are reusable design-review rules for production agent systems. They came from field work, including AgentClaw incidents, but they are not product-specific. If a future change violates one, it should explain why.
 
 ## 1. Test the Real Trace
 
@@ -51,6 +51,10 @@ OpenAI-compatible APIs are not identical. Reasoning fields, streaming usage, err
 A panel that lets users tune memory, context, or retries can help experts, but it should not be required for normal correctness.
 
 **Rule:** if a user must manually tune the agent to avoid a known failure, the system boundary is probably wrong.
+
+## Field Evidence
+
+AgentClaw is a useful source of examples because the same lesson repeated across unrelated incidents: memory needed governance, file generation needed final-delivery checks, provider compatibility needed adapters, and trace replay needed to become a release habit. The pattern is more important than the implementation.
 
 ## Principle
 

@@ -1,8 +1,8 @@
-﻿# Memory Must Be Governed Before It Is Trusted
+﻿# 04. Memory Must Be Governed Before It Is Trusted
 
 > Agent memory is dangerous because it looks like context while behaving like policy.
 
-A user once liked dark technical decks. Later they needed a clean commercial presentation. The stored preference was true, but applying it blindly was wrong.
+The fourth curriculum layer separates memory from ordinary context. A user once liked dark technical decks. Later they needed a clean commercial presentation. The stored preference was true, but applying it blindly was wrong.
 
 That is the memory problem in one sentence: facts can be accurate and still harmful.
 
@@ -21,6 +21,8 @@ That is the memory problem in one sentence: facts can be accurate and still harm
 | Extracted inference | Highest risk, needs confidence and review |
 
 A flat memory table cannot express those differences. Retrieval alone cannot decide authority.
+
+The production question is not "did retrieval find something relevant?" It is "is this recalled fact allowed to affect this task?"
 
 ---
 
@@ -50,6 +52,8 @@ Memory needs lifecycle. A preference can be scoped to presentation design. A pro
 | Stale style memory | Not applied outside its scene |
 | Memory edit | Retrieval semantics update with the text |
 | Bad memory | Telemetry can identify and remove it |
+
+The curriculum test is conflict. Store a true but scene-bound preference, then give a fresh instruction that conflicts with it. A governed memory system must let the current instruction win and record why the memory was demoted.
 
 ---
 
