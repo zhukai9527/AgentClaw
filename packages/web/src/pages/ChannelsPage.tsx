@@ -411,6 +411,7 @@ export function ChannelsPage() {
                     }}
                     role="switch"
                     aria-checked={isConnected}
+                    tabIndex={0}
                   >
                     <span className="channels-toggle-knob" />
                   </span>

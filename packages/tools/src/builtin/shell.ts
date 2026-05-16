@@ -113,8 +113,10 @@ const powershellConfig = {
  * Strip ANSI escape sequences (colors, cursor control, etc.) from text.
  * These are pure noise for LLMs and waste tokens.
  */
-// eslint-disable-next-line no-control-regex
-const ANSI_RE = /[\u001b\u009b][\[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]/g;
+const ANSI_RE = new RegExp(
+  "[\\u001b\\u009b][\\[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><~]",
+  "g",
+);
 function stripAnsi(text: string): string {
   return text.replace(ANSI_RE, "");
 }

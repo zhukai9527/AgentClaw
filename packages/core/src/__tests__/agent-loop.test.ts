@@ -440,6 +440,7 @@ describe("SimpleAgentLoop", () => {
         ],
         chat: vi.fn(),
         stream: vi.fn(async function* () {
+          yield* [];
           throw new Error("[custom-3/mimo-v2.5-pro] 400 Param Incorrect");
         }) as unknown as LLMProvider["stream"],
       };
