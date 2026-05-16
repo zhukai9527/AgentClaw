@@ -98,7 +98,8 @@ function normalizeComparablePath(filePath: string, baseDir?: string): string {
   const resolved = isAbsolute(trimmed)
     ? resolve(trimmed)
     : resolve(baseDir ?? process.cwd(), trimmed);
-  return resolved.replace(/\\/g, "/").toLowerCase();
+  const normalized = resolved.replace(/\\/g, "/");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
 function isPathInside(candidate: string, parent: string): boolean {
