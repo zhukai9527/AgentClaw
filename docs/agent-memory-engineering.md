@@ -1,147 +1,108 @@
-# Agent 记忆不是 RAG：我们如何把长期记忆做成一个受控系统
+# The Hard Part of Agent Memory Is Forgetting
 
-如果你在做 AI Agent，很可能已经实现过“记忆”：
+> Agent memory is not a storage problem. It is a control-system problem.
 
-- 把用户偏好写进数据库。
-- 下次对话前搜索几条相关内容。
-- 塞进 system prompt。
-- 希望模型“自然使用这些信息”。
+We learned this the annoying way.
 
-这套方案在 demo 里很好看，在真实产品里会逐渐变成事故源。
+A user asked for a PowerPoint. The agent had a long-term memory that the user liked dark, technical slide decks. That memory was real. It had been true in an earlier context. But the new task was a business sponsorship deck, where the right default was bright, clean, and commercially credible.
 
-因为 Agent 的记忆不是普通知识库。普通知识库错了，最多检索结果差一点；Agent 记忆错了，会进入决策上下文，变成模型行动的依据。它会让 Agent 选错工具、套错偏好、复现旧 bug、甚至在用户已经纠正之后继续相信旧事实。
+The agent did what many memory-enabled agents do: it remembered too eagerly.
 
-我们最近连续处理了几轮真实 trace，最后得到一个结论：
+Then a second failure appeared. In the same conversation, the user asked a follow-up question:
 
-> 顶尖 Agent 记忆系统的目标，不是“记得更多”，而是“只在正确场景想起正确记忆，并且错误记忆会被系统自动治理”。
+> So what file should be delivered in the end?
 
-这篇文章不是概念介绍，而是一次工程复盘。它讲的是我们如何把 AgentClaw 的记忆从“能存能搜”推进到“可召回、可治理、可审计、可回放、可自动清理”的受控系统。
+The sentence did not contain the word “PowerPoint.” A naive memory selector looking only at the current turn could lose the task context. Worse, because the trace contained shared test phrases, an unrelated preference such as “the user likes spicy food” could be ranked as a candidate. It sounds absurd until you inspect real traces. Weak lexical overlap, stale preferences, and missing conversation context are enough to make an agent remember the wrong thing.
 
----
+That is the moment we stopped treating memory as “RAG over user facts.”
 
-## 一、记忆系统真正的失败方式
+RAG asks: “What documents are relevant to this query?”
 
-很多团队会把记忆问题理解成召回问题：搜不准、embedding 不好、top-k 不合适。
+Agent memory has to ask harder questions:
 
-这些当然重要，但真实 Agent 里更致命的是下面几类失败。
+- Should this memory influence the current decision?
+- Is it a stable preference, a scene-specific rule, or a one-off fact?
+- What happens if two memories conflict?
+- How do we know whether this memory helped or polluted the answer?
+- When a memory is proven harmful, how does it leave the system?
 
-### 1. 旧偏好污染新任务
+This article describes how we rebuilt AgentClaw’s memory layer into a controlled system: active recall, layered memory, governance, telemetry, scenario replay, and automatic cleanup.
 
-用户曾经说过：
-
-> PPTX 喜欢暗色科技风。
-
-后来用户让 Agent 做招商、赞助、商业合作类 PPT。
-
-如果系统把“暗色科技风”当成强规则，Agent 就会继续生成暗色 deck。对模型来说它没错，它只是在执行记忆；对用户来说这就是低级事故。
-
-问题不在模型，而在系统没有区分：
-
-- 稳定身份信息。
-- 场景偏好。
-- 一次性任务偏好。
-- 可选视觉参考。
-- 当前任务的明确要求。
-
-### 2. 同一会话里，第二轮丢了任务语境
-
-真实 trace 里出现过这样的对话：
-
-第一轮：
-
-> 做 PPTX 交付第一步是什么？
-
-第二轮：
-
-> 同一会话继续，最终应该交付什么文件？
-
-第二句话没有出现 “PPTX”。如果 Active Memory 只看当前一句，就可能召回一些共享关键词相似、但任务完全无关的记忆，例如“用户喜欢川菜”。
-
-这听起来荒唐，但真实系统里很常见。因为 trace id、测试词、时间词、用户称呼等弱相关 token 会把无关记忆抬进候选集。
-
-### 3. 记忆写错后，没有退出机制
-
-记忆一旦写入，如果只支持搜索和注入，不支持治理，它就会长期污染。
-
-典型表现：
-
-- 用户纠正过，但旧记忆仍在。
-- 两条冲突偏好同时进入 prompt。
-- 错误记忆被多次召回，越用越像“稳定事实”。
-- 记忆内容被编辑了，但 embedding 还是旧内容，搜索仍按旧语义召回。
-
-### 4. 修复只停留在 prompt
-
-Agent 工程里最危险的一句话是：
-
-> 以后注意。
-
-如果一次事故只靠改提示词解决，下次用户换个表达，很可能重新发生。
-
-我们最终把这条原则写进了工程纪律：
-
-> 能力层问题修复后，必须把真实 trace 抽象成场景回放测试。测试不能只覆盖开发者想象路径，必须覆盖用户真实表达、原会话上下文、记忆影响、工具副作用、最终用户可见结果。
-
-这句话是整个记忆系统升级的分水岭。
+The result is not “more memory.” The result is safer memory.
 
 ---
 
-## 二、我们的目标：把记忆从“资料堆”变成“控制系统”
+## The Failure Mode: Memory Turns Into Policy
 
-我们重新定义了 Agent 记忆系统的四个目标。
+Most agent teams start with a simple loop:
 
-| 目标 | 错误做法 | 正确做法 |
+1. Extract facts and preferences from conversation.
+2. Store them in a database.
+3. Search the database before each response.
+4. Inject the top results into the prompt.
+
+This is enough for a demo. It is not enough for production.
+
+The problem is that memory inside an agent prompt is not passive context. It becomes part of the policy the model follows. If the memory is stale, too broad, or in the wrong scene, the agent does not merely “retrieve a bad document.” It makes a bad decision.
+
+Here are the failures we saw in real traces.
+
+| Failure | What it looks like | Why normal retrieval fails |
 |---|---|---|
-| 想得起 | top-k 搜一堆塞进 prompt | 按当前任务和最近上下文选择少量 Active Memory |
-| 想得准 | 只靠 embedding 相似度 | 结合层级、场景、任务类型、确定性排序和模型选择 |
-| 错了能改 | 人手删除数据库 | 编辑、废弃、合并、替代都有 API 和测试 |
-| 不再复发 | 改 prompt 后相信模型 | 真实 trace 变成默认测试链里的场景回放 |
+| Stale preference | A previous dark-slide preference affects a business deck | The memory is true but not authoritative for this scene |
+| Missing turn context | A follow-up question omits “PPTX,” so recall drifts | Current-turn search loses conversation continuity |
+| Conflicting preferences | “Use dark style” and “use white-blue style” both enter the prompt | Search has no lifecycle model for superseded memory |
+| Edited memory with stale embedding | Text says one thing, vector still represents old content | Update logic changes content but not retrieval semantics |
+| Prompt-only fixes | A trace is fixed once, then fails with different wording | No scenario replay exists in the default test chain |
 
-注意，这里没有“调参面板”。
+These are not model failures. They are system-design failures.
 
-对 Agent 系统来说，调参面板最多是内部诊断工具，不应该是主方向。用户不该知道 top-k、query mode、threshold。系统应该自己做判断，并且在判断错的时候留下证据、触发治理、进入回归测试。
+The core mistake is assuming that remembering is always good. In agent systems, remembering is only good when the remembered information is valid for the current decision.
 
 ---
 
-## 三、架构总览：五层记忆闭环
+## The Thesis: Memory Needs a Control Loop
 
-我们最终形成了五层闭环。
+We redesigned memory around one principle:
+
+> A memory should not be allowed to influence an agent unless the system can explain why it was recalled, measure whether it helped, and remove it when it causes harm.
+
+That gives us a control loop:
 
 ```mermaid
 flowchart TD
-    A["Write: L1 原子记忆"] --> B["Aggregate: L2 场景 / L3 画像"]
-    B --> C["Recall: Active Memory 前置选择"]
-    C --> D["Use: 注入 prompt 并记录 memory_usage"]
-    D --> E["Evaluate: helpful / polluting telemetry"]
-    E --> F["Govern: edit / deprecate / merge / janitor"]
-    F --> B
-    D --> G["Replay: 真实 trace 场景回放测试"]
-    G --> C
+  A["Write memory with provenance"] --> B["Aggregate into scene and profile layers"]
+  B --> C["Select Active Memory for the current turn"]
+  C --> D["Inject only selected memory"]
+  D --> E["Record memory_usage telemetry"]
+  E --> F["Score helpful vs polluting outcomes"]
+  F --> G["Govern: edit, deprecate, merge, janitor"]
+  G --> B
+  D --> H["Replay real trace as a scenario test"]
+  H --> C
 ```
 
-这套结构的关键点是：每条记忆都不是“写进去就完了”。它会经历写入、聚合、召回、使用、评估、治理、回放。
+The key word is “loop.” A memory is not done when it is written. It has to survive recall, use, evaluation, and cleanup.
 
-也就是说，记忆不只是 storage，而是一个持续收敛的系统。
+This design changed how we judged memory quality. We no longer ask only whether a memory can be found. We ask whether it should have been found, whether it helped, and whether the system can prevent a similar mistake from returning.
 
 ---
 
-## 四、L1 / L2 / L3：先给记忆分层
+## Layer 1, 2, 3: Memory Needs Shape
 
-我们把长期记忆分成三层。
+Flat memory becomes noise. If every extracted fact competes equally for prompt space, the agent gets a pile of fragments instead of a decision aid.
 
-| 层级 | 含义 | 例子 | 作用 |
+We split long-term memory into three layers.
+
+| Layer | Meaning | Example | Role |
 |---|---|---|---|
-| L1 | 原子记忆 | “用户要求 PPTX 最终必须发送 pptx 文件” | 作为证据来源 |
-| L2 | 场景聚合 | “PPTX delivery 场景：先预览，确认后发送最终 pptx” | 任务场景召回 |
-| L3 | 稳定画像 | “用户偏好直接、少废话、真实验收” | 跨场景稳定偏好 |
+| L1 | Atomic evidence | “The user said final PPTX delivery must include a `.pptx` file.” | Traceable source facts |
+| L2 | Scene memory | “In PPTX delivery, preview first, then send the verified `.pptx`.” | Task-specific recall |
+| L3 | Stable profile | “The user values direct answers and real validation.” | Cross-task preference |
 
-为什么要分层？
+L1 memories are not bad. They are the evidence. But the agent should not read every piece of evidence on every turn. It should usually consume L2 scene rules and L3 stable preferences, with links back to L1 sources.
 
-因为直接把 L1 全塞进 prompt 会很吵。L1 是事实碎片，适合追溯；L2 是场景规则，适合任务召回；L3 是稳定画像，适合长期个性化。
-
-一个高质量 Agent 记忆系统应该优先召回 L2/L3，而不是让几十条 L1 碎片挤进上下文。
-
-同时，每条聚合记忆必须保留证据链：
+A scene memory carries provenance:
 
 ```json
 {
@@ -153,90 +114,105 @@ flowchart TD
 }
 ```
 
-这解决了一个常见问题：当 Agent 使用某条“总结出来的记忆”时，我们能追溯它来自哪些原始事实。
+This gives us two properties that flat memory does not:
+
+- We can recall compact, high-level behavior without flooding the prompt.
+- We can audit where the behavior came from.
+
+For agent teams, this is the first important design move: do not treat every memory as the same kind of thing.
 
 ---
 
-## 五、Active Memory：不是搜索 top-k，而是任务前置选择
+## Active Memory: Top-K Is Not Enough
 
-传统做法是：
+The next problem is recall.
 
-1. 拿当前用户输入做 search。
-2. 取 top-k。
-3. 拼进 prompt。
+Classic retrieval says:
 
-这会把“看起来相关”的东西塞进去，却不保证“对当前任务有用”。
+```text
+query -> vector / BM25 search -> top-k -> prompt
+```
 
-我们改成了 Active Memory：
+For agent memory, top-k is too blunt. A memory can be textually related and still not be decision-relevant. So we added Active Memory selection before prompt injection.
 
-1. 先搜索出候选记忆。
-2. 用确定性规则做 ranking 和 shortlist。
-3. 让 provider-backed selector 从 shortlist 里选出最多 5 条真正有用的记忆。
-4. selector 失败或空输出时，不退回全量注入，而是走确定性 fallback。
+The pipeline is:
 
-伪代码大概是：
+1. Search broadly across candidate memories.
+2. Rank deterministically by overlap, scene fit, layer, and task signals.
+3. Build a small shortlist.
+4. Ask a provider-backed selector to choose at most five directly useful memories.
+5. If the selector fails, use a deterministic fallback, never full injection.
+
+The last rule matters most.
+
+When a selector returns empty output, times out, or hits a token limit, the safe behavior is not “inject everything.” The safe behavior is “inject only the best deterministic candidates.”
+
+In pseudocode:
 
 ```ts
 const ranked = rankActiveMemoryCandidates(query, candidates);
-const deterministicSelection = ranked
-  .filter((item) => item.score >= 0.12)
+
+const fallback = ranked
+  .filter((item) => item.score >= threshold)
   .slice(0, 5);
 
-const selected = await providerSelect({
+const selected = await selector.choose({
   request: query,
   candidates: ranked.slice(0, 8),
 });
 
-return selected.ok ? selected.memories : deterministicSelection;
+return selected.ok ? selected.memories : fallback;
 ```
 
-这里最重要的是最后一句：**selector 失败不能退回全量注入**。
-
-因为 selector 失败时，最危险的做法就是把全部记忆塞回 prompt。那等于在系统最不确定的时候扩大污染面。
-
-我们真实遇到过 MiMo 模型在 selector 阶段输出为空或被 max_tokens 截断。修复后，空输出只会走确定性 fallback，不会全量注入。
+This sounds obvious after the fact, but it is a common production trap. A failed selector is exactly when you should reduce risk. Falling back to full prompt injection increases risk at the worst moment.
 
 ---
 
-## 六、同一会话不能只看当前一句
+## Conversation Continuity: The Current Turn Is Not the Task
 
-Active Memory 还有一个容易忽略的细节：它不能只看当前输入。
+The most important recall bug we fixed was not an embedding bug. It was a context bug.
 
-真实用户经常这样说：
+Users write follow-ups:
 
-> 第一轮：帮我做一个 PPTX。
-> 第二轮：那最终应该交付什么文件？
+```text
+Turn 1: Help me make a PPTX.
+Turn 2: So what should the final file be?
+```
 
-第二轮没有 PPTX，但语境仍然是 PPTX。
+If Active Memory only sees turn 2, it may not know this is still a PPTX task. The memory query must include recent user turns, not just the current input.
 
-所以我们的 memory search query 不是简单的 `currentInput`，而是：
+The simplified shape is:
 
 ```ts
-const searchQuery = [
+const memoryQuery = [
   ...recentUserTurns.slice(-2),
-  currentInput,
+  currentUserInput,
 ].join("\n");
 ```
 
-这让 Active Memory 能理解“同一会话继续”的省略表达。
+This one change made the system much closer to how real users speak. People do not restate the full task every turn. An agent memory system that ignores recent user messages will eventually recall the wrong memory for an underspecified follow-up.
 
-这不是小优化，而是 Agent 记忆系统的基本要求。因为真实对话是连续的，用户不会每轮都把完整上下文复述一遍。
+In our scenario replay, this became a hard test:
+
+- Seed a relevant PPTX delivery memory.
+- Seed an irrelevant “likes spicy food” memory.
+- Add a previous user turn about PPTX delivery.
+- Ask a follow-up that omits “PPTX.”
+- Assert that the PPTX memory is active and the food memory is not.
+
+That test now runs in the default test chain.
 
 ---
 
-## 七、记忆治理：edit / deprecate / merge 是基础设施，不是管理后台
+## Governance: Memory Must Have an Exit
 
-如果一个记忆系统只支持 add 和 search，它迟早会烂掉。
+A memory system with only `add` and `search` is not a memory system. It is a landfill.
 
-我们给记忆治理补了三个基础能力。
+We added three governance primitives.
 
-### 1. Edit：修正内容时必须重算 embedding
+### Edit
 
-如果用户把“偏好暗色 PPTX”改成“偏好白底蓝色 PPTX”，只改文本是不够的。
-
-embedding 如果不更新，搜索仍可能按旧语义召回。
-
-所以 `update(content)` 会自动重新生成 embedding，并同步 FTS：
+Editing content must update the embedding. Otherwise the visible text and retrieval semantics diverge.
 
 ```ts
 if (updates.content !== undefined && updates.embedding === undefined) {
@@ -244,13 +220,11 @@ if (updates.content !== undefined && updates.embedding === undefined) {
 }
 ```
 
-这是一个非常容易漏掉的生产 bug。
+This is a subtle bug. The UI looks correct, but search still behaves as if the old memory exists.
 
-### 2. Deprecate：废弃不是删除
+### Deprecate
 
-错误记忆不应该马上物理删除。删除会丢失审计信息。
-
-我们采用软废弃：
+Bad memory should not always be physically deleted. Deletion erases evidence. We mark it instead:
 
 ```json
 {
@@ -260,20 +234,11 @@ if (updates.content !== undefined && updates.embedding === undefined) {
 }
 ```
 
-搜索和 prompt 格式化都会跳过 `deprecated` 记忆。
+Search and prompt formatting skip deprecated memories.
 
-### 3. Merge：重复记忆要合并成 canonical target
+### Merge
 
-两条相近记忆：
-
-- “PPTX 要白底”
-- “PPTX 要蓝色强调”
-
-应该合并成：
-
-> “PPTX 偏好白底和蓝色强调。”
-
-旧 source 标记为：
+Duplicate or fragmented memories should converge into a canonical target:
 
 ```json
 {
@@ -282,22 +247,19 @@ if (updates.content !== undefined && updates.embedding === undefined) {
 }
 ```
 
-这样可以保留证据，又不会让重复记忆继续污染召回。
+The target keeps `sourceMemoryIds` and evidence. The old memories remain auditable but stop influencing the agent.
+
+This is not an admin-panel feature. It is part of the runtime safety model. If memory cannot be corrected, replaced, and retired, it will eventually poison the prompt.
 
 ---
 
-## 八、Telemetry：记忆有没有用，必须被记录
+## Telemetry: Measure Whether Memory Helped
 
-光知道“注入了哪条记忆”还不够。我们至少要记录：
+Once a memory reaches the prompt, we record it.
 
-- 哪条 memory 被注入。
-- 来源是 `prompt_injection`、`active_memory` 还是 `recall_tool`。
-- 属于哪个 conversation / trace / agent。
-- 后续它是 helpful 还是 polluting。
+The `memory_usage` event captures:
 
-我们用 `memory_usage` 表记录每次使用：
-
-```sql
+```text
 memory_id
 source
 conversation_id
@@ -307,47 +269,49 @@ metadata
 used_at
 ```
 
-这里的 `metadata.outcome` 很关键：
+The important field is `metadata.outcome`.
 
 ```json
 { "outcome": "helpful" }
 ```
 
-或：
+or:
 
 ```json
 { "outcome": "polluting" }
 ```
 
-有了这个，系统就能计算每条记忆的：
+From this, we compute per-memory quality:
 
-| 指标 | 含义 |
+| Metric | Meaning |
 |---|---|
-| totalUses | 总使用次数 |
-| activeMemoryUses | 作为 Active Memory 被注入的次数 |
-| helpfulUses | 被证明有帮助的次数 |
-| pollutingUses | 被证明污染上下文的次数 |
-| effectivenessRate | helpful / total |
-| pollutionRate | polluting / total |
+| totalUses | How many times this memory entered context |
+| activeMemoryUses | How often it was selected as Active Memory |
+| helpfulUses | How often it was later marked useful |
+| pollutingUses | How often it was marked harmful or misleading |
+| effectivenessRate | helpfulUses / totalUses |
+| pollutionRate | pollutingUses / totalUses |
 
-这一步把记忆从“主观感觉”变成了“可治理对象”。
+This changes the operational posture. Memory quality is no longer a feeling. It becomes a measurable property.
 
 ---
 
-## 九、Memory Janitor：让坏记忆自动退出系统
+## The Janitor: Forgetting With Evidence
 
-前面所有能力加起来，最终是为了这一步：
+The most important piece we added is automatic cleanup.
 
-> 如果一条记忆被使用数据证明高污染，系统自动废弃它。
+If a memory has enough usage history and is repeatedly marked polluting, the system deprecates it automatically.
 
-我们的 janitor 默认规则很保守：
+The default rule is intentionally conservative:
 
-- 至少被使用 2 次。
-- pollutingUses > helpfulUses。
-- pollutionRate >= 0.5。
-- 已经 deprecated / superseded 的跳过。
+| Condition | Default |
+|---|---|
+| Minimum uses | 2 |
+| Pollution threshold | 0.5 |
+| Pollution must beat helpfulness | yes |
+| Already deprecated or superseded | skipped |
 
-满足条件后，自动写入：
+When triggered, the janitor writes evidence into metadata:
 
 ```json
 {
@@ -363,234 +327,157 @@ used_at
 }
 ```
 
-这不是 UI 操作，也不是人调参。它会接入每日 `consolidate()`，和衰减、去重、清理一起运行。
+It is also wired into daily consolidation. The same job that decays importance, merges duplicates, and prunes stale entries now runs the janitor.
 
-一个成熟 Agent 系统不应该靠人每天翻记忆列表。它应该自己识别坏记忆，并把它们移出决策路径。
+This is the difference between a memory database and a memory control system. The database stores. The control system removes influence when evidence says the memory is harmful.
 
----
-
-## 十、真实 trace 场景回放：防止同类问题换个说法复发
-
-我们之前最大的问题不是没有测试，而是测试覆盖的是“开发者想象路径”。
-
-比如开发者会写：
-
-> 输入：“做一个 PPTX”
-
-然后断言 PPTX 记忆被召回。
-
-但真实用户会说：
-
-> “同一会话继续，最终应该交付什么文件？”
-
-这个输入没有 PPTX。普通测试覆盖不到。
-
-所以我们把真实 trace 抽象成场景回放：
-
-```ts
-it("同一会话省略 PPTX 主题时，Active Memory 仍选中交付记忆且不注入共享 trace 词的无关画像", async () => {
-  // seed relevant memory: PPTX 交付规则
-  // seed irrelevant memory: 用户喜欢川菜
-  // add previous user turn: 做 PPTX 交付第一步是什么？
-  // current input: 同一会话继续，最终应该交付什么文件？
-  // assert: PPTX memory used, food memory not used
-});
-```
-
-这类测试必须进入默认测试链，而不是临时脚本。
-
-原因很简单：如果它不在默认测试链里，下次重构一定会被忘。
+The hard part of memory is not remembering. It is forgetting with evidence.
 
 ---
 
-## 十一、真实验收比单元测试更重要
+## Scenario Replay: Fix the Class, Not the Instance
 
-记忆属于能力层。能力层改动不能只跑单元测试。
+The old way to fix an agent failure is to tweak the prompt and rerun the same input.
 
-我们最后做了三类验收。
+That is not enough.
 
-### 1. Store 级测试
+Real agent failures often depend on:
 
-覆盖：
+- the original user wording,
+- conversation history,
+- what memory was already present,
+- which tools were exposed,
+- what side effects happened,
+- and what the user ultimately saw.
 
-- 搜索不返回 deprecated / superseded。
-- 编辑内容会重算 embedding。
-- `recordMemoryUsage` 正常记录。
-- `listMemoryEffectiveness` 能算 helpful / polluting。
-- `runMemoryJanitor` 会自动废弃高污染记忆。
-- `consolidate()` 会自动触发 janitor。
+So after a memory failure, we extract the trace into a scenario replay test. The test does not merely check a helper function. It recreates the shape of the real failure.
 
-### 2. Gateway API 测试
+For the PPTX follow-up bug, the replay verifies:
 
-覆盖：
+| Assertion | Expected |
+|---|---|
+| Relevant PPTX memory selected | yes |
+| Irrelevant food preference selected | no |
+| Usage source | `active_memory` |
+| Test runs by default | yes |
 
-- PATCH memory。
-- POST deprecate。
-- POST merge。
-- GET effectiveness。
-- POST janitor。
+For governance, the replay verifies:
 
-### 3. 真实 HTTP 验收
+| Operation | Expected |
+|---|---|
+| Edit memory | content changes and embedding regenerates |
+| Deprecate memory | search no longer returns it |
+| Merge memories | canonical target visible, sources superseded |
+| Janitor | polluting memory deprecated, helpful memory retained |
 
-我们在真实本地服务上跑了多轮：
-
-1. 创建 helpful 记忆和 polluting 记忆。
-2. 写入 usage telemetry。
-3. 调 `/api/memories/effectiveness`。
-4. 调 `/api/memories/janitor` 或 `/api/memories/consolidate`。
-5. 再次搜索确认 polluting 记忆不可见。
-6. 清理测试数据，确认残留为 0。
-
-这一步很重要。因为很多 Agent bug 不出现在单元测试里，只出现在“真实入口 -> 下游副作用 -> 再次读取”的闭环里。
+This matters more than the exact implementation. If a future refactor breaks the behavior, the test fails. We are no longer relying on a developer remembering the incident.
 
 ---
 
-## 十二、我们踩过的坑
+## What Changed in Practice
 
-### 坑 1：selector 空输出时退回全量记忆
+Here is the before and after.
 
-这是最危险的 fallback。
+| Situation | Before | After |
+|---|---|---|
+| Selector returns empty output | Risk of broad memory injection | Deterministic fallback to a small ranked set |
+| User follow-up omits task keyword | Recall may drift | Recent user turns are part of the memory query |
+| Old preference conflicts with new task | Both may enter prompt | Deprecated and superseded memory is skipped |
+| Memory text is edited | Embedding may stay stale | Content update regenerates embedding |
+| Bad memory repeatedly pollutes context | Human must notice and delete | Janitor deprecates it with evidence |
+| A real trace fails | Prompt patched once | Scenario replay enters default tests |
 
-如果 selector 失败，系统应该更保守，而不是更激进。正确策略是确定性 fallback 到少量高分候选。
+We also ran production-like validation, not just unit tests:
 
-### 坑 2：同一会话动态上下文被缓存
+| Validation | Result |
+|---|---|
+| Focused memory store tests | passed |
+| Gateway route tests | passed |
+| Core scenario replay | passed |
+| Full `pnpm test` / typecheck / build | passed |
+| Real HTTP janitor run | polluting memory deprecated |
+| Real HTTP consolidate run | janitor triggered automatically |
+| Isolated namespace replay | no test memory residue |
 
-为了 prompt cache，我们曾经冻结每个会话的动态上下文。
-
-这对普通记忆注入是合理的，但对 Active Memory 不合理。Active Memory 必须每轮重选，否则第二轮的新需求看不到新的相关记忆。
-
-最终策略是：
-
-- 没有 provider-backed Active Memory：可以复用 dynamic context。
-- 有 Active Memory：每轮重新选择。
-
-### 坑 3：编辑记忆不重算 embedding
-
-文本改了，向量没改，这是隐蔽 bug。
-
-表现是 UI 看起来改好了，但搜索行为仍像旧记忆。
-
-### 坑 4：只做 API，不做回放
-
-API 测试能证明接口工作，但不能证明真实表达不会复发。
-
-真实 trace 必须变成场景回放。
-
-### 坑 5：把 UI 调参当主方向
-
-UI 可解释性有价值，但不是主方向。
-
-Agent 系统应该默认自动正确。人的入口应该用于审计和复盘，而不是每天手动调 threshold。
+The point is not the exact numbers. The point is the validation shape: real entry, real side effect, real reread, clear pass/fail condition.
 
 ---
 
-## 十三、给 Agent 团队的落地清单
+## Design Rules Other Teams Can Steal
 
-如果你们也在做 Agent 记忆，可以直接按这个顺序做。
+If you are building memory for agents, here is the checklist I would start with.
 
-### 第一阶段：防污染
+### 1. Treat memory as policy, not context
 
-- 记忆必须有 metadata。
-- 必须支持 `deprecated` / `superseded`。
-- 搜索和 prompt 注入必须跳过废弃记忆。
-- 编辑内容必须重算 embedding。
-- 记忆写入必须有 provenance：conversation、trace、source turn、confidence。
+Anything injected into the prompt can change behavior. Apply higher standards than you would for normal retrieval.
 
-### 第二阶段：召回控制
+### 2. Separate evidence, scenes, and profile
 
-- 不要直接 top-k 注入。
-- 先 rank，再 shortlist，再 Active Memory select。
-- selector 失败时确定性 fallback。
-- 同一会话必须结合最近用户消息。
-- 当前任务明确要求优先级高于长期偏好。
+Do not flatten everything into a single memory type. Atomic facts, scene rules, and stable user profile belong at different layers.
 
-### 第三阶段：治理闭环
+### 3. Never fall back to full injection
 
-- 支持 edit / deprecate / merge。
-- merge 后 source 标记 superseded。
-- 保留 sourceMemoryIds / evidence。
-- 每次记忆使用写 telemetry。
+Selector failure should narrow the blast radius, not widen it.
 
-### 第四阶段：自动清理
+### 4. Use recent conversation turns in recall
 
-- 统计 helpful / polluting。
-- 高污染记忆自动 deprecated。
-- janitor 接入每日 consolidate。
-- 支持 dryRun，但默认系统可以自动执行。
+The current turn is not the full task. Follow-up questions require conversation continuity.
 
-### 第五阶段：真实回放
+### 5. Give every memory an exit path
 
-- 每次真实事故都要沉淀 scenario replay。
-- 测试要覆盖用户真实表达，而不是开发者理想输入。
-- 测试进入默认 CI / verify 链。
-- 能力层改动必须做真实入口闭环验收。
+Support edit, deprecate, merge, and supersede. If memory cannot leave the decision path, it will become a liability.
 
----
+### 6. Record memory usage
 
-## 十四、判断记忆系统是否成熟的 10 个问题
+If you cannot answer “which memory influenced this response,” you cannot debug memory.
 
-你可以用这 10 个问题审计自己的 Agent 记忆系统。
+### 7. Track pollution, not just recall
 
-1. 一条记忆为什么被写入，能追溯吗？
-2. 一条聚合记忆来自哪些原始事实，能追溯吗？
-3. 当前任务为什么召回这条记忆，能解释给机器看吗？
-4. selector 失败时，会不会退回全量注入？
-5. 用户纠正旧偏好后，旧记忆会不会继续进入 prompt？
-6. 编辑记忆内容后，embedding 会不会更新？
-7. 重复记忆能不能合并，并保留 source 证据？
-8. 被证明污染上下文的记忆，会不会自动退出系统？
-9. 真实 trace 能不能变成默认测试链里的回放？
-10. 这个系统是否不依赖人每天打开 UI 调参？
+A memory that is frequently recalled is not necessarily good. It may simply be frequently harmful.
 
-如果其中任何一个答案是否定的，你的记忆系统还不是受控系统。
+### 8. Automate cleanup
+
+Humans should not maintain memory quality by browsing lists. Humans should review exceptional cases; the system should handle obvious pollution.
+
+### 9. Convert real incidents into replay tests
+
+Do not test the prompt you wish users wrote. Test the wording they actually used.
+
+### 10. Prefer boring mechanisms over clever prompts
+
+Schema, metadata, lifecycle states, telemetry, and tests beat “please use memory carefully.”
 
 ---
 
-## 十五、最终原则
+## The Bar for Mature Agent Memory
 
-我们最终把 Agent 记忆总结成五条原则。
+A mature agent memory system should be able to answer these questions:
 
-**1. 少想，但想准。**
+1. Why was this memory written?
+2. Which original events support it?
+3. Why was it selected for this turn?
+4. Did it help or pollute the answer?
+5. What happens if the user later corrects it?
+6. Can it be merged into a better canonical memory?
+7. Will it stop influencing the agent after being deprecated?
+8. Is there a replay test for the incident that created the fix?
+9. Does cleanup run automatically?
+10. Does the system remain stable without a human tuning panel?
 
-记忆不是越多越好。每轮只应该注入真正有用的少量记忆。
-
-**2. 记忆必须可退出。**
-
-没有 deprecate / supersede / janitor 的记忆系统，迟早变成污染源。
-
-**3. 召回必须考虑会话连续性。**
-
-用户不会每轮复述完整任务。Active Memory 必须结合最近上下文。
-
-**4. 治理必须自动化。**
-
-UI 可以用于审计，但不能成为系统稳定性的前提。
-
-**5. 真实事故必须变成测试。**
-
-否则同类问题只是在等待下一种表达方式。
+If the answer to any of these is “no,” the memory system is still a prototype.
 
 ---
 
-## 结语
+## Closing
 
-Agent 记忆不是一个“存储模块”。它是 Agent 的长期决策系统。
+The easiest memory system to build is one that remembers everything.
 
-做得不好，它会让 Agent 越用越脏；做得好，它会让 Agent 越用越稳。
+The safest memory system is one that earns the right to remember.
 
-我们这次升级的核心不是多加几个 API，而是把记忆从“资料堆”变成了“受控系统”：
+That requires more than embeddings. It requires lifecycle, provenance, selective recall, telemetry, governance, automatic cleanup, and scenario replay.
 
-- 写入有来源。
-- 召回有选择。
-- 使用有 telemetry。
-- 错误有治理。
-- 修复有回放。
-- 污染会自动退出。
+The lesson we took from this work is simple:
 
-这才是 Agent 记忆工程真正应该追求的方向。
+> The hard part of agent memory is not remembering. It is forgetting with evidence.
 
-如果你在做全球可用的 Agent 产品，不要从“怎么让它记更多”开始。先问一个更难的问题：
-
-> 当它记错了，系统会如何发现、如何纠正、如何保证不再复发？
-
-能回答这个问题，才算真正开始做记忆。
+When you design memory this way, the agent stops becoming a pile of accumulated preferences and starts becoming a system that improves without accumulating every mistake forever.
