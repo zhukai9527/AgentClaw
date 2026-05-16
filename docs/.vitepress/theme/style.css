@@ -157,6 +157,11 @@ body {
 }
 
 @media (max-width: 640px) {
+  :root {
+    --ae-mobile-gutter: 20px;
+    --ae-mobile-content: min(380px, calc(100vw - 40px));
+  }
+
   html,
   body {
     overflow-x: hidden;
@@ -183,8 +188,8 @@ body {
     width: 100% !important;
     max-width: 100vw !important;
     box-sizing: border-box;
-    padding-right: 24px !important;
-    padding-left: 24px !important;
+    padding-right: var(--ae-mobile-gutter) !important;
+    padding-left: var(--ae-mobile-gutter) !important;
   }
 
   .VPNavBar,
@@ -197,8 +202,8 @@ body {
   }
 
   .VPNavBar > .wrapper > .container {
-    padding-right: 24px !important;
-    padding-left: 24px !important;
+    padding-right: var(--ae-mobile-gutter) !important;
+    padding-left: var(--ae-mobile-gutter) !important;
   }
 
   .VPHero .main {
@@ -217,24 +222,24 @@ body {
   }
 
   .VPHero .name {
-    max-width: 310px !important;
+    max-width: var(--ae-mobile-content) !important;
     margin-right: auto !important;
     margin-left: auto !important;
-    font-size: 28px !important;
+    font-size: 30px !important;
     line-height: 1.12 !important;
   }
 
   .VPHero .text {
-    max-width: 310px !important;
+    max-width: var(--ae-mobile-content) !important;
     margin-right: auto !important;
     margin-left: auto !important;
-    font-size: 24px !important;
+    font-size: 27px !important;
     line-height: 1.16 !important;
   }
 
   .VPHero .actions {
     width: 100%;
-    max-width: 310px;
+    max-width: var(--ae-mobile-content);
     margin-right: auto;
     margin-left: auto;
     flex-wrap: wrap;
@@ -260,14 +265,14 @@ body {
   }
 
   .VPDoc .content-container {
-    width: calc(100vw - 120px) !important;
-    max-width: calc(100vw - 120px) !important;
+    width: calc(100vw - 48px) !important;
+    max-width: calc(100vw - 48px) !important;
   }
 
   .vp-doc,
   .vp-doc > * {
-    width: calc(100vw - 120px) !important;
-    max-width: calc(100vw - 120px) !important;
+    width: 100% !important;
+    max-width: calc(100vw - 48px) !important;
   }
 
   .VPHero .image-container {
@@ -281,7 +286,7 @@ body {
   }
 
   .VPHero .tagline {
-    max-width: 280px !important;
+    max-width: min(360px, calc(100vw - 48px)) !important;
     margin-right: auto !important;
     margin-left: auto !important;
     font-size: 16px;
@@ -291,16 +296,21 @@ body {
     width: 100% !important;
     max-width: 100vw !important;
     box-sizing: border-box;
-    padding-right: 24px !important;
-    padding-left: 24px !important;
+    padding-right: var(--ae-mobile-gutter) !important;
+    padding-left: var(--ae-mobile-gutter) !important;
   }
 
   .VPFeature {
     width: 100% !important;
-    max-width: 290px !important;
+    max-width: min(360px, calc(100vw - 40px)) !important;
     margin-right: auto !important;
     margin-left: auto !important;
     box-sizing: border-box;
+  }
+
+  .VPFeatures .item {
+    padding-right: 0 !important;
+    padding-left: 0 !important;
   }
 
   .vp-doc h1 {
@@ -317,8 +327,8 @@ body {
   .vp-doc li,
   .vp-doc blockquote,
   .vp-doc blockquote p {
-    overflow-wrap: anywhere !important;
+    overflow-wrap: break-word !important;
     white-space: normal !important;
-    word-break: break-all !important;
+    word-break: normal !important;
   }
 }
