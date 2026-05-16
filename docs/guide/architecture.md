@@ -1,387 +1,93 @@
-# AgentClaw Architecture（架构）
+﻿# AgentClaw Architecture
 
-## Overview（概览）
+> AgentClaw is an agent control plane: it turns user intent into governed loops, tool actions, memory reads, artifact delivery, and traceable outcomes.
 
-AgentClaw is a commander-level AI dispatch center — a 24/7 personal assistant that understands intent, plans tasks, dispatches tools, and remembers everything.（AgentClaw 是一个指挥官级别的 AI 调度中心——一个 24/7 全天候个人助理，能理解意图、规划任务、调度工具，并记住一切。）It doesn't write code itself (it calls Claude Code/Codex), doesn't search itself (it calls search tools), but it orchestrates everything.（它自己不写代码（调用 Claude Code/Codex），自己不搜索（调用搜索工具），但它负责协调一切。）
+The architecture exists because a production agent cannot be only a model wrapper. The model proposes actions. The system decides what authority those actions have, what context the model receives, how tools are executed, how memory is allowed to influence decisions, and whether the final result is actually delivered.
 
-## System Architecture（系统架构）
+## Thesis
 
-```
-┌─────────────────────────────────────────────────────┐
-│                     User Interfaces                  │
-│                     （用户界面）                       │
-│  ┌─────────┐  ┌──────────┐  ┌─────────────────────┐│
-│  │   CLI   │  │  Web UI  │  │Bots(TG/WA/QQ/DT/FS/WeCom)││
-│  └────┬────┘  └────┬─────┘  └──────────┬──────────┘│
-│       └─────────────┼──────────────────┘            │
-│                     ▼                                │
-│  ┌──────────────────────────────────────────────┐   │
-│  │              Gateway (Fastify)                │   │
-│  │         HTTP API + WebSocket                  │   │
-│  └─────────────────┬────────────────────────────┘   │
-│                     ▼                                │
-│  ┌──────────────────────────────────────────────┐   │
-│  │                  Core（核心）                  │   │
-│  │  ┌────────────┐  ┌──────────────────────┐    │   │
-│  │  │ Agent Loop │  │    Orchestrator      │    │   │
-│  │  │（智能循环） │  │   （编排器）          │    │   │
-│  │  └─────┬──────┘  └──────────┬───────────┘    │   │
-│  │        │                     │                │   │
-│  │  ┌─────▼──────┐  ┌──────────▼───────────┐    │   │
-│  │  │  Planner   │  │  Context Manager     │    │   │
-│  │  │ （规划器）  │  │  （上下文管理器）     │    │   │
-│  │  └────────────┘  └──────────────────────┘    │   │
-│  └─────────────────┬────────────────────────────┘   │
-│                     │                                │
-│       ┌─────────────┼─────────────┐                 │
-│       ▼             ▼             ▼                  │
-│  ┌─────────┐  ┌──────────┐  ┌──────────┐           │
-│  │Providers│  │  Tools   │  │ Memory   │           │
-│  │（模型层）│  │ （工具） │  │ （记忆） │           │
-│  └─────────┘  └──────────┘  └──────────┘           │
-└─────────────────────────────────────────────────────┘
+> A useful agent framework separates cognition from authority.
+
+The model should not own persistence, permissions, delivery, provider compatibility, channel semantics, or release discipline. Those are system responsibilities.
+
+## High-Level Shape
+
+```mermaid
+flowchart TD
+  UI["User interfaces\nWeb, CLI, chat gateways"] --> GW["Gateway\nHTTP, WebSocket, channel adapters"]
+  GW --> SM["Session manager\nidentity, lifecycle, timeout"]
+  SM --> LOOP["Agent loop\nplan, act, observe, stop"]
+  LOOP --> CTX["Context manager\nstatic contract, fresh intent, compressed evidence"]
+  LOOP --> MEM["Memory system\nactive recall, governance, telemetry"]
+  LOOP --> TOOLS["Tool runtime\nschema, policy, side effects, artifacts"]
+  LOOP --> PROV["Provider adapters\nOpenAI-compatible, Claude, Gemini, local"]
+  TOOLS --> ART["Artifact store\nsource, preview, final deliverable"]
+  LOOP --> TRACE["Trace system\nsteps, tools, artifacts, replay evidence"]
 ```
 
-## Data Flow（数据流）
+## Core Boundaries
 
-### Streaming Data Flow with Usage Statistics（流式数据流与用量统计）
+| Boundary | Owned by | Why it matters |
+|---|---|---|
+| User/channel normalization | Gateway and adapters | Prevents Telegram, web, and desktop from becoming different agents |
+| Task lifecycle | Session manager and agent loop | Stops long-running work from becoming invisible or immortal |
+| Context influence | Context manager | Keeps fresh user intent stronger than stale history |
+| Memory authority | Memory system | Prevents old preferences from becoming unreviewed policy |
+| Tool execution | Tool runtime and policy | Keeps the model from directly owning side effects |
+| Provider behavior | Provider adapters | Hides model-family quirks behind normalized contracts |
+| Artifact delivery | Artifact pipeline | Ensures the user receives the requested file or result |
+| Evidence | Trace system | Makes failures replayable instead of anecdotal |
 
-```
-Provider.stream()  →  AgentLoop.runStream()  →  Orchestrator  →  Gateway(WS/TG/WA)  →  前端
-  done chunk 携带         累加 tokensIn/Out       透传 Message      WS done 携带       渲染灰色
-  usage + model          计时 durationMs         含统计字段        统计字段/TG 追加行   统计行
-```
+## Data Flow
 
-三个 Provider 在流式 done chunk 中返回 `{ usage: { tokensIn, tokensOut }, model }`：
-- **OpenAI Compatible**: `stream_options: { include_usage: true }`，从最后一个 chunk 的 `chunk.usage` 提取
-- **Claude**: 从 `message_start`（input_tokens）和 `message_delta`（output_tokens）事件中提取
-- **Gemini**: 从每个 `chunk.usageMetadata` 持续更新
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant G as Gateway
+  participant S as Session
+  participant A as Agent Loop
+  participant M as Memory
+  participant T as Tools
+  participant P as Provider
+  participant R as Trace
 
-AgentLoop 跨多轮 LLM 调用累加 token、工具次数、计时，最终写入 Message 和 ConversationTurn。
-
-### Agent Loop (Core Cycle)（智能循环，核心周期）
-
-```
-User Input（用户输入）
-    │
-    ▼
-┌─────────────────┐
-│ Understand Intent│ ← Memory (past context, preferences)
-│ （理解意图）      │ ←（记忆：历史上下文、偏好）
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│ Build Context   │ ← Memory retrieval (semantic + recency + importance)
-│ （构建上下文）   │ ←（记忆检索：语义 + 时效 + 重要性）
-└────────┬────────┘
-         ▼
-┌─────────────────┐
-│ LLM Thinking    │ ← Provider Router selects model
-│ （LLM 思考）     │ ←（路由器选择模型）
-└────────┬────────┘  done chunk → 累加 tokensIn/Out, 记录 model
-         │
-    ┌────┴────┐
-    │Tool Call?│
-    │（调工具？）│
-    └────┬────┘
-    Yes  │  No
-    ▼    │   ▼
-┌───────┐│ ┌──────────┐
-│Execute││ │Output    │ → Message 携带 model/tokensIn/tokensOut/
-│Tool   ││ │Response  │   durationMs/toolCallCount
-│（执行）││ │（输出）   │
-└───┬───┘│ └────┬─────┘
-    │    │      │
-    ▼    │      ▼
-┌───────┐│ ┌──────────┐
-│Observe││ │Store     │
-│Result ││ │Memory    │
-│（观察）││ │（存储记忆）│
-└───┬───┘│ └──────────┘
-    │    │
-    └──→ Loop back to LLM Thinking（循环回到 LLM 思考）
-         totalToolCalls += toolCalls.length
+  U->>G: message, file, or task
+  G->>S: normalized event
+  S->>A: task contract and session state
+  A->>M: select active memory
+  A->>P: model call with governed context
+  P-->>A: tool call or answer
+  A->>T: execute allowed tool
+  T-->>A: observation and artifacts
+  A->>R: record step, output, and decision
+  A-->>G: final response or blocker
+  G-->>U: platform-specific delivery
 ```
 
-### Planner Flow（规划器流程）
+The trace is not an afterthought. It is written throughout the flow so a production failure can be replayed at the right layer later.
 
-For complex tasks, the Planner decomposes them:（对于复杂任务，规划器会将其分解：）
+## Reliability Mechanisms
 
-```
-Complex Task（复杂任务）
-    │
-    ▼
-┌────────────────┐
-│  Decompose     │ → Plan { steps[], dependencies }
-│  （分解）       │ →（计划：步骤列表、依赖关系）
-└────────┬───────┘
-         ▼
-┌────────────────┐
-│ Execute Steps  │ → Each step goes through Agent Loop
-│ （执行步骤）    │ →（每个步骤经过智能循环）
-└────────┬───────┘
-         ▼
-┌────────────────┐
-│ Monitor & Adapt│ → Re-plan if needed
-│ （监控与调整）  │ →（需要时重新规划）
-└────────┬───────┘
-         ▼
-┌────────────────┐
-│ Synthesize     │ → Combine results, report to user
-│ （综合）        │ →（合并结果，向用户报告）
-└────────────────┘
-```
+| Mechanism | Failure it addresses |
+|---|---|
+| Iteration budgets and duplicate detection | Agents repeating actions without progress |
+| Tool schemas and policy gates | Ambiguous or unsafe model-selected actions |
+| Context compression with protected recent tail | Old evidence overriding current user intent |
+| Active memory selection | Irrelevant memory polluting decisions |
+| Provider adapters | Model-specific request and streaming incompatibilities |
+| Delivery contracts | Preview artifacts replacing requested final outputs |
+| Scenario replay | Fixes that pass local tests but fail real user paths |
 
-## Module Design（模块设计）
+## Deployment Shape
 
-### packages/types（类型包）
+AgentClaw is a TypeScript monorepo with a web control plane, gateway surfaces, core agent runtime, tools, memory, and integrations. The deployment boundary should be drawn around the runtime that owns user sessions and tool execution. High-authority tools should be sandboxed or constrained by policy. Generated artifacts should be stored where the delivery channel can actually reach them.
 
-Shared TypeScript interfaces.（共享的 TypeScript 接口定义。）Zero runtime dependencies.（零运行时依赖。）Every other package depends on this.（所有其他包都依赖于它。）
+## What This Architecture Optimizes For
 
-### packages/core（核心包）
+AgentClaw optimizes for finishing real tasks under changing context: long conversations, memory, file delivery, browser work, multiple channels, and provider variability. It does not optimize for being the smallest possible chat wrapper.
 
-The brain of the system:（系统的大脑：）
+The trade-off is more system surface area. The payoff is that failures can be isolated: a provider bug belongs in the adapter, a stale preference belongs in memory governance, a wrong file belongs in delivery gates, and a repeated action belongs in loop control.
 
-- **AgentLoop**: The think-act-observe cycle with automatic retry.（思考-行动-观察循环，带自动重试。）Receives user input, manages the conversation loop with the LLM, handles tool calls with exponential backoff retry for network tools (comfyui/http_request/web_search/web_fetch), and produces final responses.（接收用户输入，管理与 LLM 的对话循环，网络类工具失败自动重试（指数退避），生成最终回复。）
-- **Planner** ✅: Decomposes complex tasks into executable plans with steps and dependencies via LLM.（通过 LLM 将复杂任务分解为带有步骤和依赖关系的可执行计划。）Exposed as built-in `plan_task` tool so the LLM can invoke it autonomously.（作为内置 `plan_task` 工具暴露，LLM 可自主调用。）Executes steps through AgentLoop, monitors progress, and re-plans on failure.（通过 AgentLoop 执行步骤，监控进度，失败时自动重规划。）
-- **ContextManager**: Builds the optimal context window for each LLM call by combining system prompts, conversation history, memory retrieval results, and **skill catalog**.（通过组合系统提示、对话历史、记忆检索结果和**技能目录**，为每次 LLM 调用构建最优上下文窗口。）Uses **Frozen Snapshot**: `dynamicContextCache` builds dynamic context (memories + skill catalog) once per `conversationId` on the first turn, then reuses it for the entire session — memory writes persist to SQLite but don't alter the current session's system prompt, improving Anthropic prompt cache hit rate (~75% input token cost savings).（使用**冻结快照**：`dynamicContextCache` 在首轮为每个 `conversationId` 构建一次动态上下文（记忆 + 技能目录），session 内不再重建——memory 写入持久化到 SQLite 但不改变当前 session 的系统提示词，提高 Anthropic prompt cache 命中率，节省约 75% input token 成本。）When `preSelectedSkillName` is set (via `use_skill` tool), injects the full skill instructions.（当 `preSelectedSkillName` 被设置（通过 `use_skill` 工具）时，注入完整技能指令。）Includes **tool pair protection**: `sanitizeToolPairs()` fixes orphaned `tool_call`/`tool_result` pairs after context compression — removes orphaned tool results and inserts stub results for missing ones, with compression boundaries auto-aligned to avoid cutting inside a pair.（包含**工具对保护**：`sanitizeToolPairs()` 修复压缩后孤立的 `tool_call`/`tool_result` 对——移除孤立的 tool result 并为缺失结果插入 stub，压缩边界自动对齐避免在 pair 中间切割。）
-- **Orchestrator**: Top-level coordinator with multi-agent support.（顶层协调器，支持多 Agent。）Manages sessions, injects skill/planner/scheduler into tool execution context, handles lifecycle. When a session is bound to an Agent, injects the agent's soul into system prompt, overrides model/temperature/maxIterations, and filters available tools.（管理会话，将 skill/planner/scheduler 注入工具执行上下文，处理生命周期。当会话绑定 Agent 时，注入 Agent 的 soul 到系统提示词、覆盖 model/temperature/maxIterations、过滤可用工具。）
-- **SkillRegistry** ✅: Loads skills from SKILL.md files (YAML frontmatter + natural language instructions).（从 SKILL.md 文件加载技能：YAML 元数据 + 自然语言指令。）Injects a lightweight skill catalog (~100 tokens: name + description) into system prompt; LLM autonomously decides whether to call `use_skill(name)` tool to activate a skill.（在系统提示词中注入轻量技能目录（~100 token：name + description），由 LLM 自主判断是否调用 `use_skill(name)` 工具激活技能。）
-- **SubAgentManager** ✅: Spawns independent sub-agents with their own AgentLoop for parallel task execution.（生成独立子智能体，各自拥有独立的 AgentLoop，用于并行任务执行。）Sub-agents have isolated sessions and toolsets. Supports "explore" mode with read-only tool subset (file_read/glob/grep/web_fetch/web_search/shell) for search tasks.（子智能体拥有隔离的会话和工具集。支持 "explore" 只读模式，仅限搜索/阅读工具子集。）**Tool blocklist**: `SUBAGENT_BLOCKED_TOOLS` always filters 6 dangerous tools (subagent/ask_user/remember/schedule/send_file/social_post) to prevent recursive delegation, hanging, and memory pollution.（**工具黑名单**：`SUBAGENT_BLOCKED_TOOLS` 始终过滤 6 个危险工具，防止递归委托、挂起和记忆污染。）**IterationBudget**: Parent and child agents share the same `IterationBudget` object — sub-agent iterations count against the global limit, preventing unbounded consumption. Optional; when not provided, no limit is enforced.（**迭代预算**：父子代理共享同一个 `IterationBudget` 对象，子代理消耗计入全局上限，防止无限消耗。为可选参数，未传入时不限制。）**`spawn_and_wait`**: Batch execution mode — submit multiple goals at once, execute sequentially to avoid LLM concurrency contention, return all results together.（**`spawn_and_wait`**：批量执行模式——一次提交多个目标，顺序执行避免 LLM 并发竞争，结果一次性返回。）
-### Agent Profiles（Agent 人格）
+## Principle
 
-AgentClaw supports multiple agent profiles, each with a distinct personality (Soul) and optional configuration overrides.（AgentClaw 支持多个 Agent 人格，每个 Agent 拥有独立的人格（Soul）和可选的配置覆盖。）
-
-**File system storage（文件系统存储）**:
-```
-data/agents/
-├── agentclaw/          # Default agent（默认 Agent）
-│   ├── config.json     # { name, emoji, model?, temperature?, maxIterations?, tools? }
-│   └── SOUL.md         # Personality & behavior instructions（人格和行为指令）
-├── coder/
-├── writer/
-├── analyst/
-└── researcher/
-```
-
-**5 preset agents（5 个预设 Agent）**: AgentClaw (default), Coder, Writer, Analyst, Researcher.（AgentClaw（默认）、Coder、Writer、Analyst、Researcher。）
-
-**Runtime behavior（运行时行为）**:
-- Session creation accepts `agentId` to bind an agent profile.（创建会话时可指定 `agentId` 绑定 Agent。）
-- Orchestrator reads the agent's `SOUL.md` and injects it into the system prompt.（Orchestrator 读取 Agent 的 `SOUL.md` 并注入系统提示词。）
-- Agent-level `model`, `temperature`, `maxIterations` override system defaults.（Agent 级别的 model/temperature/maxIterations 覆盖系统默认值。）
-- Agent-level `tools` array filters available tools for the session.（Agent 级别的 tools 数组过滤会话可用工具。）
-- Config stored as plain files (not DB), suitable for version control.（配置以纯文件存储，非数据库，适合版本管理。）
-
-- **ToolHookManager** ✅: Manages before/after hooks and tool access policies.（管理工具执行前后钩子和工具访问策略。）Preset hooks: file_write auto Biome lint, shell exit code warning.（预设钩子：file_write 自动 Biome lint、shell 非零退出码警告。）
-- **MemoryExtractor** ✅: Uses LLM to extract long-term memories (facts, preferences, entities, episodic) from conversations.（使用 LLM 从对话中提取长期记忆：事实、偏好、实体、情景。）Runs periodically every 5 turns.（每 5 轮对话自动运行。）
-
-### packages/providers（模型提供商包）
-
-LLM abstraction layer with 3 adapters covering 8+ providers:（LLM 抽象层，3 个适配器覆盖 8+ 提供商：）
-
-- **BaseLLMProvider**: Abstract base class with shared logic.（抽象基类，包含通用逻辑。）
-- **ClaudeProvider**: Anthropic Claude API adapter (@anthropic-ai/sdk).（Anthropic Claude API 适配器。）
-- **OpenAICompatibleProvider**: One adapter for all OpenAI-compatible APIs — OpenAI, DeepSeek, Kimi, MiniMax, Qwen, Ollama, etc.（一个适配器通吃所有 OpenAI 兼容 API——OpenAI、DeepSeek、Kimi、MiniMax、通义千问、Ollama 等。）Just configure baseUrl + apiKey.（只需配置 baseUrl + apiKey。）
-- **GeminiProvider**: Google Gemini API adapter (@google/genai).（Google Gemini API 适配器。）
-- **SmartRouter** ✅: Intelligent model selection based on task type with cost tracking, auto-fallback on failure, and tier-based routing (planning→flagship, coding→standard, chat→fast).（基于任务类型的智能模型选择，含成本追踪、故障自动切换、tier 路由。）
-
-### packages/tools（工具包）
-
-Layered tool system with core + conditional loading:（分层工具系统，核心 + 条件加载：）
-
-- **Core tools (9, always loaded)（核心工具，9 个，永远加载）**: shell, file_read, file_write, file_edit, glob, grep, ask_user, web_fetch, web_search
-- **Conditional tools (9, config-driven)（条件工具，9 个，按配置加载）**:
-  - `gateway: true` → send_file, schedule, update_todo, sandbox, subagent, browser_cdp
-  - `memory: true` → remember
-  - `skills: true` → use_skill
-  - `claudeCode: true` → claude_code
-- **Skill-based tools（技能工具）**: Skills in `skills/` directory provide instructions for using tools like python, browser, comfyui, http_request, google_calendar, google_tasks etc. Activated via `use_skill(name)`.（`skills/` 目录下的技能提供工具使用指令，通过 `use_skill(name)` 激活。）
-- **MCP** ✅: MCPClient (stdio + HTTP transport) + MCPManager for multi-server connections.（MCP 协议：MCPClient 支持 stdio + HTTP 传输 + MCPManager 管理多服务器连接。）Auto-discovers tools from MCP servers and adapts them to AgentClaw Tool interface.（自动从 MCP 服务器发现工具并适配为 AgentClaw Tool 接口。）
-
-Each tool implements a standard interface: `{ name, description, parameters, execute() }`.（每个工具实现标准接口：`{ name, description, parameters, execute() }`。）
-
-### packages/memory（记忆包）
-
-Persistent memory backed by SQLite:（基于 SQLite 的持久化记忆：）
-
-- **Short-term** ✅: Conversation history (turns table)（短期记忆：对话历史，turns 表）
-- **Long-term** ✅: Extracted facts, preferences, entities via LLM MemoryExtractor, with vector embeddings (pure JS cosine similarity + bag-of-words fallback, LLM embed when available).（长期记忆：通过 LLM MemoryExtractor 提取的事实、偏好、实体，带向量嵌入——纯 JS 余弦相似度 + 词袋模型兜底，LLM embed 可用时自动使用。）
-- **Episodic** ✅: Task records, lessons learned (completed plans and results)（情景记忆：任务记录、经验教训，已完成的计划和结果）
-- **Hybrid retrieval** ✅: 4-way hybrid: `BM25(0.2) + vector(0.4) + recency(0.15) + importance(0.25)` with FTS5 full-text index, MMR dedup (lambda=0.7), and `escapeFtsQuery()` for safe query escaping. Recency uses exponential decay (half-life = 7 days).（四路混合检索：BM25(0.2) + 向量(0.4) + 时效性(0.15) + 重要性(0.25)，使用 FTS5 全文索引、MMR 去重（lambda=0.7）、`escapeFtsQuery()` 安全查询转义。时效性使用指数衰减，半衰期 7 天。）
-
-### packages/cli（命令行包）
-
-CLI interface using Node.js readline:（使用 Node.js readline 的命令行界面：）
-
-- `agentclaw` / `ac` commands（`agentclaw` / `ac` 命令）
-- Shortcut: `pnpm cli`（快捷启动：`pnpm cli`）
-- Interactive chat mode with skill matching display（交互式对话模式，显示匹配的技能）
-- Streaming output via `processInputStream` — token-by-token display as LLM responds（流式逐字输出，使用 `processInputStream`，LLM 响应时实时展示）
-- Auto-loads skills from `skills/` directory on startup（启动时自动从 `skills/` 目录加载技能）
-- Auto-loads `.env` via dotenv, auto-detects provider from available environment variables（自动通过 dotenv 加载 `.env`，并根据可用环境变量自动检测提供商）
-- OS / shell / datetime info injected into system prompt（system prompt 中注入操作系统、Shell 环境、当前时间信息）
-- Periodic memory extraction every 5 turns（每 5 轮对话自动提取长期记忆）
-- Supports `--provider` flag for 8+ LLM providers（支持 `--provider` 参数切换 8+ 个 LLM 提供商）
-
-### packages/gateway（网关包）✅
-
-Background daemon powered by Fastify:（基于 Fastify 的后台守护进程：）
-
-- **Server** ✅: Fastify HTTP server with CORS + WebSocket plugin.（Fastify HTTP 服务器 + CORS + WebSocket 插件。）`bootstrap.ts` initializes all core components (provider, tools, memory, orchestrator, planner, skills). System prompt includes runtime context: OS, shell, current date/time and timezone, and available CLI tools — ensuring the LLM never tries commands for the wrong OS.（`bootstrap.ts` 初始化所有核心组件。System prompt 中注入运行环境信息：操作系统、Shell、当前日期时间与时区、可用 CLI 工具，确保 LLM 不会执行错误操作系统的命令。）
-- **REST API** ✅: 18 endpoints covering sessions (CRUD + chat + history), plans (list + detail), memories (search + delete), tools & skills (list), stats & config (get/update), scheduled tasks (CRUD).（18 个端点覆盖会话、计划、记忆、工具技能、统计配置、定时任务。）
-- **WebSocket** ✅: Real-time streaming at `/ws?sessionId=xxx`.（`/ws?sessionId=xxx` 实时流式传输。）Maps AgentEvent types to client WSMessage format (text/tool_call/tool_result/done/error).（将 AgentEvent 类型映射为客户端 WSMessage 格式。）Done message carries usage stats (model/tokensIn/tokensOut/durationMs/toolCallCount).（done 消息携带用量统计。）
-- **Telegram Bot** ✅: Grammy framework, chat→session mapping, /start /new /help commands, image/file/video/audio support, broadcast API for scheduled tasks.（Grammy 框架，chat→session 映射，支持 /start /new /help 命令，支持图片/文件/视频/音频收发，提供 broadcast API 供定时任务广播使用。）
-- **WhatsApp Bot** ✅: Baileys (direct WhatsApp Web protocol), QR code auth, self-chat mode only, /new /help commands, image/file/video/audio support, broadcast API, auto-reconnect.（baileys 库直连 WhatsApp Web 协议，QR 码扫码认证，自聊模式，支持 /new /help 命令，支持图片/文件/视频/音频收发，提供 broadcast API，断线自动重连。）
-- **DingTalk Bot** ✅: Stream mode via dingtalk-stream-sdk-nodejs (no public IP needed).（通过 dingtalk-stream-sdk-nodejs 流式模式接入，无需公网 IP。）Text messaging, session management, ask_user interaction, file link pushing.（支持文本消息收发、会话管理、ask_user 交互、文件链接推送。）Env: `DINGTALK_APP_KEY` + `DINGTALK_APP_SECRET`.（环境变量：`DINGTALK_APP_KEY` + `DINGTALK_APP_SECRET`。）
-- **Feishu Bot** ✅: WebSocket mode via @larksuiteoapi/node-sdk (no public IP needed).（通过 @larksuiteoapi/node-sdk WebSocket 模式接入，无需公网 IP。）Text messaging, @bot mention filtering, session management.（支持文本消息收发、@bot 提及过滤、会话管理。）Env: `FEISHU_APP_ID` + `FEISHU_APP_SECRET`.（环境变量：`FEISHU_APP_ID` + `FEISHU_APP_SECRET`。）
-- **QQ Bot** ✅: QQ Open Platform API v2, WebSocket mode (no public IP needed).（QQ 开放平台 API v2，WebSocket 模式接入，无需公网 IP。）Text messaging, session management, broadcast API.（支持文本消息收发、会话管理、广播 API。）Env: `QQ_BOT_APP_ID` + `QQ_BOT_APP_SECRET`.（环境变量：`QQ_BOT_APP_ID` + `QQ_BOT_APP_SECRET`。）
-- **WeCom Bot** ✅: @wecom/aibot-node-sdk WebSocket mode (no public IP needed).（通过 @wecom/aibot-node-sdk WebSocket 模式接入，无需公网 IP。）Text messaging, session management, broadcast API.（支持文本消息收发、会话管理、广播 API。）Env: `WECOM_BOT_ID` + `WECOM_BOT_SECRET`.（环境变量：`WECOM_BOT_ID` + `WECOM_BOT_SECRET`。）
-- **Platform Hints** ✅: `platform-hints.ts` defines formatting guidance per channel (e.g., Telegram/WhatsApp avoid Markdown, Discord/DingTalk/Feishu support Markdown). Injected into system prompt via session metadata + `{{platformHint}}` template variable.（`platform-hints.ts` 定义各渠道格式建议，通过 session metadata 传入 orchestrator，解析 `{{platformHint}}` 模板变量注入系统提示词。）
-- **Scheduler** ✅: Cron-based task scheduling. On task fire, runs full orchestrator loop (not just notification) and broadcasts results to all active gateways (Telegram + WhatsApp + DingTalk + Feishu + QQ + WeCom).（基于 Cron 的任务调度。任务触发时运行完整的 orchestrator 循环（而非仅发通知），并将结果广播至所有活跃网关（Telegram + WhatsApp + 钉钉 + 飞书 + QQ + 企业微信）。）使用 `croner` 库 + CRUD API。
-- **Graceful shutdown**: Handles SIGINT/SIGTERM, stops scheduler and closes Fastify.（处理 SIGINT/SIGTERM，停止调度器并关闭 Fastify。）
-
-### packages/web（Web UI 包）✅
-
-React 19 + Vite Web UI with Serene Sage theme (light/dark):（基于 React 19 + Vite 的 Serene Sage 主题 Web 界面，支持明/暗模式：）
-
-- **ChatPage** ✅: Real-time chat with WebSocket streaming, tool call cards (collapsible), session sidebar (collapsible), auto-scroll, empty state, reconnection banner, usage stats display on assistant messages (model/tokens/duration/tool count). **SubAgentCard**: Sub-agent `spawn_and_wait` calls displayed as a single grouped card with one line per sub-task (spinner → checkmark/cross), replacing the previous 13+ flat tool call entries.（实时聊天：WebSocket 流式传输、可折叠工具调用卡片、可折叠会话侧栏、自动滚动、空状态、断连重连、assistant 消息底部显示用量统计。**SubAgentCard**：子代理 `spawn_and_wait` 调用以单卡片展示，每个子任务一行（spinner → ✓/✗），替代之前 13+ 条工具调用的平铺显示。）
-- **TasksPage** ✅: Plan list with status badges, expandable step timeline, dependency visualization, auto-refresh every 10s.（任务列表：状态徽章、可展开的步骤时间线、依赖可视化、每 10 秒自动刷新。）
-- **SettingsPage** ✅: Hierarchical layout with left sidebar navigation (9 tabs: General / Channels / Agents / Subagents / Memory / Tools / Skills / Traces / API). General tab includes usage statistics (4 cards + model breakdown table) and appearance settings (theme/language toggle). Other tabs embed dedicated management pages (agent profiles, memory browser, tool list, skill toggles, trace viewer, API docs) — formerly standalone pages, now unified under Settings.（二级菜单结构，左侧导航 9 个标签页。General 包含用量统计和外观设置（主题/语言切换），其余标签页嵌入各管理页面——原独立页面现统一收入 Settings。）
-- **Design system**: CSS custom properties based Serene Sage theme (light: #FAFAF7 / dark: #1A1D17), sidebar navigation with active state, responsive (768px breakpoint).（设计系统：基于 CSS 变量的 Serene Sage 主题、侧栏导航、响应式。）
-
-## TypeScript Interfaces (Key Types)（TypeScript 接口，核心类型）
-
-See `packages/types/src/` for complete definitions.（完整定义见 `packages/types/src/`。）Key interfaces:（核心接口：）
-
-- `Message` — Chat message with role, content, tool calls, usage stats (model/tokensIn/tokensOut/durationMs/toolCallCount)（聊天消息，包含角色、内容、工具调用、用量统计）
-- `LLMStreamChunk` — Streaming chunk; done chunk carries `usage` and `model`（流式片段；done chunk 携带 usage 和 model）
-- `LLMProvider` — Unified LLM provider interface（统一的 LLM 提供商接口）
-- `LLMRouter` — Model selection based on task type（基于任务类型的模型选择）
-- `Tool` / `ToolRegistry` — Tool definition and registry（工具定义和注册表）
-- `MemoryStore` / `MemoryEntry` — Memory storage and retrieval（记忆存储和检索）
-- `AgentLoop` — Core agent cycle（核心智能循环）
-- `Plan` / `PlanStep` — Task decomposition（任务分解）
-- `Skill` — Skill definition and matching（技能定义和匹配）
-- `ToolHooks` / `ToolPolicy` — Tool execution hooks and access policies（工具执行钩子和访问策略）
-- `SubAgentManager` / `SubAgentInfo` — Sub-agent orchestration types（子智能体编排类型）
-- `Session` — Conversation session management（对话会话管理）
-
-## SQLite Schema（SQLite 数据库结构）
-
-### conversations（对话表）
-
-```sql
-CREATE TABLE conversations (
-  id TEXT PRIMARY KEY,
-  title TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  metadata TEXT -- JSON
-);
-```
-
-### turns（对话轮次表）
-
-```sql
-CREATE TABLE turns (
-  id TEXT PRIMARY KEY,
-  conversation_id TEXT NOT NULL REFERENCES conversations(id),
-  role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
-  content TEXT NOT NULL,
-  tool_calls TEXT, -- JSON array of tool calls（工具调用的 JSON 数组）
-  tool_results TEXT, -- JSON array of tool results（工具结果的 JSON 数组）
-  model TEXT,
-  tokens_in INTEGER,
-  tokens_out INTEGER,
-  duration_ms INTEGER, -- Response duration in milliseconds（响应耗时，毫秒）
-  tool_call_count INTEGER, -- Number of tool calls executed（工具调用次数）
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX idx_turns_conversation ON turns(conversation_id, created_at);
-```
-
-### memories（记忆表）
-
-```sql
-CREATE TABLE memories (
-  id TEXT PRIMARY KEY,
-  type TEXT NOT NULL CHECK (type IN ('fact', 'preference', 'entity', 'episodic')),
-  content TEXT NOT NULL,
-  source_turn_id TEXT REFERENCES turns(id),
-  importance REAL NOT NULL DEFAULT 0.5,
-  embedding BLOB, -- vector embedding for semantic search（用于语义搜索的向量嵌入）
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  accessed_at TEXT NOT NULL DEFAULT (datetime('now')),
-  access_count INTEGER NOT NULL DEFAULT 0,
-  metadata TEXT -- JSON
-);
-CREATE INDEX idx_memories_type ON memories(type);
-CREATE INDEX idx_memories_importance ON memories(importance DESC);
-```
-
-### memories_fts（记忆全文索引表）
-
-```sql
--- FTS5 full-text index for BM25 search (v0.9.0)
---（FTS5 全文索引，用于 BM25 搜索（v0.9.0））
-CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-  id UNINDEXED, content, tokenize='unicode61'
-);
-```
-
-### plans（计划表）
-
-```sql
-CREATE TABLE plans (
-  id TEXT PRIMARY KEY,
-  conversation_id TEXT REFERENCES conversations(id),
-  goal TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('pending', 'active', 'completed', 'failed', 'cancelled')),
-  steps TEXT NOT NULL, -- JSON array of PlanStep（计划步骤的 JSON 数组）
-  result TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  completed_at TEXT
-);
-```
-
-### skills（技能——文件系统存储）
-
-Skills are **not stored in SQLite**. They live as `skills/*/SKILL.md` files and are loaded dynamically by `SkillRegistry` at startup with hot-reload via `fs.watch`.（技能不存储在数据库中，以 `skills/*/SKILL.md` 文件形式存在，由 `SkillRegistry` 启动时加载，`fs.watch` 热加载。）
-
-## Deployment（部署）
-
-### Docker（容器化部署）
-
-Multi-stage Dockerfile + docker-compose with 3 services:（多阶段 Dockerfile + docker-compose 三服务编排：）
-
-```
-docker-compose.yml
-├── agentclaw        # Main service (node:20-slim, includes ffmpeg/git/curl/python3/Deno)
-│                    #（主服务，运行时含 ffmpeg/git/curl/python3/Deno）
-├── searxng          # Self-hosted meta search engine (replaces Serper API, $0 cost)
-│                    #（自托管元搜索引擎，替代 Serper API，零成本）
-└── redis (valkey)   # Cache + rate limiting for SearXNG
-                     #（SearXNG 的缓存和限流）
-```
-
-- `docker compose up` one-command deployment（一键启动）
-- `./data` and `./skills` mounted as volumes for persistence（数据和技能目录挂载为 volume）
-- `.env` file for all configuration（所有配置通过 .env 文件注入）
-
-## Security & Performance Mechanisms（安全与性能机制）
-
-1. **Subagent Tool Blocklist（子代理工具黑名单）**: `SUBAGENT_BLOCKED_TOOLS` in `core/subagent-manager.ts` always filters 6 tools: subagent, ask_user, remember, schedule, send_file, social_post — preventing recursive delegation, indefinite hanging, and memory pollution.（`SUBAGENT_BLOCKED_TOOLS` 始终过滤 6 个工具，防止递归委托、无限挂起和记忆污染。）
-2. **IterationBudget（迭代预算共享）**: Parent and child agents share a single `IterationBudget` object (`core/agent-loop.ts`). Sub-agent iterations count against the global limit, preventing unbounded iteration consumption. Optional — when not provided, no limit is enforced.（父子代理共享同一个 `IterationBudget` 对象，子代理消耗计入全局上限。为可选参数，未传入时不限制。）
-3. **Memory Content Audit（Memory 内容审查）**: The `remember` tool calls `scanMemoryContent()` before writing, scanning for prompt injection (8 patterns), invisible unicode characters, and credential exfiltration payloads. Malicious content is blocked before it can pollute the system prompt via memory retrieval.（`remember` 工具写入前调用 `scanMemoryContent()` 扫描 prompt injection（8 种模式）、隐形 unicode 字符和凭证窃取 payload，阻止恶意内容通过记忆检索污染系统提示词。）
-4. **Frozen Snapshot（冻结快照）**: `dynamicContextCache` in `context-manager.ts` builds dynamic context (memories + skill catalog) once per `conversationId` on the first turn, then reuses it for the entire session. Memory writes persist to SQLite but don't alter the current session's system prompt, improving Anthropic prompt cache hit rate (~75% input token cost savings).（`dynamicContextCache` 每个 `conversationId` 只构建一次动态上下文，session 内不再重建。memory 写入持久化但不改变当前 session 系统提示词，提高 prompt cache 命中率。）
-5. **Context Compression Tool Pair Protection（上下文压缩工具对保护）**: `sanitizeToolPairs()` in `context-manager.ts` fixes orphaned `tool_call`/`tool_result` pairs after conversation compression — removes orphaned tool results and inserts stub results for missing ones. Compression boundaries auto-align to avoid cutting inside a tool call/result pair, preventing API errors in long conversations.（`sanitizeToolPairs()` 修复压缩后孤立的 `tool_call`/`tool_result` 对，压缩边界自动对齐，防止长对话压缩后 API 报错。）
-6. **Platform Hints（渠道格式提示）**: `gateway/platform-hints.ts` defines per-channel formatting guidance (e.g., Telegram/WhatsApp avoid Markdown, Discord/DingTalk/Feishu support Markdown). Injected into system prompt via session metadata + `{{platformHint}}` template variable in `system-prompt.md`.（`gateway/platform-hints.ts` 定义各渠道格式建议，通过 session metadata + `{{platformHint}}` 模板变量注入系统提示词。）
-
-## Design Principles（设计原则）
-
-1. **Modularity**: Each package has a clear responsibility and can be developed/tested independently.（模块化：每个包有明确职责，可以独立开发和测试。）
-2. **Provider Agnostic**: LLM provider can be swapped without changing core logic.（模型无关性：可以切换 LLM 提供商而不改变核心逻辑。）
-3. **Memory-First**: Every interaction contributes to long-term memory, making the agent smarter over time.（记忆优先：每次交互都贡献长期记忆，让智能体随时间变得更聪明。）
-4. **Tool Extensibility**: New tools can be added by implementing the Tool interface or connecting MCP servers.（工具可扩展：通过实现 Tool 接口或连接 MCP 服务器即可添加新工具。）
-5. **Graceful Degradation**: If a provider or tool fails, the system falls back to alternatives.（优雅降级：当提供商或工具失败时，系统回退到备选方案。）
+The model should be powerful inside the loop, but the system must own the loop's authority, memory, and proof of completion.

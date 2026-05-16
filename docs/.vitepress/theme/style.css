@@ -89,6 +89,7 @@ body {
 .vp-doc {
   font-size: 17px;
   line-height: 1.78;
+  overflow-wrap: break-word;
 }
 
 .vp-doc h1,
@@ -101,6 +102,7 @@ body {
   max-width: 840px;
   font-size: 46px;
   line-height: 1.08;
+  overflow-wrap: anywhere;
 }
 
 .vp-doc h2 {
@@ -112,6 +114,7 @@ body {
 .vp-doc p,
 .vp-doc li {
   color: var(--vp-c-text-2);
+  overflow-wrap: break-word;
 }
 
 .vp-doc blockquote {
@@ -127,7 +130,8 @@ body {
 }
 
 .vp-doc table {
-  display: table;
+  display: block;
+  overflow-x: auto;
   width: 100%;
   font-size: 15px;
 }
@@ -148,6 +152,35 @@ body {
 }
 
 @media (max-width: 640px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  .VPDoc,
+  .VPContent,
+  .VPContent.has-sidebar,
+  .VPDoc .container,
+  .VPDoc .content,
+  .VPDoc .content-container,
+  .vp-doc {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow-x: hidden;
+  }
+
+  .VPDoc .content-container {
+    width: calc(100vw - 120px) !important;
+    max-width: calc(100vw - 120px) !important;
+  }
+
+  .vp-doc,
+  .vp-doc > * {
+    width: calc(100vw - 120px) !important;
+    max-width: calc(100vw - 120px) !important;
+  }
+
   .VPHero .image-container {
     transform: none;
   }
@@ -162,10 +195,21 @@ body {
   }
 
   .vp-doc h1 {
-    font-size: 34px;
+    font-size: 26px;
+    line-height: 1.16;
+    word-break: break-word;
   }
 
   .vp-doc {
     font-size: 16px;
+  }
+
+  .vp-doc p,
+  .vp-doc li,
+  .vp-doc blockquote,
+  .vp-doc blockquote p {
+    overflow-wrap: anywhere !important;
+    white-space: normal !important;
+    word-break: break-all !important;
   }
 }

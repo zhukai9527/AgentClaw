@@ -1,5 +1,16 @@
 # 更新日志
 
+## [1.5.30] - 2026-05-16
+
+### Added
+- **技术站旗舰文章补齐**：新增 trace replay、last-mile delivery、skill runtime contract 三篇工程旗舰文，把真实 trace 回放、最终产物交付门禁和 skill 快路径/硬验收沉淀为公开可复用方法论。
+- **中文书稿独立 Book 区**：新增 `docs/book/`，将《造一个真能用的 AI Agent》完整书稿、目录、附录和架构图作为独立主导航发布，不再混入 Blog/Guide/Compare 信息架构。
+
+### Changed
+- **公开文章按顶级工程博客标准重写**：重写 context compression、Agent Series 十篇文章、Guide、Roadmap、Engineering Lessons 和 Compare 页面，统一为失败场景、核心 thesis、机制、边界、验收证据和可迁移原则的结构。
+- **技术站导航升级**：首页和 VitePress 导航新增 Book 入口，并把 Blog 推荐位调整为 memory、trace replay、delivery、skill contract、context compression 等高密度工程文章。
+- **OpenClaw 对比降营销化**：将旧版分数型对比改为定位型比较，明确方法论、时效边界和双方取舍，避免不可验证的“碾压式”表述。
+
 ## [1.5.29] - 2026-05-16
 
 ### Added

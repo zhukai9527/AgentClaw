@@ -1,270 +1,119 @@
-# 我的 AI Agent 烧掉了 17 万 token，只为找一个不存在的文件
+﻿# Context Compression Is a Reliability Mechanism
 
-上周凌晨，一个定时任务把我叫醒了。
+> Context compression is not about making prompts smaller. It is about preventing old observations from becoming new instructions.
 
-不是闹钟，是我的 AI Agent 在 Telegram 上发来的消息——或者说，它**没有**发来消息。定时任务应该在每天早上 8 点自动生成新闻日报并推送，但这天它沉默了。
+The first obvious symptom was cost. An agent burned roughly 170K tokens while trying to find a file that was not there. It read directories, repeated tool output, summarized the same failed search, and kept carrying old observations forward as if they were still useful.
 
-我打开后台看 trace，血压直接上来了：
+The worse symptom was quieter. After enough tool output accumulated, the model began optimizing for the history instead of the task. It treated stale paths as leads. It gave equal weight to a current user correction and a ten-turn-old observation. It became slower, more expensive, and less accurate at the same time.
 
-> 61 步工具调用，314 秒执行时间，168,985 个 input tokens
+That is the failure most teams miss. A full context window is not only a billing problem. It is a decision-quality problem.
 
-它在做什么？**在整个硬盘上 `find` 一个不存在的脚本文件。** 先搜了 `/`，超时。搜了 `D:/mycode/`，没找到。搜了 `C:/Users/`，还是没有。然后它写了一段 Node.js 脚本遍历整个 D 盘……全盘扫描了两遍，最后一无所获。
+AgentClaw's context system was rebuilt around one thesis:
 
-17 万 token，大约 2 块钱，全部浪费在了一个**根本不该发生**的操作上。
+> The context window is a control surface. Every token that enters it should have a reason to still influence the next decision.
 
-这不是模型的问题。是**上下文管理**的问题。如果它能在第 10 步就意识到自己在重复无效操作——或者更好，如果它的上下文里根本不会堆积那么多无用信息导致它迷失方向——这一切都不会发生。
-
-这件事之后，我花了一周时间重新设计了上下文压缩系统。
+This article describes the mechanism we use: immutable system context, protected recent intent, structured summaries, tool-output demotion, compression waterfalls, and regression tests that check behavior rather than token counts alone.
 
 ---
 
-## 一个反直觉的事实：Agent 的上下文越大，表现越差
+## The Failure Mode: The Prompt Becomes a Junk Drawer
 
-做 AI Agent 的人都知道上下文窗口有上限。但很少有人意识到一个更严重的问题：**上下文越大，LLM 的注意力越分散。**
+Long context windows make the early version of an agent feel safe. You can keep more turns, more tool results, more screenshots, more stack traces, and more explanation. The system seems more informed.
 
-一个 10 轮对话的 Agent，上下文里大概是这样的：
+Then the junk drawer starts making decisions.
 
-```
-系统提示词            ~2,000 tokens
-工具定义（20个工具）    ~3,000 tokens
-第1轮：用户输入         ~100 tokens
-第1轮：web_search 结果  ~2,000 tokens  ← 已经用不上了
-第2轮：web_fetch 输出   ~8,000 tokens  ← 已经用不上了
-第3轮：file_write 参数  ~1,500 tokens  ← LLM 写的，它自己知道
-第3轮：file_write 结果  ~50 tokens
-第4轮：bash 输出        ~3,000 tokens  ← 已经用不上了
-...
-```
+| Failure | What it looks like | Why it matters |
+|---|---|---|
+| Stale observation | A deleted path keeps appearing in later reasoning | The model keeps paying attention to a fact that is no longer actionable |
+| Tool-output gravity | A huge command result dominates the prompt | The newest user intent competes with old machine text |
+| Summary drift | A compressed history loses the exact user correction | The next turn follows the summary, not the user |
+| Cache busting | Static instructions are rebuilt every turn | Identical work becomes expensive and slower |
+| Compression panic | Everything is summarized only after the window is nearly full | The system loses structure exactly when precision is needed most |
 
-你看到问题了吗？**真正有用的信息可能只占 20%，剩下 80% 是过期的工具输出。** 但 LLM 不会自动忽略它们——它会"认真阅读"每一个 token，然后在冗余信息的噪音中做出决策。
-
-这就是为什么 Agent 在长对话中会变"蠢"——不是模型能力下降，是**有用信号被噪音淹没了**。
-
-## 简单截断？代价比你想象的大
-
-最朴素的方案是丢掉最早的消息。但我在生产中见过这种情况：
-
-> 用户第 1 轮说："帮我把 A 文件的接口从 REST 改成 GraphQL。"
-> Agent 执行了 8 轮修改。
-> 第 9 轮，上下文满了，第 1 轮被截断。
-> Agent："好的，请问您需要我做什么？"
-
-它**忘了用户要做什么**。
-
-所以我设计了一套七层渐进式压缩系统。核心理念：**信息不该被丢掉，只该被降级。** 从不花钱的本地操作开始，一层层升级，最后才动用 LLM。
+The core mistake is treating context as storage. Storage can keep everything. Context cannot. Context is the material the model uses to choose the next action.
 
 ---
 
-## 第一层：免费午餐——空白和 JSON 压缩
+## The Mechanism: Protect Fresh Intent, Demote Old Evidence
 
-最简单的压缩不需要任何智能，纯字符串操作。
+A useful context manager has to separate three kinds of text.
 
-工具返回的 JSON 通常是 pretty-printed 的：
-
-```json
-{
-  "status": "success",
-  "data": {
-    "id": 12345,
-    "name": "test"
-  }
-}
+```mermaid
+flowchart TD
+  A["Static system contract"] --> D["Prompt assembly"]
+  B["Fresh user intent"] --> D
+  C["Historical evidence"] --> E["Compression and demotion"]
+  E --> D
+  D --> F["Model decision"]
+  F --> G["Telemetry: tokens, cache, result quality"]
+  G --> E
 ```
 
-一个 `JSON.stringify()` 就能变成：
+The first layer is the static contract: system instructions, tool schemas, safety boundaries, and project rules. These should not be regenerated casually. If the system prompt is rebuilt with noisy differences every turn, prompt caching loses value and the model sees a slightly different operating environment.
 
-```json
-{"status":"success","data":{"id":12345,"name":"test"}}
-```
+The second layer is the fresh tail: the latest user request, the immediate correction, and the last few actions required to preserve continuity. This layer is protected. It is the part most likely to contain the real task.
 
-847 字符变 52 字符。加上空白归一化（连续换行折叠、tab 转空格、行尾空白清除），**典型节省 3-12%**。
+The third layer is historical evidence: previous tool results, old reasoning, failed paths, summaries, and completed substeps. This layer is aggressively demoted. It can remain available, but it should not arrive with the same authority as a current instruction.
 
-看起来不多？这对**每条消息**都生效。10 轮对话下来，能省出几千 token——够塞一轮完整的工具调用了。
+That separation gives the agent a stable order of influence:
 
-## 第二层：LLM 不需要重读自己写的代码
-
-这是一个被大多数 Agent 框架忽略的洞察。
-
-当 LLM 调用 `file_write` 写了一个 500 行的文件，这 500 行代码会完整保留在上下文中。但 LLM**已经知道自己写了什么**——它不需要在第 5 轮重新阅读自己在第 2 轮写的代码。
-
-所以对 `file_write`、`file_edit`、`execute_code`、`bash` 这四个工具，执行 3 轮后，我们把输入参数截断为前 50 字符：
-
-```
-// 第2轮（完整保留）
-file_write({ path: "index.ts", content: "import React from 'react';\n..." /* 2000 chars */ })
-
-// 第5轮（3轮后自动截断）
-file_write({ path: "index.ts", content: "import React from...(truncated)" })
-```
-
-LLM 看到截断后的参数，知道"哦我之前写了 index.ts"就够了。如果真的需要看完整内容，它可以 `file_read`。
-
-## 第三层：微压缩——Claude Code 也在用的技巧
-
-Claude Code 的源码泄漏后，我发现它有一个叫 MicroCompact 的机制：**不调 API，本地静默截断旧的工具输出。**
-
-我们的实现方式：距离当前轮次超过 3 轮的 `tool_result`，如果超过 800 字符，保留前 200 字符 + 标记：
-
-```
-// 原始（第2轮的搜索结果，2500字符）
-"共找到 15 条相关结果：\n1. OpenAI 发布 GPT-5.3...\n2. Anthropic 推出..."
-
-// 微压缩后（第5轮时）
-"共找到 15 条相关结果：\n1. OpenAI 发布 GPT-5.3...\n2. Anthr\n\n[... truncated from 2500 chars]"
-```
-
-200 字符的预览足够 LLM 回忆"这个搜索做了什么"。如果需要完整结果，可以重新搜索。
-
-关键：**最近 3 轮永远保留完整内容。** LLM 需要最新的完整信息来做当前决策。
-
-## 第四层：溢出转文件——截断的反义词
-
-前三层处理的是"旧内容变短"。但有些工具输出**一次就超过 8000 字符**——比如读一个大文件、跑一个长命令。直接截断会丢关键信息。
-
-Overflow 的做法不是截断，而是**转移**：
-
-1. 完整内容保存到临时文件
-2. 上下文只留 1500 字符预览 + 文件路径
-
-```
-[Output saved to overflow_bash_1711865432.txt — 15,230 chars]
-
-Preview (first 1500 chars):
-total 490
-drwxr-xr-x 1 user 197121  0  Mar 29 06:59 .
--rw-r--r-- 1 user 197121 12967821  Mar 29 17:26 cli.js
-...
-
-Use file_read to access the full output if needed.
-```
-
-信息不是丢了，是从"内存"转移到了"硬盘"。LLM 随时可以 `file_read` 取回。
-
-有个有趣的边界情况：如果 LLM 读了 overflow 文件，输出又超了 8K 怎么办？**不会再次 overflow。** 通过文件名检测（`overflow_*.txt`）跳过，避免无限循环。
-
-## 第五层：智能观测压缩——四遍扫描提取要点
-
-这是压缩率最高的一层：**80-95%**。
-
-一个 `npm install` 的输出可能有 3000 多字符、100 多行。但 LLM 真正需要的信息是什么？"安装成功了吗？有没有报错？"
-
-所以我们不暴力截断，而是做四遍扫描：
-
-1. **第一遍：错误行。** 匹配 `error`/`exception`/`fail`/`ENOENT`——如果有错误，这是最重要的信息
-2. **第二遍：状态行。** 匹配 `success`/`complete`/`created`/`passed`——知道结果状态
-3. **第三遍：JSON 关键字段。** 提取 `status`/`error`/`message`/`count`——结构化数据的要点
-4. **第四遍：首尾行。** 保留前 3 行和后 2 行——通常包含命令和最终结果
-
-每遍都有预算控制，最终输出控制在 400 字符以内。
-
-```
-// Before: 3200 chars 的 npm install 输出
-added 157 packages, removed 12 packages, changed 3 packages
-npm warn deprecated xyz@1.0.0: This package is no longer maintained
-...（还有98行）...
-
-// After: 82 chars, 97% 压缩率
-[bash — 3200 chars → 82 chars, 97% compressed]
-added 157 packages, removed 12 packages
-npm warn deprecated xyz@1.0.0
-```
-
-97% 的内容被压掉了，但 LLM 知道了它需要知道的一切：安装成功、有一个 deprecated 警告。
-
-还有去重：如果 LLM 对同一个文件 `file_read` 两次（内容完全一样），第二次直接返回 `[Duplicate result — same as earlier message]`。
-
-## 第六层：LLM 结构化压缩——最后的防线
-
-前五层全部是本地操作，零 API 成本。大部分对话在前五层就够了。
-
-但当对话真的很长——20+ 轮、token 估算超过上下文预算的 70%——就需要动用 LLM 来做全量压缩了。
-
-早期我们的压缩 prompt 是 "总结这段对话为 3-5 个要点"。但这有个致命缺陷：**用户的原始意图会被稀释掉。**
-
-比如用户说 "帮我把所有 API 从 REST 改成 GraphQL，保持向后兼容"，3 个要点的摘要可能变成 "1. 讨论了 API 迁移 2. 修改了几个文件 3. 遇到了类型错误"。"保持向后兼容"这个关键约束就丢了。
-
-所以我们改成了**七段结构化模板**：
-
-```
-**User Request:** 用户最初要求做什么（1句话原文）
-**Current State:** 已完成的工作和当前状态
-**Key Decisions:** 做过的重要决策和约束
-**Files & Code:** 涉及的文件和代码改动
-**Errors & Fixes:** 遇到的问题和解决方案
-**Next Steps:** 还需要做什么
-**User Messages:** 用户的关键原话（逐字保留）
-```
-
-这个设计借鉴了 Claude Code 的 Full Conversation 压缩——它用 9 个段落做结构化总结。其中最聪明的是 **User Messages** 段：**逐字保留用户说过的关键指令**，确保压缩后 LLM 不会偏离用户意图。
-
-另外还有三级 fallback：
-
-1. 正常结构化摘要（500 token）
-2. 激进压缩（低温度 0.05，200 字符上限）
-3. 确定性截断（纯字符串操作，不调 API）
-
-**第三级保证压缩永不失败。** 即使 API 连续挂两次，照样能兜底。
-
-压缩后还有一步**修复**：`sanitizeToolPairs()` 检查压缩边界有没有把 tool_call 和 tool_result 切开——这相当于把"问题"和"答案"拆散了，LLM 会非常困惑。如果发现孤立的工具调用对，自动修复。
-
-## 第七层：系统提示词不重复构建
-
-严格来说这不是压缩，是**防止浪费**。
-
-系统提示词（包含 Agent 身份、工具规范、记忆、技能目录等）可能有 2000-3000 token。如果每轮都重新查数据库、扫目录来组装，既浪费时间也浪费 token（每次内容微变就无法命中 API 的 prompt cache）。
-
-所以我们在每个 session 第一次构建后就缓存下来（Frozen Snapshot），后续轮次直接复用。对支持 prompt caching 的 API（如 Anthropic），固定不变的系统提示词走缓存价格——**约为正常输入的 10%**。
+1. Rules and tool contracts define what is allowed.
+2. Fresh user intent defines what should happen now.
+3. Historical evidence helps only when it still explains the current situation.
 
 ---
 
-## 实际效果
+## The Waterfall: Compress Before the Emergency
 
-以一个真实的 15 轮对话为例——搜索新闻、抓取网页、写文章、推送到 Telegram：
+A single compression strategy is too fragile. We use a waterfall because different pressure levels need different behavior.
 
-| 阶段 | 原始大小 | 压缩后 | 节省 | 哪一层 |
-|------|---------|--------|------|-------|
-| 3 次搜索结果 | ~6,000 字符 | ~1,200 字符 | 80% | L5 智能观测 |
-| 网页抓取内容 | ~15,000 字符 | 1,500 预览 + 文件 | 90% | L4 Overflow |
-| file_write 参数 | ~2,000 字符 | 50 字符 | 97% | L2 参数截断 |
-| 5 轮前的工具结果 | ~4,000 字符 | ~600 字符 | 85% | L3 微压缩 |
-| JSON 工具结果 | ~800 字符 | ~400 字符 | 50% | L1 基础压缩 |
+| Pressure | Strategy | What must survive |
+|---|---|---|
+| Normal | Structured summary of completed work | Current goal, open decisions, files touched, unresolved blockers |
+| High | Aggressive tool-output pruning | Errors, paths, IDs, commands, and final artifact requirements |
+| Critical | Deterministic truncation of old low-value text | The protected recent tail and system contract |
 
-**同样的上下文窗口，能跑的对话轮次从约 10 轮提升到约 30 轮**，而不丢失关键信息。前五层零 API 成本。
+The important detail is not the exact threshold. The important detail is that compression is not a last-second rescue. If the first time the system thinks about context is when the prompt is already too large, it will cut blindly.
 
-## 与 Claude Code 的对比
-
-Claude Code 源码泄漏后，我们发现它也有类似的分层设计：
-
-| Claude Code | AgentClaw | 说明 |
-|------------|-----------|------|
-| MicroCompact | L2 + L3 | 本地截断旧内容 |
-| AutoCompact | L6 | 接近上限时 LLM 压缩 |
-| Full Compact | L6 + History Offload | 全量压缩 + 历史转存 |
-| — | L1 基础压缩 | 空白/JSON 紧凑化 |
-| — | L4 Overflow | 大输出转文件 |
-| — | L5 智能观测压缩 | 四遍扫描提取要点 |
-| — | L7 Frozen Snapshot | 系统提示词缓存 |
-
-思路一致，但我们在 L1、L4、L5、L7 上做了更细粒度的处理——因为 Agent 的工具调用场景会产生比纯对话多得多的冗余输出。
+Good compression is boring because it happens continuously. Tool results that are too large are written to disk or artifact storage. The model sees a preview and a pointer, not the entire payload. Repeated observations are collapsed into one fact. Failed attempts are summarized as negative evidence: "searched X and did not find Y," not repeated as raw transcripts.
 
 ---
 
-## 三条设计原则
+## Evidence: Measure Decisions, Not Only Tokens
 
-如果你也在做 Agent 的上下文管理，这三条原则可以直接用：
+Token charts are useful, but they can lie. A system can reduce token usage by deleting information the model needed. That is not optimization; it is amputation.
 
-**1. 延迟访问，而非截断。**
+The acceptance tests have to ask behavioral questions:
 
-信息不该被丢弃，只该被降级。Overflow 把内容从上下文转移到磁盘，History Offload 把压缩前的完整对话存为文件——LLM 需要时随时可以 `file_read` 取回。"剪掉"和"放到柜子里"的区别，决定了 Agent 能否在长对话中保持一致性。
+| Check | Passing behavior |
+|---|---|
+| Missing file search | The agent stops after enough negative evidence and reports the absence clearly |
+| User correction | A recent correction beats older summarized assumptions |
+| Large output | Raw output is stored externally and the prompt receives only actionable excerpts |
+| Follow-up turn | The agent preserves the original deliverable type even when the user omits the noun |
+| Cache stability | Static instructions remain stable across turns unless the tool surface changes |
 
-**2. 保护用户意图，牺牲工具输出。**
-
-上下文空间紧张时，该被压缩的是工具输出（搜索结果、命令日志、文件内容），不是用户说的话。结构化压缩模板的 User Messages 段就是这个原则的体现——用户原话逐字保留，即使其他信息被压到只剩 200 字符。
-
-**3. 从免费操作开始，逐级升级。**
-
-七层中前五层是零成本的本地操作。只有当这些都不够时，才调用 LLM。绝大多数对话根本不需要触发 L6。这不只是省钱——每次 API 调用都有延迟和失败风险，能不调就不调。
+This is why trace replay matters. The real bug is rarely "prompt has too many tokens" in isolation. The bug is "because the prompt carried the wrong history, the agent made the wrong next move."
 
 ---
 
-*AgentClaw 是一个开源的 AI Agent 框架。如果你对上下文压缩或 Agent 工程化感兴趣，欢迎在 GitHub 上交流。*
+## Boundaries and Trade-Offs
+
+Compression can make an agent worse when it hides uncertainty. A summary that says "the build failed" is much less useful than "the build failed because `pnpm test` could not resolve module X after commit Y." The system must preserve handles: filenames, commands, error signatures, trace IDs, artifact paths, and user-facing requirements.
+
+There is also a latency trade-off. LLM-based summarization can itself cost tokens and time. That is why the fallback layer is deterministic. When pressure is high, a simple rule that preserves the fresh tail is often safer than a clever summary that arrives late or rewrites facts.
+
+The practical rule is simple: compress prose, preserve handles.
+
+---
+
+## Design Rules
+
+- Treat context as influence, not storage.
+- Preserve the newest user intent even when everything else is compressed.
+- Convert old tool output into evidence summaries with pointers to full artifacts.
+- Store large outputs outside the model context by default.
+- Make compression observable: token counts, cache hits, cut reasons, and outcome quality.
+- Test compression with real traces where stale context previously changed behavior.
+
+The best context manager is not the one that fits the most text. It is the one that keeps the right text powerful and makes the rest harmless.
