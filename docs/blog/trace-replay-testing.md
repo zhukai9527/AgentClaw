@@ -56,6 +56,8 @@ flowchart LR
   G --> H["User-visible assertion"]
 ```
 
+*Figure: A replay fixture is built from the same state that shaped the original agent decision, then judged by the user-visible outcome.*
+
 The replay fixture should include the user wording, the prior turns that change meaning, the memory rows that could influence the answer, the tool outputs that drive branching, the model or provider configuration that changes behavior, and the expected final result.
 
 The expected result should be stated at the same level the user experiences. For a file task, the assertion is not "exporter called." It is "the final delivered file exists, is a `.pptx`, is reachable from the response, and is not replaced by a PDF preview."

@@ -49,6 +49,8 @@ flowchart TD
   G --> E
 ```
 
+*Figure: Context pressure is managed by protecting fresh intent and demoting old evidence before the model decides.*
+
 The first layer is the static contract: system instructions, tool schemas, safety boundaries, and project rules. These should not be regenerated casually. If the system prompt is rebuilt with noisy differences every turn, prompt caching loses value and the model sees a slightly different operating environment.
 
 The second layer is the fresh tail: the latest user request, the immediate correction, and the last few actions required to preserve continuity. This layer is protected. It is the part most likely to contain the real task.

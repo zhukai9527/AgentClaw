@@ -82,6 +82,8 @@ flowchart TD
   H --> C
 ```
 
+*Figure: A governed memory loop treats recall as a measurable control surface, not passive retrieval.*
+
 The key word is “loop.” A memory is not done when it is written. It has to survive recall, use, evaluation, and cleanup.
 
 This changes how memory quality is judged. The important question is not only whether a memory can be found. It is whether the memory should have been found, whether it helped, and whether the system can prevent a similar mistake from returning.

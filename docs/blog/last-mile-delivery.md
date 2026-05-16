@@ -50,6 +50,8 @@ flowchart TD
   H -- Yes --> I["Deliver"]
 ```
 
+*Figure: The delivery gate blocks plausible completion until the requested artifact exists, passes integrity checks, and is referenced in the final response.*
+
 The contract should include type, path, accessibility, and user-visible reference. In an AgentClaw PPTX trace, that meant the `.pptx` had to exist, open or pass a structural check, and be the file linked or attached in the final response. A PDF preview could be helpful, but it could not satisfy the contract because the user asked for editable slides.
 
 ---

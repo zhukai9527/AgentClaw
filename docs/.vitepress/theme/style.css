@@ -63,8 +63,13 @@ body {
 }
 
 .VPHero .image-src {
+  display: block;
   width: 260px;
   border-radius: 28px;
+  border: 0;
+  outline: 0;
+  background: #101820;
+  clip-path: inset(0 round 28px);
   box-shadow:
     0 28px 90px rgba(168, 50, 40, 0.2),
     0 18px 42px rgba(21, 21, 21, 0.16);
@@ -158,6 +163,8 @@ body {
   }
 
   .VPHome,
+  .Layout,
+  .VPContent,
   .VPHome .container,
   .VPHero,
   .VPHero .container,
@@ -173,8 +180,30 @@ body {
   }
 
   .VPHero .container {
+    width: 100% !important;
+    max-width: 100vw !important;
+    box-sizing: border-box;
     padding-right: 24px !important;
     padding-left: 24px !important;
+  }
+
+  .VPNavBar,
+  .VPNavBar > .wrapper,
+  .VPNavBar > .wrapper > .container {
+    width: 100% !important;
+    max-width: 100vw !important;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+
+  .VPNavBar > .wrapper > .container {
+    padding-right: 24px !important;
+    padding-left: 24px !important;
+  }
+
+  .VPHero .main {
+    width: 100% !important;
+    max-width: 100% !important;
   }
 
   .VPHero .name,
@@ -188,18 +217,33 @@ body {
   }
 
   .VPHero .name {
-    font-size: 32px !important;
+    max-width: 310px !important;
+    margin-right: auto !important;
+    margin-left: auto !important;
+    font-size: 28px !important;
     line-height: 1.12 !important;
   }
 
   .VPHero .text {
-    font-size: 32px !important;
+    max-width: 310px !important;
+    margin-right: auto !important;
+    margin-left: auto !important;
+    font-size: 24px !important;
     line-height: 1.16 !important;
   }
 
   .VPHero .actions {
+    width: 100%;
+    max-width: 310px;
+    margin-right: auto;
+    margin-left: auto;
     flex-wrap: wrap;
     justify-content: center;
+  }
+
+  .VPHero .action,
+  .VPHero .action .VPButton {
+    max-width: 100%;
   }
 
   .VPDoc,
@@ -233,10 +277,30 @@ body {
   .VPHero .image-src {
     width: 112px;
     border-radius: 18px;
+    clip-path: inset(0 round 18px);
   }
 
   .VPHero .tagline {
-    font-size: 17px;
+    max-width: 280px !important;
+    margin-right: auto !important;
+    margin-left: auto !important;
+    font-size: 16px;
+  }
+
+  .VPFeatures .container {
+    width: 100% !important;
+    max-width: 100vw !important;
+    box-sizing: border-box;
+    padding-right: 24px !important;
+    padding-left: 24px !important;
+  }
+
+  .VPFeature {
+    width: 100% !important;
+    max-width: 290px !important;
+    margin-right: auto !important;
+    margin-left: auto !important;
+    box-sizing: border-box;
   }
 
   .vp-doc h1 {

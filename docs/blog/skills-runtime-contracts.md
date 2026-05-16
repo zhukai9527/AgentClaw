@@ -43,6 +43,8 @@ flowchart TD
   F -- No --> H["Repair path"]
 ```
 
+*Figure: A production skill encodes the fast path, the verifier, and the repair path so the model does not rediscover the workflow.*
+
 The trigger says when the skill applies. The fast path says what to do first. Allowed tools keep the model inside the right surface area. Forbidden detours prevent slow rituals. The verifier defines what success means. The repair path runs only after the verifier fails.
 
 For a PPTX generation skill, this contract means:
