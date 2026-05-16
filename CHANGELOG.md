@@ -1,5 +1,11 @@
 # 更新日志
 
+## [1.5.34] - 2026-05-16
+
+### Fixed
+- **自定义域名资源路径**：VitePress 默认 `base` 从 `/AgentClaw/` 改为 `/`，匹配 `agentengineering.bibidu.com` 根域名部署，避免首页 HTML 仍引用 `/AgentClaw/assets/...` 导致 CSS/JS/logo 和导航链接失效。
+- **GitHub Pages 自定义域名声明**：发布产物新增 `CNAME`，将 `agentengineering.bibidu.com` 作为文档站 canonical domain。
+
 ## [1.5.33] - 2026-05-16
 
 ### Changed

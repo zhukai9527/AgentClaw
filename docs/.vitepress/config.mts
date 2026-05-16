@@ -1,6 +1,6 @@
 ﻿import { defineConfig } from "vitepress";
 
-const base = process.env.DOCS_BASE ?? "/AgentClaw/";
+const base = process.env.DOCS_BASE ?? "/";
 
 export default defineConfig({
   title: "Agent Engineering",
