@@ -208,4 +208,4 @@ Both paths produce the same output format (accessibility snapshots with ref IDs)
 
 *If you've built browser automation for your agent framework, we want to hear what representation you chose — screenshots, DOM, accessibility tree, or something else entirely. [Star the repo](https://github.com/vorojar/AgentClaw) and tell us on X: [@ponyinhouse](https://x.com/ponyinhouse).*
 
-*Next in series: [Part 9 — Multi-Channel Delivery: One Brain, Many Mouths](./09-multi-channel-delivery.md)*
+*Next in series: [Part 9 — Multi-Channel Delivery: One Brain, Many Mouths](./09-multi-channel.md)*

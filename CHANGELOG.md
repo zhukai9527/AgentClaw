@@ -1,5 +1,19 @@
 # 更新日志
 
+## [1.5.29] - 2026-05-16
+
+### Added
+- **AgentClaw Engineering 技术站**：新增 VitePress 驱动的 GitHub Pages 文档/博客站，包含首页、工程博客、Building AI Agent Frameworks 系列、系统指南、竞品对比、全文搜索、品牌图标和自定义工程刊物视觉主题。
+- **GitHub Pages 自动部署**：新增 `.github/workflows/pages.yml`，在 `master` 的文档、依赖或部署 workflow 变更后自动构建 `docs/.vitepress/dist` 并发布到 GitHub Pages。
+- **文档站本地脚本**：新增 `docs:dev`、`docs:build`、`docs:preview`，并引入 VitePress/Vite 依赖，支持本地开发、静态构建和预览验收。
+
+### Changed
+- **公开文档信息架构重组**：将工程文章整理到 `docs/blog/`，系统文档整理到 `docs/guide/`，竞品对比整理到 `docs/compare/`；旧的 `building-ai-agents` 系列迁移到博客栏目并修复系列跳转坏链。
+- **公开发布边界收敛**：VitePress 配置显式排除私有规划、审计任务、Python 缓存和本地书稿交付包，避免 GitHub Pages 意外发布不适合公开传播的材料。
+
+### Removed
+- **过期内部报告**：删除 `docs/AUDIT-FIX-REPORT.md` 和 `docs/vsopenclawtask.md`，避免一次性修复报告和任务清单混入正式技术站。
+
 ## [1.5.28] - 2026-05-15
 
 ### Added

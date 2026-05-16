@@ -229,4 +229,4 @@ This prevents the worst-case scenario: the model enters a loop where it calls a 
 
 *If you've been bitten by silent 200 OK errors or infinite retry loops, you're not alone. [Star the repo](https://github.com/vorojar/AgentClaw) if this helped, and share your war stories — we're [@ponyinhouse](https://x.com/ponyinhouse) on X.*
 
-*Next in series: [Part 7 — Security: Your Agent is an Attack Surface](./07-security-attack-surface.md)*
+*Next in series: [Part 7 — Security: Your Agent is an Attack Surface](./07-security.md)*

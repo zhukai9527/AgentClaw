@@ -255,4 +255,4 @@ Nine steps. Each one exists because we hit a real production failure without it.
 
 *If you're building an agent framework, at least 3 of the problems described here exist in your codebase right now. [Star the repo](https://github.com/vorojar/AgentClaw) if this helped, and tell us what we missed — we're [@ponyinhouse](https://x.com/ponyinhouse) on X.*
 
-*Next in series: [Part 4 — Memory Beyond the Context Window](./04-memory-beyond-context.md)*
+*Next in series: [Part 4 — Memory Beyond the Context Window](./04-memory-architecture.md)*

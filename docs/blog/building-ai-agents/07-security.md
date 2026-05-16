@@ -290,4 +290,4 @@ Here's what we protect against, and what we don't:
 
 *If you're building an agent framework, you probably have at least two of these attack surfaces undefended right now. [Star the repo](https://github.com/vorojar/AgentClaw) if this helped you think about agent security differently, and tell us what we missed — we're [@ponyinhouse](https://x.com/ponyinhouse) on X.*
 
-*Next in series: [Part 8 — Giving Agents Eyes: Browser Automation](./08-giving-agents-eyes.md)*
+*Next in series: [Part 8 — Giving Agents Eyes: Browser Automation](./08-browser-automation.md)*
