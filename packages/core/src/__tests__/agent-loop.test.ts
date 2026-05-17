@@ -3366,5 +3366,79 @@ describe("SimpleAgentLoop", () => {
         expect.not.objectContaining({ error: "invalid_tool_markup_final" }),
       );
     });
+
+    it("天气查询只有月度气候片段时不应拦截后续 web_fetch", async () => {
+      const makeToolCallChunks = (
+        id: string,
+        name: string,
+        input: Record<string, unknown>,
+      ): LLMStreamChunk[] => [
+        { type: "tool_use_start", toolUse: { id, name, input: "" } },
+        {
+          type: "tool_use_delta",
+          toolUse: { id, name: "", input: JSON.stringify(input) },
+        },
+      ];
+      const testProvider = createMockProvider([
+        [
+          ...makeToolCallChunks("tc-search", "web_search", {
+            query: "宁波明天天气 2026年5月17日",
+            max_results: 3,
+          }),
+          {
+            type: "done",
+            usage: { tokensIn: 100, tokensOut: 20 },
+            model: "mock-model",
+            stopReason: "tool_use",
+          },
+        ],
+        [
+          ...makeToolCallChunks("tc-fetch", "web_fetch", {
+            url: "https://www.accuweather.com/zh/cn/ningbo/61620/may-weather/61620",
+            max_chars: 5000,
+          }),
+          {
+            type: "done",
+            usage: { tokensIn: 120, tokensOut: 20 },
+            model: "mock-model",
+            stopReason: "tool_use",
+          },
+        ],
+        [
+          { type: "text", text: "主人，宁波明天多云，23-28°C。" },
+          {
+            type: "done",
+            usage: { tokensIn: 130, tokensOut: 25 },
+            model: "mock-model",
+            stopReason: "end_turn",
+          },
+        ],
+      ]);
+      const fetchTool = createMockTool("web_fetch", {
+        content: "宁波 5月17日 天气：多云，23-28°C，东南风 3级。",
+      });
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("web_search", {
+            content:
+              "results[3]{title,url}:\n  宁波五月, 2026 天气 — 29 4月. +25°+17°. 30 4月. +24°+17°. 1 5月. +25°+17°. 2 5月. +23°+16°.\n  https://www.meteoprog.com/cn/weather/Ningbo/month/may/\n\nhint: if the direct answer/snippets contain enough facts, answer from them with source links; use web_fetch(url) only when snippets are insufficient.",
+          }),
+          fetchTool,
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 4 },
+      });
+
+      await collectEvents(loop.runStream("明天天气怎么样？", "conv-weather-monthly"));
+
+      expect(fetchTool.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: "https://www.accuweather.com/zh/cn/ningbo/61620/may-weather/61620",
+        }),
+        undefined,
+      );
+    });
   });
 });

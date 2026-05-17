@@ -1157,6 +1157,26 @@ function cleanWeatherLine(value: string | undefined): string {
     .trim();
 }
 
+function hasSufficientWeatherFacts(factHint: string): boolean {
+  if (!/天气|气温|温度|降水|风力|风速|湿度|weather/i.test(factHint)) {
+    return false;
+  }
+  if (/搜索直接答案：|中国气象局片段：|中国天气网页面/.test(factHint)) {
+    return true;
+  }
+  const hasSpecificDate =
+    /\d{1,2}月\d{1,2}日|\d{1,2}日（|今天|明天|tomorrow|today/i.test(
+      factHint,
+    );
+  const hasForecastSignal = /晴|多云|阴|小雨|中雨|大雨|雪|℃|°C|°F|风/.test(
+    factHint,
+  );
+  if (hasSpecificDate && hasForecastSignal) {
+    return true;
+  }
+  return false;
+}
+
 export class SimpleAgentLoop implements AgentLoop {
   private _state: AgentState = "idle";
   private _config: AgentConfig;
@@ -3271,7 +3291,7 @@ export class SimpleAgentLoop implements AgentLoop {
         }
         if (factHint) {
           runtimeHints.push(factHint);
-          if (factHint.includes("天气") || factHint.includes("气温")) {
+          if (hasSufficientWeatherFacts(factHint)) {
             sufficientWeatherFactHint = factHint;
           }
         }
