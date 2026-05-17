@@ -2030,6 +2030,16 @@ export class SimpleAgentLoop implements AgentLoop {
             );
             continue;
           }
+          if (
+            taskToolProfile.kind === "reddit_rss" &&
+            allSentFiles.length === 0 &&
+            invalidFinalMarkupRetries < 3
+          ) {
+            runtimeHints.push(
+              `[RSS任务继续]上一轮输出了不可执行的伪工具标记。工具仍可用；不要输出 XML/tool_call/function/parameter 文本。rss_top 的结果已经在上下文中，禁止再调用 rss_top 或 file_read。下一步必须用结构化工具调用：file_write 写入 ${sessionTmpDir}/reddit-tech-ai-daily.md，然后 send_file 发送该 Markdown 文件。`,
+            );
+            continue;
+          }
           if (invalidFinalMarkupRetries >= 2) {
             forcedStopReason = "invalid_tool_markup_final";
             fullText = buildSynthesisFallbackResponse(

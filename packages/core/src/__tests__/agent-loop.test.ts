@@ -1255,6 +1255,91 @@ describe("SimpleAgentLoop", () => {
       expect(fileReadTool.execute).not.toHaveBeenCalled();
     });
 
+    it("Reddit RSS 任务遇到伪工具 XML 时应继续要求结构化 file_write/send_file 交付", async () => {
+      const invalidFileWriteMarkup =
+        "<tool_call>\n<function=file_write>\n<parameter=path>D:/mycode/agentclaw/data/tmp/conv-rss-invalid/reddit.md</parameter>\n<parameter=content># Reddit 日报</parameter>\n</function>\n</tool_call>";
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-rss", "rss_top", {
+          feeds: ["r/technology"],
+          topN: 5,
+        }),
+        [
+          { type: "text", text: invalidFileWriteMarkup },
+          {
+            type: "done",
+            usage: { tokensIn: 20, tokensOut: 20 },
+            model: "mock-model",
+            stopReason: "end_turn",
+          },
+        ],
+        [
+          ...createToolCallChunks("tc-write", "file_write", {
+            path: "D:/mycode/agentclaw/data/tmp/conv-rss-invalid/reddit.md",
+            content: "# Reddit 日报",
+          }).slice(0, 2),
+          ...createToolCallChunks("tc-send", "send_file", {
+            path: "D:/mycode/agentclaw/data/tmp/conv-rss-invalid/reddit.md",
+            title: "Reddit 日报",
+          }).slice(0, 2),
+          {
+            type: "done",
+            usage: { tokensIn: 30, tokensOut: 15 },
+            model: "mock-model",
+            stopReason: "tool_use",
+          },
+        ],
+        [
+          { type: "text", text: "已发送" },
+          {
+            type: "done",
+            usage: { tokensIn: 10, tokensOut: 5 },
+            model: "mock-model",
+            stopReason: "end_turn",
+          },
+        ],
+      ]);
+      const fileWriteTool = createMockTool("file_write", { content: "saved" });
+      const sendFileTool = createMockTool("send_file", { content: "sent" });
+      const testToolRegistry = createMockToolRegistry([
+        createMockTool("rss_top", {
+          content:
+            "## r/technology\n1. Users turn to jailbreaking older Kindles (2026-05-16)\n   https://reddit.example/post",
+        }),
+        fileWriteTool,
+        sendFileTool,
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("Reddit RSS 日报，最后用 send_file 发送", "conv-rss-invalid"),
+      );
+
+      const streamedText = events
+        .filter((event) => event.type === "response_chunk")
+        .map((event) => (event.data as { text: string }).text)
+        .join("");
+      expect(streamedText).not.toContain("<tool_call>");
+      expect(fileWriteTool.execute).toHaveBeenCalledWith(
+        expect.objectContaining({ content: "# Reddit 日报" }),
+        undefined,
+      );
+      expect(sendFileTool.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: "D:/mycode/agentclaw/data/tmp/conv-rss-invalid/reddit.md",
+        }),
+        undefined,
+      );
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.not.objectContaining({ error: "invalid_tool_markup_final" }),
+      );
+    });
+
     it("公众号发布任务研究预算耗尽后未写 Markdown 时不暴露 bash", async () => {
       const firstRoundChunks: LLMStreamChunk[] = [];
       for (let i = 0; i < 7; i++) {
