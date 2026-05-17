@@ -2607,6 +2607,49 @@ describe("SimpleAgentLoop", () => {
       expect(secondPrompt).toContain("graph LR");
     });
 
+    it("用户明确要全文时应自动发送 web_fetch overflow 原文文件", async () => {
+      const largeContent = `${"完整长文段落\n".repeat(1400)}tail`;
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-full", "web_fetch", {
+          url: "https://x.com/HiTw93/status/2034627967926825175",
+          max_chars: 10000,
+        }),
+        finalChunks,
+      ]);
+      const fetchTool = createMockTool("web_fetch", { content: largeContent });
+      const sentFiles: Array<{ url: string; filename: string }> = [];
+      const sendFile = vi.fn(async (_path: string, filename?: string) => {
+        const sentName = filename ?? "download.md";
+        sentFiles.push({ url: `/files/conv-fulltext/${sentName}`, filename: sentName });
+      });
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([fetchTool]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("https://x.com/HiTw93/status/2034627967926825175\n获取全文", "conv-fulltext", {
+          sendFile,
+          sentFiles,
+        }),
+      );
+
+      expect(sendFile).toHaveBeenCalledTimes(1);
+      expect(String(sendFile.mock.calls[0][0]).replace(/\\/g, "/")).toContain(
+        "/data/tmp/conv-fulltext/overflow_web_fetch_",
+      );
+      expect(sendFile.mock.calls[0][1]).toMatch(/^x-fulltext-.*\.md$/);
+
+      const completeEvent = events.find((event) => event.type === "response_complete");
+      expect(completeEvent).toBeDefined();
+      const message = (completeEvent!.data as { message: Message }).message;
+      expect(String(message.content)).toContain("[");
+      expect(String(message.content)).toContain("x-fulltext-");
+    });
+
     it("相同 contentHash 的大输出应复用已有 observation 且不重复写 raw", async () => {
       const largeContent = `${"same-output\n".repeat(900)}tail`;
       const testProvider = createMockProvider([

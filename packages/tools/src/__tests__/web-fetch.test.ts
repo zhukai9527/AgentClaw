@@ -162,4 +162,74 @@ describe("web_fetch", () => {
     expect(saved).toContain("本机直连 HTML 的有效正文");
     expect(saved).not.toContain("当前环境异常");
   });
+
+  it("抓取 X article URL 时应规范化为 status URL，避免保存 X 错误页", async () => {
+    const articleUrl = "https://x.com/HiTw93/article/2034627967926825175";
+    const statusUrl = "https://x.com/HiTw93/status/2034627967926825175";
+    const xErrorPage = `
+      Title: X. It’s what’s happening
+      Something went wrong. Try reloading.
+      Join today.
+      Create account
+      Sign in
+    `;
+    const articleMarkdown = `
+      Title: Tw93 on X: "你不知道的 Agent：原理、架构与工程实践" / X
+      URL Source: ${statusUrl}
+
+      在写完「你不知道的 Claude Code：架构、治理与工程实践」之后，整理成了这篇文章。
+      这篇文章主要讲 Agent 架构里几块最影响工程效果的内容。
+    `;
+    const fetchMock = vi.fn(async (fetchUrl: string | URL | Request) => {
+      const requested = String(fetchUrl);
+      if (requested === `https://r.jina.ai/${statusUrl}`) {
+        return response(articleMarkdown, "text/markdown; charset=utf-8");
+      }
+      if (requested.startsWith("https://r.jina.ai/")) {
+        return response(xErrorPage, "text/markdown; charset=utf-8");
+      }
+      return response(`<html><body>${xErrorPage}</body></html>`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { workDir, sendFile, context } = await makeContext();
+    const result = await webFetchTool.execute(
+      { url: articleUrl, save_as: "x-article.md", auto_send: true },
+      context,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.metadata?.normalizedUrl).toBe(statusUrl);
+    expect(sendFile).toHaveBeenCalledWith(join(workDir, "x-article.md"), "x-article.md");
+
+    const saved = await readFile(join(workDir, "x-article.md"), "utf-8");
+    expect(saved).toContain("你不知道的 Claude Code");
+    expect(saved).not.toContain("Something went wrong");
+    expect(saved).not.toContain("Join today");
+  });
+
+  it("最终内容是 X 错误登录页时不应保存或自动发送文件", async () => {
+    const url = "https://x.com/HiTw93/status/2034627967926825175";
+    const xErrorPage = `
+      Title: X. It’s what’s happening
+      Something went wrong. Try reloading.
+      Happening now
+      Join today.
+      Create account
+      Sign in
+    `;
+    const fetchMock = vi.fn(async () => response(xErrorPage, "text/markdown; charset=utf-8"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { workDir, sendFile, context } = await makeContext();
+    const result = await webFetchTool.execute(
+      { url, save_as: "bad-x.md", auto_send: true },
+      context,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("需要验证或登录态");
+    expect(sendFile).not.toHaveBeenCalled();
+    await expect(readFile(join(workDir, "bad-x.md"), "utf-8")).rejects.toThrow();
+  });
 });

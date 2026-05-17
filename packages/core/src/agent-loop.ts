@@ -448,6 +448,17 @@ function buildActiveToolOffloadHint(info: ToolOffloadInfo): string {
   );
 }
 
+function wantsFullFetchedText(inputText: string): boolean {
+  return /全文|完整原文|完整内容|不要截断|别截断|不截断|full\s*(text|article|content)/i.test(
+    inputText,
+  );
+}
+
+function buildFullTextFilename(rawPath: string): string {
+  const rawName = basename(rawPath).replace(/\.[^.]+$/, "");
+  return `x-fulltext-${rawName}.md`;
+}
+
 function buildToolOffloadCanvas(infos: ToolOffloadInfo[]): string {
   const nodes = infos
     .slice(-8)
@@ -2833,6 +2844,29 @@ export class SimpleAgentLoop implements AgentLoop {
                 offloadCanvasHintIndex = runtimeHints.length - 1;
               } else {
                 runtimeHints[offloadCanvasHintIndex] = canvas;
+              }
+              if (
+                effectiveToolName === "web_fetch" &&
+                wantsFullFetchedText(inputTextForHeuristics) &&
+                context?.sendFile &&
+                offloadInfo.rawPath !== "raw file unavailable"
+              ) {
+                const filename = buildFullTextFilename(offloadInfo.rawPath);
+                await context.sendFile(offloadInfo.rawPath, filename);
+                context.sentFiles ??= [];
+                if (!context.sentFiles.some((f) => f.filename === filename)) {
+                  context.sentFiles.push({
+                    url: `/files/${convId}/${filename}`,
+                    filename,
+                  });
+                }
+                result!.content = `Fetched and sent full text: ${filename} (${offloadInfo.rawChars} chars).`;
+                result!.autoComplete = true;
+                result!.metadata = {
+                  ...(result!.metadata ?? {}),
+                  fullTextSent: true,
+                  sentFilename: filename,
+                };
               }
             }
           }

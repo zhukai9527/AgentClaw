@@ -81,6 +81,15 @@ function isWeixinArticleHost(hostname: string): boolean {
   return hostname === "mp.weixin.qq.com";
 }
 
+function normalizeXArticleUrl(url: URL): string | null {
+  if (url.hostname !== "x.com" && url.hostname !== "twitter.com") {
+    return null;
+  }
+  const match = url.pathname.match(/^\/([^/]+)\/article\/(\d+)(?:\/)?$/);
+  if (!match) return null;
+  return `${url.protocol}//${url.hostname}/${match[1]}/status/${match[2]}`;
+}
+
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
@@ -96,6 +105,11 @@ function isBlockedContent(content: string): boolean {
     compact.includes("当前环境异常") ||
     compact.includes("完成验证后即可继续访问") ||
     (compact.includes("环境异常") && compact.includes("去验证")) ||
+    (lower.includes("something went wrong") &&
+      lower.includes("try reloading")) ||
+    (lower.includes("join today") &&
+      lower.includes("create account") &&
+      lower.includes("sign in")) ||
     lower.includes("requiring captcha")
   );
 }
@@ -283,7 +297,7 @@ export const webFetchTool: Tool = {
     input: Record<string, unknown>,
     context?: ToolExecutionContext,
   ): Promise<ToolResult> {
-    const url = input.url as string;
+    const requestedUrl = input.url as string;
     const saveAs = input.save_as as string | undefined;
     const autoSend = input.auto_send === true || String(input.auto_send).toLowerCase() === "true";
     const promptMaxChars = readPromptMaxChars(input.max_chars);
@@ -291,12 +305,17 @@ export const webFetchTool: Tool = {
     // Validate URL
     let parsedUrl: URL;
     try {
-      parsedUrl = new URL(url);
+      parsedUrl = new URL(requestedUrl);
     } catch {
       return {
-        content: `Invalid URL: ${url}`,
+        content: `Invalid URL: ${requestedUrl}`,
         isError: true,
       };
+    }
+    const normalizedUrl = normalizeXArticleUrl(parsedUrl);
+    const url = normalizedUrl ?? requestedUrl;
+    if (normalizedUrl) {
+      parsedUrl = new URL(normalizedUrl);
     }
 
     if (!["http:", "https:"].includes(parsedUrl.protocol)) {
@@ -387,11 +406,12 @@ export const webFetchTool: Tool = {
         strategy = "login_wall";
         return {
           content:
-            `无法抓取完整内容：${url} 需要验证或登录态。` +
+            `无法抓取完整内容：${requestedUrl} 需要验证或登录态。` +
             "请使用 browser/Chrome 登录态抓取，或在验证完成后重试。",
           isError: true,
           metadata: {
-            url,
+            url: requestedUrl,
+            ...(normalizedUrl ? { normalizedUrl } : {}),
             strategy,
             status: response.status,
             contentType,
@@ -417,7 +437,14 @@ export const webFetchTool: Tool = {
               content: `Fetched and sent: ${basename(saveAs)} (${content.length} chars from ${url})`,
               isError: false,
               autoComplete: true,
-              metadata: { url, strategy, filePath, saved: true, sent: true },
+              metadata: {
+                url: requestedUrl,
+                ...(normalizedUrl ? { normalizedUrl } : {}),
+                strategy,
+                filePath,
+                saved: true,
+                sent: true,
+              },
             };
           } catch {
             // sendFile failed, fall through to saved-only response
@@ -433,7 +460,8 @@ export const webFetchTool: Tool = {
           content: `Saved to ${basename(saveAs)} (${content.length} chars).\n\nPreview:\n${preview}`,
           isError: false,
           metadata: {
-            url,
+            url: requestedUrl,
+            ...(normalizedUrl ? { normalizedUrl } : {}),
             strategy,
             filePath,
             saved: true,
@@ -465,7 +493,8 @@ export const webFetchTool: Tool = {
           : `${promptContent.content}\n\n${guidance}`,
         isError: false,
         metadata: {
-          url,
+          url: requestedUrl,
+          ...(normalizedUrl ? { normalizedUrl } : {}),
           strategy,
           status: response.status,
           contentType,
