@@ -2619,7 +2619,7 @@ describe("SimpleAgentLoop", () => {
       const fetchTool = createMockTool("web_fetch", { content: largeContent });
       const sentFiles: Array<{ url: string; filename: string }> = [];
       const sendFile = vi.fn(async (_path: string, filename?: string) => {
-        const sentName = filename ?? "download.md";
+        const sentName = filename ?? _path.split(/[\\/]/).pop() ?? "download.md";
         sentFiles.push({ url: `/files/conv-fulltext/${sentName}`, filename: sentName });
       });
       const loop = new SimpleAgentLoop({
@@ -2641,13 +2641,58 @@ describe("SimpleAgentLoop", () => {
       expect(String(sendFile.mock.calls[0][0]).replace(/\\/g, "/")).toContain(
         "/data/tmp/conv-fulltext/overflow_web_fetch_",
       );
-      expect(sendFile.mock.calls[0][1]).toMatch(/^x-fulltext-.*\.md$/);
+      expect(sendFile.mock.calls[0][1]).toBeUndefined();
 
       const completeEvent = events.find((event) => event.type === "response_complete");
       expect(completeEvent).toBeDefined();
       const message = (completeEvent!.data as { message: Message }).message;
       expect(String(message.content)).toContain("[");
-      expect(String(message.content)).toContain("x-fulltext-");
+      expect(String(message.content)).toContain("overflow_web_fetch_");
+    });
+
+    it("用户要求发送文件时 web_fetch save_as 即使漏 auto_send 也应自动发送", async () => {
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-save", "web_fetch", {
+          url: "https://x.com/HiTw93/article/2034627967926825175",
+          save_as: "agent-article.md",
+        }),
+        finalChunks,
+      ]);
+      const fetchTool = createMockTool("web_fetch", {
+        content: "Saved to agent-article.md (31114 chars).",
+        metadata: {
+          saved: true,
+          filePath: "D:/mycode/agentclaw/data/tmp/conv-save-send/agent-article.md",
+          originalLength: 31114,
+        },
+      });
+      const sentFiles: Array<{ url: string; filename: string }> = [];
+      const sendFile = vi.fn(async (filePath: string) => {
+        const filename = filePath.split(/[\\/]/).pop() ?? "file.md";
+        sentFiles.push({ url: `/files/conv-save-send/${filename}`, filename });
+      });
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([fetchTool]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("获取全文并发送 Markdown 文件", "conv-save-send", {
+          sendFile,
+          sentFiles,
+        }),
+      );
+
+      expect(sendFile).toHaveBeenCalledWith(
+        "D:/mycode/agentclaw/data/tmp/conv-save-send/agent-article.md",
+      );
+      const completeEvent = events.find((event) => event.type === "response_complete");
+      expect(completeEvent).toBeDefined();
+      const message = (completeEvent!.data as { message: Message }).message;
+      expect(String(message.content)).toContain("agent-article.md");
     });
 
     it("相同 contentHash 的大输出应复用已有 observation 且不重复写 raw", async () => {

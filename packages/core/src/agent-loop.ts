@@ -454,9 +454,13 @@ function wantsFullFetchedText(inputText: string): boolean {
   );
 }
 
-function buildFullTextFilename(rawPath: string): string {
-  const rawName = basename(rawPath).replace(/\.[^.]+$/, "");
-  return `x-fulltext-${rawName}.md`;
+function wantsFileDelivery(inputText: string): boolean {
+  return (
+    wantsFullFetchedText(inputText) ||
+    /发送|发我|发给我|给我|send(?:_file)?|deliver|Markdown\s*文件|md\s*文件/i.test(
+      inputText,
+    )
+  );
 }
 
 function buildToolOffloadCanvas(infos: ToolOffloadInfo[]): string {
@@ -2826,6 +2830,28 @@ export class SimpleAgentLoop implements AgentLoop {
               );
             }
 
+            if (
+              effectiveToolName === "web_fetch" &&
+              result &&
+              !result.isError &&
+              !result.autoComplete &&
+              result.metadata?.saved === true &&
+              result.metadata.sent !== true &&
+              typeof result.metadata.filePath === "string" &&
+              context?.sendFile &&
+              wantsFileDelivery(inputTextForHeuristics)
+            ) {
+              const savedPath = result.metadata.filePath;
+              await context.sendFile(savedPath);
+              result.content = `Fetched and sent: ${basename(savedPath)} (${result.metadata.originalLength ?? "saved"} chars).`;
+              result.autoComplete = true;
+              result.metadata = {
+                ...result.metadata,
+                sent: true,
+                autoSentAfterSave: true,
+              };
+            }
+
             const offloadInfo = await applyOverflow(
               result!,
               effectiveToolName,
@@ -2851,15 +2877,8 @@ export class SimpleAgentLoop implements AgentLoop {
                 context?.sendFile &&
                 offloadInfo.rawPath !== "raw file unavailable"
               ) {
-                const filename = buildFullTextFilename(offloadInfo.rawPath);
-                await context.sendFile(offloadInfo.rawPath, filename);
-                context.sentFiles ??= [];
-                if (!context.sentFiles.some((f) => f.filename === filename)) {
-                  context.sentFiles.push({
-                    url: `/files/${convId}/${filename}`,
-                    filename,
-                  });
-                }
+                await context.sendFile(offloadInfo.rawPath);
+                const filename = basename(offloadInfo.rawPath);
                 result!.content = `Fetched and sent full text: ${filename} (${offloadInfo.rawChars} chars).`;
                 result!.autoComplete = true;
                 result!.metadata = {
