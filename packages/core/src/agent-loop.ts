@@ -41,6 +41,20 @@ import {
   type ObfuscationMap,
 } from "./env-obfuscator.js";
 import { join, basename, isAbsolute, relative, resolve } from "node:path";
+import {
+  evaluateBashToolPolicy,
+  evaluateUserInputPolicy,
+} from "./ability/policy-engine.js";
+import {
+  buildTaskToolProfile,
+  filterToolDefinitionsForTask,
+  type TaskToolProfile,
+} from "./ability/task-router.js";
+import {
+  hardenPdfBashInput,
+  isPdfExtractionTask,
+  recoverPdfTextFromSessionPdf,
+} from "./ability/pdf-guard.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -692,133 +706,6 @@ type ToolFactInput = {
   };
 };
 
-type TaskToolProfile = {
-  kind:
-    | "default"
-    | "news_brief"
-    | "reddit_rss"
-    | "wechat_publish"
-    | "pptx_generation";
-  allowedTools?: Set<string>;
-  toolTotalLimits: Record<string, number>;
-  webResearchToolLimit: number;
-  hint?: string;
-};
-
-function buildTaskToolProfile(
-  inputText: string,
-  isNewsBriefTask: boolean,
-  isAiNewsTask: boolean,
-  isPptxGenerationTask = false,
-): TaskToolProfile {
-  if (
-    /公众号|微信公众号|草稿箱|发布到公众号|发到公众号|发送到公众号|wechat/i.test(
-      inputText,
-    )
-  ) {
-    return {
-      kind: "wechat_publish",
-      allowedTools: new Set([
-        "use_skill",
-        "web_search",
-        "web_fetch",
-        "file_write",
-        "bash",
-      ]),
-      toolTotalLimits: {
-        use_skill: 2,
-        web_search: 6,
-        web_fetch: 4,
-        file_write: 2,
-        bash: 5,
-      },
-      webResearchToolLimit: 8,
-      hint: "[任务工具边界]当前是微信公众号发布任务：可少量 web_search/web_fetch 补事实，但交付目标是写出 Markdown 并通过 wechat-publish 统一 CLI 发布。研究预算耗尽后禁止继续搜索，必须继续用 file_write 写 Markdown、use_skill 加载 wechat-publish、bash 调用 wechat_publish.py inspect/publish 完成交付；不要只输出阶段性总结。硬边界：没有可发布 Markdown 前不要用 bash；file_write 只写 .md 文章；bash 只允许执行 `cd D:/mycode/agentclaw && python skills/wechat-publish/scripts/wechat_publish.py capabilities|inspect|publish ... --json`，禁止 preview/convert/help、手写 HTML/Node 转换或查找其他 skill 路径。所有 wechat_publish.py 命令必须从仓库根目录执行，inspect/publish/capabilities 都必须带 --json。如果用户说发布/发送到公众号，写完 Markdown 后必须 inspect，inspect 通过后必须直接 publish 创建草稿，不要停在 preview 或询问是否继续。默认不要传 --theme，publish 子命令不能传 --draft；publish 优先带 --out-dir，漏写时 CLI 会使用 Markdown 同目录的 wechat-output。",
-    };
-  }
-
-  if (/reddit|rss|subreddit|子版块/i.test(inputText)) {
-    return {
-      kind: "reddit_rss",
-      allowedTools: new Set(["rss_top", "file_write", "send_file"]),
-      toolTotalLimits: { rss_top: 1, file_write: 2, send_file: 2 },
-      webResearchToolLimit: 0,
-      hint: "[任务工具边界]当前是 Reddit/RSS 日报任务：只能用 rss_top 获取订阅源 TopN，再用 file_write/send_file 输出。不要调用 web_search、web_fetch、bash 或其他抓取工具。",
-    };
-  }
-
-  if (isNewsBriefTask || isAiNewsTask) {
-    return {
-      kind: "news_brief",
-      allowedTools: isPptxGenerationTask
-        ? new Set([
-            "web_search",
-            "web_fetch",
-            "use_skill",
-            "bash",
-            "claude_code",
-            "glob",
-            "send_file",
-          ])
-        : new Set(["web_search", "web_fetch", "file_write", "send_file"]),
-      toolTotalLimits: isPptxGenerationTask
-        ? {
-            web_search: 3,
-            web_fetch: 3,
-            use_skill: 2,
-            bash: 8,
-            claude_code: 2,
-            glob: 3,
-            send_file: 2,
-          }
-        : {
-            web_search: 3,
-            web_fetch: 3,
-            file_write: 1,
-            send_file: 1,
-          },
-      webResearchToolLimit: 6,
-      hint: isPptxGenerationTask
-        ? "[任务工具边界]当前是新闻类 PPTX 任务：最多 3 次 web_search + 3 次 web_fetch 获取事实；研究结束后必须继续用 use_skill 加载 pptx，随后在会话工作目录生成、verify_pptx --json 验证并 send_file 发送 PPTX。不要停在新闻总结。"
-        : "[任务工具边界]当前是新闻简报任务：最多 3 次 web_search + 3 次 web_fetch，优先搜索，抓取只补关键事实；不要读取 observation；最终每条新闻必须附来源 URL。",
-    };
-  }
-
-  if (isPptxGenerationTask && !shouldAllowProjectResearchForPptx(inputText)) {
-    return {
-      kind: "pptx_generation",
-      allowedTools: new Set([
-        "use_skill",
-        "bash",
-        "claude_code",
-        "file_write",
-        "send_file",
-      ]),
-      toolTotalLimits: {
-        use_skill: 2,
-        bash: 8,
-        claude_code: 2,
-        file_write: 3,
-        send_file: 2,
-      },
-      webResearchToolLimit: 0,
-      hint: `[任务工具边界]当前是普通 PPTX 生成任务：不要调用 recall、glob、grep、file_read、web_search、web_fetch 做额外研究。直接 use_skill pptx；复杂 deck 可直接调用 claude_code 工具在会话工作目录生成，不要用 bash 运行 claude/claude-code；如果自己写 Python 生成脚本，必须先用 file_write 把脚本写入会话工作目录，再用 bash 运行 python，禁止运行尚不存在的 create_deck.py/create_pptx.py。生成 deck 后，必须用这个 verifier 绝对路径验证：python "${resolveBundledPptxVerifierPath().replace(/\\/g, "/")}" "<会话工作目录>/output.pptx" --out-dir "<会话工作目录>/previews" --require-text --json；然后 send_file 发送验证通过的 .pptx。只有用户明确要求基于仓库/代码/文件研究时，才允许项目读取工具。`,
-    };
-  }
-
-  return {
-    kind: "default",
-    toolTotalLimits: { web_search: 8, web_fetch: 8 },
-    webResearchToolLimit: 6,
-  };
-}
-
-function shouldAllowProjectResearchForPptx(inputText: string): boolean {
-  return /基于.*(仓库|代码|源码|文件|目录|项目)|当前.*(仓库|代码|源码|文件|目录|项目)|仓库代码|代码库|repo|repository|codebase|read files|inspect files/i.test(
-    inputText,
-  );
-}
-
 function isCommercialPptxTask(inputText: string): boolean {
   return /拉赞助|赞助|招商|商业合作|合作方案|商务|提案|proposal|sponsor|sponsorship|pitch deck|sales deck/i.test(
     inputText,
@@ -923,14 +810,6 @@ function isAiNewsLikeTask(inputText: string): boolean {
       inputText,
     );
   return hasAiTopic && hasNewsIntent;
-}
-
-function filterToolDefinitionsForTask<T extends { name: string }>(
-  tools: T[],
-  profile: TaskToolProfile,
-): T[] {
-  if (!profile.allowedTools) return tools;
-  return tools.filter((tool) => profile.allowedTools!.has(tool.name));
 }
 
 function appendSourceLinksIfMissing(
@@ -1464,6 +1343,7 @@ export class SimpleAgentLoop implements AgentLoop {
       isNewsBriefTask,
       isAiNewsTask,
       isPptxGenerationTask,
+      { pptxVerifierPath: resolveBundledPptxVerifierPath().replace(/\\/g, "/") },
     );
     if (taskToolProfile.hint) {
       runtimeHints.push(taskToolProfile.hint);
@@ -1630,6 +1510,61 @@ export class SimpleAgentLoop implements AgentLoop {
     // generator (user abort, disconnect), the trace is never saved.
     let tracePersistedInLoop = false;
     try {
+      const directPolicyDecision =
+        evaluateUserInputPolicy(inputTextForHeuristics);
+      const directSafetyResponse =
+        directPolicyDecision?.action === "direct_response"
+          ? directPolicyDecision.response
+          : null;
+      if (directSafetyResponse) {
+        const durationMs = Date.now() - startTime;
+        const assistantTurn: ConversationTurn = {
+          id: generateId(),
+          conversationId: convId,
+          role: "assistant",
+          content: directSafetyResponse,
+          model: usedModel,
+          tokensIn: 0,
+          tokensOut: 0,
+          durationMs,
+          toolCallCount: 0,
+          traceId: trace.id,
+          createdAt: new Date(),
+        };
+        await this.memoryStore.addTurn(convId, assistantTurn);
+        trace.steps.push({
+          type: "llm_call",
+          iteration: 0,
+          tokensIn: 0,
+          tokensOut: 0,
+          text: directSafetyResponse,
+          stopReason: "safety_direct_response",
+        } as TraceStep);
+        trace.response = directSafetyResponse;
+        trace.tokensIn = 0;
+        trace.tokensOut = 0;
+        trace.durationMs = durationMs;
+        await this.memoryStore.addTrace(trace);
+        tracePersistedInLoop = true;
+        yield this.createEvent("response_chunk", { text: directSafetyResponse });
+        this.setState("idle");
+        yield this.createEvent("response_complete", {
+          message: {
+            id: generateId(),
+            role: "assistant",
+            content: directSafetyResponse,
+            createdAt: new Date(),
+            model: usedModel,
+            tokensIn: 0,
+            tokensOut: 0,
+            durationMs,
+            toolCallCount: 0,
+          },
+          agentId: context?.agentId,
+        });
+        return;
+      }
+
       while (iterations < this._config.maxIterations && !this.aborted) {
         // Check shared budget (parent + children share the same IterationBudget)
         if (this.iterationBudget?.exhausted) {
@@ -2112,7 +2047,7 @@ export class SimpleAgentLoop implements AgentLoop {
 
         if (toolCalls.length === 0 && allSentFiles.length > 0) {
           const newFiles = allSentFiles.filter(
-            (f) => !fullText.includes(f.filename),
+            (f) => !fullText.includes(f.url),
           );
           if (newFiles.length > 0) {
             const filesMd = markdownForSentFiles(newFiles);
@@ -2343,6 +2278,28 @@ export class SimpleAgentLoop implements AgentLoop {
             blockedByPolicy = true;
             if (taskToolProfile.kind !== "wechat_publish") {
               forceSynthesisOnly = true;
+            }
+          }
+
+          if (!blockedByPolicy && effectiveToolName === "bash") {
+            const command =
+              typeof effectiveToolInput.command === "string"
+                ? effectiveToolInput.command.replace(/\\/g, "/")
+                : "";
+            const bashPolicyDecision = evaluateBashToolPolicy(command);
+            if (bashPolicyDecision.action === "deny") {
+              result = {
+                content: bashPolicyDecision.content,
+                isError: true,
+              };
+              blockedByPolicy = true;
+              forceSynthesisOnly = bashPolicyDecision.forceSynthesisOnly;
+            } else {
+              effectiveToolInput = hardenPdfBashInput(
+                effectiveToolInput,
+                sessionTmpDir,
+                inputTextForHeuristics,
+              );
             }
           }
 
@@ -2850,6 +2807,25 @@ export class SimpleAgentLoop implements AgentLoop {
                 sent: true,
                 autoSentAfterSave: true,
               };
+            }
+
+            if (
+              effectiveToolName === "bash" &&
+              result &&
+              !result.isError &&
+              isPdfExtractionTask(inputTextForHeuristics)
+            ) {
+              const recovered = await recoverPdfTextFromSessionPdf(
+                sessionTmpDir,
+                inputTextForHeuristics,
+              );
+              if (recovered && !String(result.content ?? "").includes(recovered)) {
+                result.content = `${String(result.content ?? "")}${recovered}`;
+                result.metadata = {
+                  ...(result.metadata ?? {}),
+                  pdfTextAutoRecovered: true,
+                };
+              }
             }
 
             const offloadInfo = await applyOverflow(

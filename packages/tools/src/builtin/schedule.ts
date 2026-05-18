@@ -87,7 +87,7 @@ export const scheduleTool: Tool = {
         });
 
         return {
-          content: `Scheduled task created!\nID: ${task.id}\nName: ${task.name}\nCron: ${cron}\nNext run: ${task.nextRunAt?.toLocaleString() ?? "unknown"}`,
+          content: `自动化/提醒任务已创建。\nID: ${task.id}\nName: ${task.name}\nCron: ${cron}\nNext run: ${task.nextRunAt?.toLocaleString() ?? "unknown"}`,
           isError: false,
         };
       }
