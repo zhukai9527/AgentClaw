@@ -99,11 +99,24 @@ export const rssTopTool: Tool = {
           content: `RSS report saved and sent: ${basename(saveAs)} (${sections.length} feeds)`,
           metadata: { filePath, feeds: sections.length, saved: true, sent: true },
           autoComplete: true,
+          effect: {
+            kind: "send",
+            target: filePath,
+            reversible: false,
+            deliverable: true,
+            verified: true,
+          },
         };
       }
       return {
         content: `${content}\n\nSaved to: ${filePath}`,
         metadata: { filePath, feeds: sections.length, saved: true },
+        effect: {
+          kind: "write",
+          target: filePath,
+          reversible: true,
+          verified: true,
+        },
       };
     }
 

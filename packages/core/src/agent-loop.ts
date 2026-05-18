@@ -12,6 +12,7 @@
   ToolResultContent,
   ToolResult,
   ToolExecutionContext,
+  ToolEffect,
   LLMProvider,
   ContextManager,
   MemoryStore,
@@ -846,6 +847,24 @@ function appendSourceLinksIfMissing(
   return `${response.trimEnd()}\n\n来源链接：\n${sourceList}`;
 }
 
+function attachTraceEffects(trace: Trace): void {
+  const effects = trace.steps
+    .map((step) => step.effect)
+    .filter((effect): effect is ToolEffect => {
+      return (
+        typeof effect === "object" &&
+        effect !== null &&
+        "kind" in effect &&
+        "reversible" in effect
+      );
+    });
+  if (effects.length > 0) {
+    trace.effects = effects;
+  } else {
+    delete trace.effects;
+  }
+}
+
 /**
  * Extract high-signal facts from tool outputs and feed them back as a runtime
  * hint. This helps weaker models avoid saying "not found" when the answer is
@@ -1544,6 +1563,7 @@ export class SimpleAgentLoop implements AgentLoop {
         trace.tokensIn = 0;
         trace.tokensOut = 0;
         trace.durationMs = durationMs;
+        attachTraceEffects(trace);
         await this.memoryStore.addTrace(trace);
         tracePersistedInLoop = true;
         yield this.createEvent("response_chunk", { text: directSafetyResponse });
@@ -2143,6 +2163,7 @@ export class SimpleAgentLoop implements AgentLoop {
           trace.durationMs = durationMs;
           if (forcedStopReason) trace.error = forcedStopReason;
           try {
+            attachTraceEffects(trace);
             await this.memoryStore.addTrace(trace);
             tracePersistedInLoop = true;
           } catch (e) {
@@ -3144,6 +3165,7 @@ export class SimpleAgentLoop implements AgentLoop {
               trace.tokensOut = totalTokensOut;
               trace.durationMs = hDuration;
               try {
+                attachTraceEffects(trace);
                 await this.memoryStore.addTrace(trace);
                 tracePersistedInLoop = true;
               } catch (e) {
@@ -3249,6 +3271,7 @@ export class SimpleAgentLoop implements AgentLoop {
           trace.durationMs = durationMs;
           trace.error = "terminal_tool_failure";
           try {
+            attachTraceEffects(trace);
             await this.memoryStore.addTrace(trace);
             tracePersistedInLoop = true;
           } catch (e) {
@@ -3482,6 +3505,7 @@ export class SimpleAgentLoop implements AgentLoop {
           trace.cacheReadTokens = totalCacheReadTokens || undefined;
           trace.durationMs = durationMs;
           try {
+            attachTraceEffects(trace);
             await this.memoryStore.addTrace(trace);
             tracePersistedInLoop = true;
           } catch (e) {
@@ -3608,6 +3632,7 @@ export class SimpleAgentLoop implements AgentLoop {
           ? "llm_stream_error"
           : "max_iterations_reached";
       try {
+        attachTraceEffects(trace);
         await this.memoryStore.addTrace(trace);
         tracePersistedInLoop = true;
       } catch (e) {
@@ -3657,6 +3682,7 @@ export class SimpleAgentLoop implements AgentLoop {
         trace.durationMs = Date.now() - startTime;
         trace.error = "generator_aborted";
         try {
+          attachTraceEffects(trace);
           await this.memoryStore.addTrace(trace);
           console.log(
             `[agent-loop] Trace ${trace.id} saved on generator abort (${trace.steps.length} steps)`,

@@ -33,6 +33,7 @@ import type {
   MemoryEffectivenessStats,
   MemoryJanitorOptions,
   MemoryJanitorResult,
+  ToolEffect,
 } from "@agentclaw/types";
 import { cosineSimilarity, SimpleBagOfWords } from "./embeddings.js";
 
@@ -3225,6 +3226,7 @@ function rowToTrace(row: TraceRow): Trace {
   } catch {
     // corrupted data — return empty steps
   }
+  const effects = deriveTraceEffects(steps);
   return {
     id: row.id,
     conversationId: row.conversation_id,
@@ -3232,6 +3234,7 @@ function rowToTrace(row: TraceRow): Trace {
     systemPrompt: row.system_prompt ?? undefined,
     skillMatch: row.skill_match ?? undefined,
     steps,
+    effects: effects.length > 0 ? effects : undefined,
     response: row.response ?? undefined,
     model: row.model ?? undefined,
     channel: row.channel ?? undefined,
@@ -3243,6 +3246,19 @@ function rowToTrace(row: TraceRow): Trace {
     error: row.error ?? undefined,
     createdAt: new Date(row.created_at),
   };
+}
+
+function deriveTraceEffects(steps: Trace["steps"]): ToolEffect[] {
+  return steps
+    .map((step) => step.effect)
+    .filter((effect): effect is ToolEffect => {
+      return (
+        typeof effect === "object" &&
+        effect !== null &&
+        "kind" in effect &&
+        "reversible" in effect
+      );
+    });
 }
 
 function rowToConversationTurn(row: TurnRow): ConversationTurn {

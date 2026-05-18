@@ -2595,6 +2595,9 @@ describe("SimpleAgentLoop", () => {
 
       expect(memoryStore.addTrace).toHaveBeenCalledWith(
         expect.objectContaining({
+          effects: expect.arrayContaining([
+            expect.objectContaining(effect),
+          ]),
           steps: expect.arrayContaining([
             expect.objectContaining({
               type: "tool_result",

@@ -445,6 +445,13 @@ export const webFetchTool: Tool = {
                 saved: true,
                 sent: true,
               },
+              effect: {
+                kind: "send",
+                target: filePath,
+                reversible: false,
+                deliverable: true,
+                verified: true,
+              },
             };
           } catch {
             // sendFile failed, fall through to saved-only response
@@ -466,6 +473,12 @@ export const webFetchTool: Tool = {
             filePath,
             saved: true,
             originalLength: content.length,
+          },
+          effect: {
+            kind: "write",
+            target: filePath,
+            reversible: true,
+            verified: true,
           },
         };
       }

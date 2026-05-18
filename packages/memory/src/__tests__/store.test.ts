@@ -941,6 +941,41 @@ describe("SQLiteMemoryStore — Traces", () => {
     expect(loaded!.steps[0].type).toBe("llm_call");
   });
 
+  it("getTrace 和 getTraces 应从 tool_result steps 派生顶层 effects", async () => {
+    const effect = {
+      kind: "send" as const,
+      target: "D:\\tmp\\report.md",
+      reversible: false,
+      deliverable: true,
+      verified: true,
+    };
+
+    await store.addTrace({
+      id: "trace-effect-1",
+      conversationId: "conv-effect",
+      userInput: "发送文件",
+      steps: [
+        {
+          type: "tool_result",
+          toolCallId: "call-1",
+          toolName: "send_file",
+          result: "sent",
+          effect,
+        },
+      ],
+      tokensIn: 10,
+      tokensOut: 5,
+      durationMs: 100,
+      createdAt: new Date(),
+    });
+
+    const loaded = await store.getTrace("trace-effect-1");
+    expect(loaded?.effects).toEqual([effect]);
+
+    const listed = await store.getTraces(1, 0);
+    expect(listed.items[0].effects).toEqual([effect]);
+  });
+
   it("getTrace 查询不存在的 ID 应返回 null", async () => {
     const result = await store.getTrace("nonexistent");
     expect(result).toBeNull();

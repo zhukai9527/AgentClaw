@@ -1,4 +1,5 @@
 import type { MessageRole } from "./message.js";
+import type { ToolEffect } from "./tool.js";
 
 /** Memory entry types */
 export type MemoryType =
@@ -68,6 +69,7 @@ export interface Trace {
   skillMatch?: string;
   steps: TraceStep[];
   response?: string;
+  effects?: ToolEffect[];
   model?: string;
   /** Source channel: web, telegram, dingtalk, feishu, qq, whatsapp, wecom, api */
   channel?: string;
