@@ -89,16 +89,6 @@ export interface SessionInfo {
   lastActiveAt: string;
 }
 
-export function chatInSession(
-  sessionId: string,
-  content: string,
-): Promise<{ message: { content: string } }> {
-  return request(`/sessions/${encodeURIComponent(sessionId)}/chat`, {
-    method: "POST",
-    body: JSON.stringify({ content }),
-  });
-}
-
 export function createSession(
   agentId?: string,
   projectId?: string,
@@ -169,10 +159,6 @@ export function updateProject(
     method: "PUT",
     body: JSON.stringify(updates),
   });
-}
-
-export function deleteProject(id: string): Promise<void> {
-  return request(`/projects/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 // ── Agents ─────────────────────────────────────────
@@ -495,17 +481,6 @@ export function setToolDisabled(
   });
 }
 
-export function setToolPermission(
-  name: string,
-  mode: string,
-  blockedPatterns?: string[],
-): Promise<{ name: string; mode: string }> {
-  return request(`/tools/${encodeURIComponent(name)}/permissions`, {
-    method: "PUT",
-    body: JSON.stringify({ mode, blockedPatterns }),
-  });
-}
-
 export function listSkills(): Promise<SkillInfo[]> {
   return request("/skills");
 }
@@ -790,14 +765,14 @@ export function updateAppConfig(
 }
 
 /** 验证 LLM API key 有效性 */
-export interface ValidateParams {
+interface ValidateParams {
   provider: string;
   apiKey: string;
   baseUrl?: string;
   model?: string;
 }
 
-export interface ValidateResult {
+interface ValidateResult {
   valid: boolean;
   error?: string;
 }
@@ -820,30 +795,6 @@ export function testSearchEngine(params: {
     method: "POST",
     body: JSON.stringify(params),
   });
-}
-
-// ── Token Logs ─────────────────────────────────────
-
-export interface TokenLogEntry {
-  id: string;
-  conversationId: string;
-  model: string;
-  tokensIn: number;
-  tokensOut: number;
-  traceId: string | null;
-  createdAt: string;
-}
-
-interface TokenLogsResponse {
-  items: TokenLogEntry[];
-  total: number;
-}
-
-export function getTokenLogs(
-  limit = 50,
-  offset = 0,
-): Promise<TokenLogsResponse> {
-  return request(`/token-logs?limit=${limit}&offset=${offset}`);
 }
 
 // ── Traces ─────────────────────────────────────────
@@ -961,173 +912,6 @@ export function deleteScheduledTask(id: string): Promise<void> {
   return request(`/tasks/scheduled/${id}`, { method: "DELETE" });
 }
 
-// ── Todos (Task Management) ──────────────────────────
-
-export interface TodoInfo {
-  id: string;
-  title: string;
-  description: string;
-  status: "todo" | "in_progress" | "done";
-  priority: "low" | "medium" | "high";
-  dueDate?: string;
-  assignee: string;
-  createdBy: string;
-  sessionId?: string;
-  traceId?: string;
-  tags: string[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export function listTodos(
-  status?: string,
-  priority?: string,
-  limit = 100,
-  offset = 0,
-): Promise<{ items: TodoInfo[]; total: number }> {
-  const params = new URLSearchParams();
-  if (status) params.set("status", status);
-  if (priority) params.set("priority", priority);
-  params.set("limit", String(limit));
-  params.set("offset", String(offset));
-  return request(`/todos?${params}`);
-}
-
-export function createTodo(
-  todo: Pick<TodoInfo, "title"> &
-    Partial<
-      Pick<
-        TodoInfo,
-        "description" | "priority" | "dueDate" | "assignee" | "tags"
-      >
-    >,
-): Promise<TodoInfo> {
-  return request("/todos", {
-    method: "POST",
-    body: JSON.stringify(todo),
-  });
-}
-
-export function updateTodo(
-  id: string,
-  updates: Partial<
-    Pick<
-      TodoInfo,
-      | "title"
-      | "description"
-      | "status"
-      | "priority"
-      | "dueDate"
-      | "assignee"
-      | "tags"
-    >
-  >,
-): Promise<{ success: boolean }> {
-  return request(`/todos/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(updates),
-  });
-}
-
-export function deleteTodo(id: string): Promise<void> {
-  return request(`/todos/${id}`, { method: "DELETE" });
-}
-
-// ── Calendar ───────────────────────────────────────
-
-export interface CalendarItem {
-  date: string;
-  type: "task" | "schedule";
-  id: string;
-  title: string;
-  status?: string;
-  priority?: string;
-  cron?: string;
-}
-
-export function getCalendar(
-  year: number,
-  month: number,
-): Promise<{ year: number; month: number; items: CalendarItem[] }> {
-  return request(`/calendar?year=${year}&month=${month}`);
-}
-
-// ── Google Tasks ─────────────────────────────────
-
-export interface GoogleTask {
-  id: string;
-  title: string;
-  notes: string;
-  status: "needsAction" | "completed";
-  due?: string;
-  updated: string;
-  parent?: string;
-  position: string;
-}
-
-export function listGoogleTasks(
-  tasklist = "@default",
-  showCompleted = false,
-): Promise<{ items: GoogleTask[] }> {
-  const params = new URLSearchParams({
-    tasklist,
-    showCompleted: String(showCompleted),
-  });
-  return request(`/google-tasks?${params}`);
-}
-
-export function createGoogleTask(task: {
-  title: string;
-  notes?: string;
-  due?: string;
-  tasklist?: string;
-}): Promise<GoogleTask> {
-  return request("/google-tasks", {
-    method: "POST",
-    body: JSON.stringify(task),
-  });
-}
-
-export function updateGoogleTask(
-  id: string,
-  updates: Partial<Pick<GoogleTask, "title" | "notes" | "status" | "due">> & {
-    tasklist?: string;
-  },
-): Promise<GoogleTask> {
-  return request(`/google-tasks/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify(updates),
-  });
-}
-
-export function deleteGoogleTask(
-  id: string,
-  tasklist = "@default",
-): Promise<void> {
-  return request(`/google-tasks/${id}?tasklist=${tasklist}`, {
-    method: "DELETE",
-  });
-}
-
-// ── Google Calendar ──────────────────────────────
-
-export interface GoogleCalendarEvent {
-  id: string;
-  summary: string;
-  description: string;
-  start: string;
-  end: string;
-  allDay: boolean;
-  location?: string;
-  htmlLink?: string;
-}
-
-export function listGoogleCalendarEvents(
-  days = 14,
-): Promise<{ items: GoogleCalendarEvent[] }> {
-  return request(`/google-calendar?days=${days}`);
-}
-
 // ── SubAgents ──────────────────────────────────────
 
 export interface SubAgentInfo {
@@ -1156,10 +940,6 @@ export function listSubAgents(
   params.set("limit", String(limit));
   params.set("offset", String(offset));
   return request(`/subagents?${params}`);
-}
-
-export function getSubAgent(id: string): Promise<SubAgentInfo> {
-  return request(`/subagents/${id}`);
 }
 
 // ── Channels ───────────────────────────────────────
@@ -1361,7 +1141,7 @@ export interface TaskStats {
   blocked: number;
 }
 
-export interface TaskListResponse {
+interface TaskListResponse {
   items: TaskItem[];
   total: number;
   stats: TaskStats;
@@ -1382,22 +1162,6 @@ export async function listManagedTasks(params?: {
   if (params?.offset) qs.set("offset", String(params.offset));
   const q = qs.toString();
   return request<TaskListResponse>(`/tasks${q ? `?${q}` : ""}`);
-}
-
-export async function getTaskStats(): Promise<TaskStats> {
-  // Note: this may shadow the existing getTaskRunnerStats - use different name
-  return request<TaskStats>("/tasks/stats");
-}
-
-export async function getTaskBrief(): Promise<{
-  brief: string | null;
-  stats?: TaskStats;
-}> {
-  return request<{ brief: string | null; stats?: TaskStats }>("/tasks/brief");
-}
-
-export async function getTaskDetail(id: string): Promise<TaskItem> {
-  return request<TaskItem>(`/tasks/${id}`);
 }
 
 export async function createManagedTask(data: {
@@ -1441,17 +1205,6 @@ export async function updateManagedTask(
 
 export async function deleteManagedTask(id: string): Promise<void> {
   return request<void>(`/tasks/${id}`, { method: "DELETE" });
-}
-
-export async function executeTask(
-  id: string,
-): Promise<{ result: unknown; task: TaskItem | null }> {
-  return request<{ result: unknown; task: TaskItem | null }>(
-    `/tasks/${id}/execute`,
-    {
-      method: "POST",
-    },
-  );
 }
 
 export async function submitDecision(

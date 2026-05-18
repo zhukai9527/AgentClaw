@@ -153,7 +153,7 @@ export function filterToolDefinitionsForTask<T extends { name: string }>(
   return tools.filter((tool) => profile.allowedTools!.has(tool.name));
 }
 
-export function isTextOnlyFollowupTask(inputText: string): boolean {
+function isTextOnlyFollowupTask(inputText: string): boolean {
   return (
     /^(继续|基于刚才|展开|再说|说明|回答|只回答|只编号|给两个|给 2 个)/i.test(
       inputText.trim(),

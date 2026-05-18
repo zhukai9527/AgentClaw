@@ -52,15 +52,6 @@ export function IconTraces({ size }: { size?: number }) {
   );
 }
 
-export function IconTokens({ size }: { size?: number }) {
-  return (
-    <I size={size}>
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 6v12M8 10h8M8 14h8" />
-    </I>
-  );
-}
-
 export function IconSettings({ size }: { size?: number }) {
   return (
     <I size={size}>

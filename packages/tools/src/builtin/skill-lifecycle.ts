@@ -53,7 +53,7 @@ export function skillMarkdownPath(skillDir: string): string {
   return path.join(skillDir, "SKILL.md");
 }
 
-export function assertInside(root: string, target: string): void {
+function assertInside(root: string, target: string): void {
   const resolvedRoot = path.resolve(root);
   const resolvedTarget = path.resolve(target);
   const rel = path.relative(resolvedRoot, resolvedTarget);

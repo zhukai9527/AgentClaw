@@ -36,7 +36,6 @@
     "agents": "代理",
     "memory": "记忆",
     "traces": "追踪",
-    "tokenLogs": "Token 日志",
     "skills": "技能",
     "api": "API",
     "settings": "设置"
@@ -399,17 +398,6 @@
     "toolsUsed": "使用的工具",
     "iters": "{{count}} 次迭代",
     "iter": "{{count}} 次迭代"
-  },
-  "tokenLogs": {
-    "title": "Token 日志",
-    "records": "{{count}} 条记录",
-    "noRecords": "暂无 Token 使用记录",
-    "timeCol": "时间",
-    "traceCol": "追踪",
-    "modelCol": "模型",
-    "inputCol": "输入",
-    "outputCol": "输出",
-    "totalCol": "合计"
   },
   "traces": {
     "title": "追踪",

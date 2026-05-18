@@ -1,6 +1,6 @@
 /**
  * 共享的格式化工具函数。
- * 多个页面（TracesPage, SubagentsPage, TokenLogsPage, SettingsPage 等）都需要这些函数。
+ * 多个页面（TracesPage, SubagentsPage, SettingsPage 等）都需要这些函数。
  */
 
 /** 格式化 ISO 时间戳为本地日期+时间 */

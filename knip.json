@@ -1,16 +1,37 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
   "workspaces": {
+    ".": {
+      "entry": [
+        "package.json",
+        "docs/.vitepress/config.mts",
+        "docs/.vitepress/theme/index.ts",
+        "scripts/embedding-benchmark.ts",
+        "scripts/__tests__/**/*.ts"
+      ],
+      "project": ["docs/.vitepress/**/*.{ts,mts}", "scripts/**/*.{ts,mjs}"],
+      "ignoreDependencies": ["tsx", "dotenv"]
+    },
     "packages/types": {},
     "packages/providers": {},
     "packages/tools": {},
-    "packages/memory": {},
+    "packages/memory": {
+      "ignoreDependencies": ["better-sqlite3", "@types/better-sqlite3"]
+    },
     "packages/core": {},
-    "packages/gateway": {},
+    "packages/gateway": {
+      "ignoreDependencies": [
+        "opencc-js",
+        "pdf-parse",
+        "sherpa-onnx-node",
+        "silk-wasm",
+        "@types/pdf-parse"
+      ]
+    },
     "packages/cli": {},
     "packages/web": {
       "project": ["src/**/*.{ts,tsx}"]
     }
   },
-  "ignore": ["skills/**", "scripts/**"]
+  "ignore": ["data/**"]
 }

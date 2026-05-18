@@ -14,7 +14,7 @@ export interface ScheduledTask {
 }
 
 /** Minimal persistence interface — implemented by SQLiteMemoryStore */
-export interface ScheduledTaskStore {
+interface ScheduledTaskStore {
   listScheduledTasks(): ScheduledTask[];
   saveScheduledTask(task: Omit<ScheduledTask, "nextRunAt">): void;
   deleteScheduledTask(id: string): void;

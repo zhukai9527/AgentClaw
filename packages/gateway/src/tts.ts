@@ -55,7 +55,7 @@ function toOggOpus(inputPath: string, outputPath: string): Promise<void> {
   });
 }
 
-export type TtsFormat = "mp3" | "ogg";
+type TtsFormat = "mp3" | "ogg";
 
 /**
  * Text-to-speech: returns file path or null.

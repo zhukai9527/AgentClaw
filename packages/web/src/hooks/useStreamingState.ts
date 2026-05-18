@@ -1,11 +1,11 @@
 import { useState, useCallback, useRef } from "react";
 
-export interface UseStreamingStateOptions {
+interface UseStreamingStateOptions {
   /** Setter from SessionContext — drives sidebar spinner */
   setStreamingSessionId: (id: string | null) => void;
 }
 
-export interface UseStreamingStateResult {
+interface UseStreamingStateResult {
   isSending: boolean;
   activeToolName: string | null;
   /** Ref tracking which session is actually streaming (survives session switch) */

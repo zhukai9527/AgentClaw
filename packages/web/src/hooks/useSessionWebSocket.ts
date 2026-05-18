@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { type WSMessage, connectWebSocket } from "../api/client";
 
-export interface SessionWSHandle {
+interface SessionWSHandle {
   send: (content: string, skillName?: string) => void;
   stop: () => void;
   close: () => void;
   promptReply: (content: string) => void;
 }
 
-export interface UseSessionWebSocketOptions {
+interface UseSessionWebSocketOptions {
   /** Current active session ID */
   sessionId: string | null;
   /** Called for each WS message (already guarded by generation counter) */
@@ -21,7 +21,7 @@ export interface UseSessionWebSocketOptions {
   streamingSessionRef: React.MutableRefObject<string | null>;
 }
 
-export interface UseSessionWebSocketResult {
+interface UseSessionWebSocketResult {
   wsRef: React.MutableRefObject<SessionWSHandle | null>;
   wsConnected: boolean;
   wsDisconnected: boolean;

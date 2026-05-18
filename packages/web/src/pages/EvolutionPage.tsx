@@ -11,8 +11,6 @@ import {
 import { formatDateTime } from "../utils/format";
 import "./EvolutionPage.css";
 
-export type { EvolutionRunInfo };
-
 const RUN_LIMIT = 100;
 
 const TARGET_TYPES: EvolutionTargetType[] = [

@@ -3,7 +3,7 @@
  */
 import { execFile } from "node:child_process";
 
-export interface GwsResult {
+interface GwsResult {
   ok: boolean;
   data?: unknown;
   error?: string;

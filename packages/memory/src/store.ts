@@ -3119,7 +3119,7 @@ function rowToSession(row: SessionRow): SessionData {
   };
 }
 
-export interface TaskRow {
+interface TaskRow {
   id: string;
   title: string;
   description: string;
@@ -3151,7 +3151,7 @@ export interface TaskRow {
   metadata: string | null;
 }
 
-export interface SubAgentRow {
+interface SubAgentRow {
   id: string;
   session_id: string | null;
   goal: string;

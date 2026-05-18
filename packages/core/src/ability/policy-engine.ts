@@ -1,4 +1,4 @@
-export type DirectPolicyDecision = {
+type DirectPolicyDecision = {
   action: "direct_response";
   reason:
     | "pseudo_tool_marker"
@@ -7,7 +7,7 @@ export type DirectPolicyDecision = {
   response: string;
 };
 
-export type ToolPolicyDecision =
+type ToolPolicyDecision =
   | { action: "allow" }
   | {
       action: "deny";
@@ -16,7 +16,7 @@ export type ToolPolicyDecision =
       forceSynthesisOnly: true;
     };
 
-export const DESTRUCTIVE_COMMAND_RE =
+const DESTRUCTIVE_COMMAND_RE =
   /\b(?:git\s+reset\s+--hard|git\s+clean\s+-f|rm\s+-rf|remove-item\b[\s\S]*\b-recurse\b|rd\s+\/s|del\s+\/[fsq]|format\b|diskpart\b)\b/i;
 
 const USER_TEXT_TOOL_MARKUP_RE =

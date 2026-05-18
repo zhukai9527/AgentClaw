@@ -36,7 +36,6 @@
     "agents": "Agents",
     "memory": "Memory",
     "traces": "Traces",
-    "tokenLogs": "Token Logs",
     "skills": "Skills",
     "api": "API",
     "settings": "Settings"
@@ -399,17 +398,6 @@
     "toolsUsed": "Tools Used",
     "iters": "{{count}} iters",
     "iter": "{{count}} iter"
-  },
-  "tokenLogs": {
-    "title": "Token Logs",
-    "records": "{{count}} records",
-    "noRecords": "No token usage records yet",
-    "timeCol": "Time",
-    "traceCol": "Trace",
-    "modelCol": "Model",
-    "inputCol": "Input",
-    "outputCol": "Output",
-    "totalCol": "Total"
   },
   "traces": {
     "title": "Traces",

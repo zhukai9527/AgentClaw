@@ -25,7 +25,7 @@ interface ExtractedMemory {
   confidence?: number;
 }
 
-export interface LayeredMemoryConsolidationResult {
+interface LayeredMemoryConsolidationResult {
   l2Created: number;
   l2Updated: number;
   l3Created: number;

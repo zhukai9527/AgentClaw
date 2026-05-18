@@ -50,7 +50,7 @@ export interface TrajectoryTestCase {
 
 /* ── Evaluation results ──────────────────────────────── */
 
-export type CheckStatus = "pass" | "fail" | "skip";
+type CheckStatus = "pass" | "fail" | "skip";
 
 export interface CheckResult {
   name: string;

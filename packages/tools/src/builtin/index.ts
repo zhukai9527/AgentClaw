@@ -38,10 +38,6 @@ export { rememberTool } from "./remember.js";
 export { recallTool } from "./recall.js";
 export { skillManageTool } from "./skill-manage.js";
 export { skillCuratorTool } from "./skill-curator.js";
-export { sandboxTool } from "./sandbox.js";
-export { subagentTool } from "./subagent.js";
-export { browserCdpTool } from "./browser-cdp.js";
-export { handoffTool } from "./handoff.js";
 export { observationReadTool } from "./observation-read.js";
 export { rssTopTool } from "./rss-top.js";
 
