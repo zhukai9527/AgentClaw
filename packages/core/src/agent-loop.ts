@@ -1216,6 +1216,22 @@ export class SimpleAgentLoop implements AgentLoop {
       context.conversationId = convId;
     }
 
+    const recordDirectSendEffect = (target: string, source: string): void => {
+      trace.steps.push({
+        type: "tool_result",
+        name: source,
+        content: `Auto-sent file: ${basename(target)}`,
+        isError: false,
+        effect: {
+          kind: "send",
+          target,
+          reversible: false,
+          deliverable: true,
+          verified: true,
+        },
+      });
+    };
+
     // Per-session temp directory: data/tmp/{conversationId}/
     // Lazy-created: directory only exists when a tool actually needs to write a file.
     // Pure text API calls never touch the filesystem.
@@ -1505,6 +1521,7 @@ export class SimpleAgentLoop implements AgentLoop {
       if (!isPathInside(absolutePath, workDir)) return;
       if (!existsSync(absolutePath)) return;
       await context.sendFile(absolutePath, basename(absolutePath));
+      recordDirectSendEffect(absolutePath, "auto_send_verified_pptx");
       autoSentVerifiedPptxPaths.add(normalized);
       verifiedPptxAutoDelivered = true;
       runtimeHints.push(
@@ -2120,6 +2137,7 @@ export class SimpleAgentLoop implements AgentLoop {
               const { existsSync } = await import("node:fs");
               if (existsSync(normalized)) {
                 await context.sendFile(normalized, filename);
+                recordDirectSendEffect(normalized, "auto_send_mentioned_file");
                 console.log(`[agent-loop] Auto-sent unsent file: ${filename}`);
               }
             } catch {

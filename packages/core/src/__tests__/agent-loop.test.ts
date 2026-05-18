@@ -2966,6 +2966,62 @@ describe("SimpleAgentLoop", () => {
       );
     });
 
+    it("最终回复提到 data/tmp 文件并由 agent loop 代发时应记录 send effect", async () => {
+      const filePath =
+        "D:/mycode/agentclaw/data/tmp/conv-mentioned-send/report.md";
+      mkdirSync("D:/mycode/agentclaw/data/tmp/conv-mentioned-send", {
+        recursive: true,
+      });
+      writeFileSync(filePath, "# Report", "utf-8");
+      const testProvider = createMockProvider([
+        [
+          {
+            type: "text",
+            text: `文件已生成：${filePath}`,
+          },
+          {
+            type: "done",
+            usage: { tokensIn: 10, tokensOut: 5 },
+            model: "mock-model",
+          },
+        ],
+      ]);
+      const sentFiles: Array<{ url: string; filename: string }> = [];
+      const sendFile = vi.fn(async (_path: string, filename?: string) => {
+        sentFiles.push({
+          url: `/files/conv-mentioned-send/${filename ?? "report.md"}`,
+          filename: filename ?? "report.md",
+        });
+      });
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 1 },
+      });
+
+      await collectEvents(
+        loop.runStream("生成并发送报告", "conv-mentioned-send", {
+          sendFile,
+          sentFiles,
+        }),
+      );
+
+      expect(sendFile).toHaveBeenCalledWith(filePath, "report.md");
+      const trace = (memoryStore.addTrace as ReturnType<typeof vi.fn>).mock
+        .calls[0][0];
+      expect(trace.effects).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "send",
+            target: filePath,
+            deliverable: true,
+          }),
+        ]),
+      );
+    });
+
     it("相同 contentHash 的大输出应复用已有 observation 且不重复写 raw", async () => {
       const largeContent = `${"same-output\n".repeat(900)}tail`;
       const testProvider = createMockProvider([
