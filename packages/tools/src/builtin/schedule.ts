@@ -89,6 +89,13 @@ export const scheduleTool: Tool = {
         return {
           content: `自动化/提醒任务已创建。\nID: ${task.id}\nName: ${task.name}\nCron: ${cron}\nNext run: ${task.nextRunAt?.toLocaleString() ?? "unknown"}`,
           isError: false,
+          effect: {
+            kind: "schedule",
+            target: task.id,
+            reversible: true,
+            cleanupId: task.id,
+            verified: true,
+          },
         };
       }
 
@@ -123,7 +130,16 @@ export const scheduleTool: Tool = {
         if (!deleted) {
           return { content: `Task not found: ${taskId}`, isError: true };
         }
-        return { content: `Task ${taskId} deleted.`, isError: false };
+        return {
+          content: `Task ${taskId} deleted.`,
+          isError: false,
+          effect: {
+            kind: "delete",
+            target: taskId,
+            reversible: false,
+            verified: true,
+          },
+        };
       }
 
       default:

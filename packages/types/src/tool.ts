@@ -37,10 +37,29 @@ export interface ToolDefinition {
 }
 
 /** Result of a tool execution */
+export interface ToolEffect {
+  kind:
+    | "none"
+    | "read"
+    | "write"
+    | "delete"
+    | "send"
+    | "schedule"
+    | "memory"
+    | "external";
+  target?: string;
+  reversible: boolean;
+  cleanupId?: string;
+  deliverable?: boolean;
+  verified?: boolean;
+}
+
 export interface ToolResult {
   content: string;
   isError?: boolean;
   metadata?: Record<string, unknown>;
+  /** Deterministic side-effect contract for trace, cleanup, and delivery checks */
+  effect?: ToolEffect;
   /** Signal agent-loop to skip next LLM call and auto-complete the response */
   autoComplete?: boolean;
   /** Signal agent-loop to hand off conversation to another agent */

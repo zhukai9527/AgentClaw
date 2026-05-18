@@ -3115,6 +3115,7 @@ export class SimpleAgentLoop implements AgentLoop {
                   ? obfuscateString(r.result.content, envMap)
                   : r.result.content,
                 metadata: r.result.metadata,
+                effect: r.result.effect,
                 durationMs: r.toolDurationMs,
               } as TraceStep);
               const handoffToolResult: ToolResultContent = {
@@ -3175,6 +3176,7 @@ export class SimpleAgentLoop implements AgentLoop {
                 : r.result.content,
               isError: r.result.isError,
               metadata: r.result.metadata,
+              effect: r.result.effect,
               durationMs: r.toolDurationMs,
             } as TraceStep);
 

@@ -152,6 +152,12 @@ export const rememberTool: Tool = {
       return {
         content: `Remembered: ${content}`,
         isError: false,
+        effect: {
+          kind: "memory",
+          target: type,
+          reversible: false,
+          verified: true,
+        },
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

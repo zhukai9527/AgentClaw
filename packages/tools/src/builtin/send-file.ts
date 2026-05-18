@@ -86,6 +86,13 @@ export const sendFileTool: Tool = {
           effectivePath,
           relocated,
         },
+        effect: {
+          kind: "send",
+          target: effectivePath,
+          reversible: false,
+          deliverable: true,
+          verified: true,
+        },
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

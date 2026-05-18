@@ -45,6 +45,12 @@ export const fileWriteTool: Tool = {
           path: filePath,
           bytesWritten: Buffer.byteLength(content, "utf-8"),
         },
+        effect: {
+          kind: "write",
+          target: filePath,
+          reversible: true,
+          verified: true,
+        },
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

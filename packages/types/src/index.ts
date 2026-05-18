@@ -25,6 +25,7 @@ export type {
 export type {
   ToolParameterSchema,
   ToolDefinition,
+  ToolEffect,
   ToolResult,
   ToolCategory,
   ToolExecutionContext,

@@ -2558,6 +2558,54 @@ describe("SimpleAgentLoop", () => {
       expect(message.tokensOut).toBe(40); // 15 + 25
     });
 
+    it("工具 effect 应写入 trace，作为副作用证据链", async () => {
+      const effect = {
+        kind: "send",
+        target: "D:/tmp/report.md",
+        reversible: false,
+        deliverable: true,
+        verified: true,
+      };
+      const testProvider = createMockProvider([
+        createToolCallChunks("tc-send", "send_file", { path: "report.md" }),
+        [
+          { type: "text", text: "文件已发送。" },
+          {
+            type: "done",
+            usage: { tokensIn: 30, tokensOut: 12 },
+            model: "mock-model",
+          },
+        ],
+      ]);
+      const sendFileTool = createMockTool("send_file", {
+        content: "File sent",
+        isError: false,
+        autoComplete: true,
+        effect,
+      } as ToolResult);
+      const loop = new SimpleAgentLoop({
+        provider: testProvider,
+        toolRegistry: createMockToolRegistry([sendFileTool]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 3 },
+      });
+
+      await collectEvents(loop.runStream("发送 report.md", "conv-effect"));
+
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          steps: expect.arrayContaining([
+            expect.objectContaining({
+              type: "tool_result",
+              name: "send_file",
+              effect,
+            }),
+          ]),
+        }),
+      );
+    });
+
     it("中间 assistant 工具调用轮次应保存 reasoningContent", async () => {
       const toolCallChunks = [
         { type: "text", text: "我看看" },

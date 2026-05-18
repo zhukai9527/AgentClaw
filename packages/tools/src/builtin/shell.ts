@@ -1,9 +1,33 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
-import type { Tool, ToolResult, ToolExecutionContext } from "@agentclaw/types";
+import type {
+  Tool,
+  ToolEffect,
+  ToolResult,
+  ToolExecutionContext,
+} from "@agentclaw/types";
 
 const DEFAULT_TIMEOUT = 120_000;
+
+function classifyShellEffect(command: string, verified: boolean): ToolEffect {
+  const normalized = command.replace(/\\/g, "/");
+  if (
+    /\b(?:rm\s+-rf|remove-item\b[\s\S]*\b-recurse\b|del\s+\/[fsq]|rd\s+\/s|git\s+clean\s+-f|git\s+reset\s+--hard)\b/i.test(
+      normalized,
+    )
+  ) {
+    return { kind: "delete", reversible: false, verified };
+  }
+  if (
+    /(?:^|[;&|]\s*)(?:mkdir|touch|cp|copy|move|mv|new-item|set-content|add-content)\b|(?:^|[^>])>>?[^>]/i.test(
+      normalized,
+    )
+  ) {
+    return { kind: "write", reversible: false, verified };
+  }
+  return { kind: "read", reversible: false, verified };
+}
 
 /**
  * Find Git Bash on Windows.
@@ -662,6 +686,13 @@ export const shellTool: Tool = {
         content: `Background task started (${bgId}${pid ? `, pid ${pid}` : ""}): \`${shortCmd}\`\nYou'll be notified when it completes. Continue with other work.`,
         isError: false,
         metadata: { backgroundId: bgId, pid },
+        effect: {
+          kind: "external",
+          target: bgId,
+          reversible: false,
+          cleanupId: bgId,
+          verified: true,
+        },
       };
     }
 
@@ -704,9 +735,17 @@ export const shellTool: Tool = {
       }
       if (sentCount > 0) {
         result.autoComplete = true;
+        result.effect = {
+          kind: "send",
+          target: paths.filter((filePath) => existsSync(filePath)).join(","),
+          reversible: false,
+          deliverable: true,
+          verified: true,
+        };
       }
     }
 
+    result.effect ??= classifyShellEffect(effectiveCommand, !result.isError);
     return result;
   },
 };
