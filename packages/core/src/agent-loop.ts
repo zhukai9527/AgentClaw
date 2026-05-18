@@ -2828,6 +2828,13 @@ export class SimpleAgentLoop implements AgentLoop {
                 sent: true,
                 autoSentAfterSave: true,
               };
+              result.effect = {
+                kind: "send",
+                target: savedPath,
+                reversible: false,
+                deliverable: true,
+                verified: true,
+              };
             }
 
             if (
@@ -2882,6 +2889,13 @@ export class SimpleAgentLoop implements AgentLoop {
                   ...(result!.metadata ?? {}),
                   fullTextSent: true,
                   sentFilename: filename,
+                };
+                result!.effect = {
+                  kind: "send",
+                  target: offloadInfo.rawPath,
+                  reversible: false,
+                  deliverable: true,
+                  verified: true,
                 };
               }
             }

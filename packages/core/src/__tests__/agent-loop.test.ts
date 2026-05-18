@@ -2897,6 +2897,17 @@ describe("SimpleAgentLoop", () => {
       const message = (completeEvent!.data as { message: Message }).message;
       expect(String(message.content)).toContain("[");
       expect(String(message.content)).toContain("overflow_web_fetch_");
+      const trace = (memoryStore.addTrace as ReturnType<typeof vi.fn>).mock
+        .calls[0][0];
+      expect(trace.effects).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "send",
+            deliverable: true,
+            target: expect.stringContaining("overflow_web_fetch_"),
+          }),
+        ]),
+      );
     });
 
     it("用户要求发送文件时 web_fetch save_as 即使漏 auto_send 也应自动发送", async () => {
@@ -2942,6 +2953,17 @@ describe("SimpleAgentLoop", () => {
       expect(completeEvent).toBeDefined();
       const message = (completeEvent!.data as { message: Message }).message;
       expect(String(message.content)).toContain("agent-article.md");
+      const trace = (memoryStore.addTrace as ReturnType<typeof vi.fn>).mock
+        .calls[0][0];
+      expect(trace.effects).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "send",
+            target: "D:/mycode/agentclaw/data/tmp/conv-save-send/agent-article.md",
+            deliverable: true,
+          }),
+        ]),
+      );
     });
 
     it("相同 contentHash 的大输出应复用已有 observation 且不重复写 raw", async () => {
