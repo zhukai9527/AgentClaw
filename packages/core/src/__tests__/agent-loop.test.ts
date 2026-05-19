@@ -3694,6 +3694,116 @@ describe("SimpleAgentLoop", () => {
       );
     });
 
+    it("SEO 表格任务获取足够事实后应直接合成表格，不进入伪工具 XML 轮次", async () => {
+      const makeToolCallChunks = (
+        id: string,
+        name: string,
+        input: Record<string, unknown>,
+      ): LLMStreamChunk[] => [
+        { type: "tool_use_start", toolUse: { id, name, input: "" } },
+        {
+          type: "tool_use_delta",
+          toolUse: { id, name: "", input: JSON.stringify(input) },
+        },
+      ];
+      const firstRoundChunks: LLMStreamChunk[] = [
+        ...makeToolCallChunks("tc-home", "web_fetch", {
+          url: "https://www.ehafo.com",
+        }),
+        ...makeToolCallChunks("tc-robots", "web_fetch", {
+          url: "https://www.ehafo.com/robots.txt",
+        }),
+        ...makeToolCallChunks("tc-sitemap", "web_fetch", {
+          url: "https://www.ehafo.com/sitemap.xml",
+        }),
+        ...makeToolCallChunks("tc-search", "web_search", {
+          query: "site:ehafo.com",
+        }),
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const invalidToolMarkup =
+        "<tool_call>\n<function=bash>\n<parameter=command>curl -s https://www.ehafo.com/ | grep title</parameter>\n</function>\n</tool_call>";
+      const invalidChunks: LLMStreamChunk[] = [
+        { type: "text", text: invalidToolMarkup },
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "end_turn",
+        },
+      ];
+
+      const provider = createMockProvider([
+        firstRoundChunks,
+        invalidChunks,
+        invalidChunks,
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry: createMockToolRegistry([
+          {
+            ...createMockTool("web_fetch"),
+            execute: vi.fn(async (input: Record<string, unknown>) => {
+              const url = String(input.url ?? "");
+              if (url.endsWith("/robots.txt")) {
+                return {
+                  content:
+                    "URL Source: https://www.ehafo.com/robots.txt\n\nUser-agent: *\nDisallow:/.well-known/\nDisallow:/static/",
+                };
+              }
+              if (url.endsWith("/sitemap.xml")) {
+                return {
+                  content:
+                    "HTTP 404 Not Found for https://www.ehafo.com/sitemap.xml",
+                  isError: true,
+                  metadata: { timedOut: true },
+                };
+              }
+              return {
+                content:
+                  "URL Source: https://www.ehafo.com\n\n# 易哈佛 | 全新医考进阶平台 - 品智知学出品\n\n## 品质教学\n\n## 核心拳头产品",
+              };
+            }),
+          },
+          createMockTool("web_search", {
+            content:
+              "results[2]{title,url}:\n  易哈佛| 全新医考进阶平台- 品智知学出品 — 在临床与生活的平衡中，手机已成为2000 万医护备考的主阵地。\n  https://www.ehafo.com/\n  医学考试指南- 全中国医学资格与职称考试一站式备考平台 - 易哈佛 — 覆盖全中国资格类与职称类医学考试的一站式指南。\n  https://www.ehafo.com/exam/",
+          }),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 4 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream(
+          "专业的检查www.ehafo.com 的seo，用表格回答。",
+          "conv-seo-invalid-markup",
+        ),
+      );
+
+      const streamedText = events
+        .filter((event) => event.type === "response_chunk")
+        .map((event) => (event.data as { text: string }).text)
+        .join("");
+      expect(streamedText).not.toContain("<tool_call>");
+      expect(streamedText).toContain("| SEO检查项 |");
+      expect(streamedText).toContain("| Title |");
+      expect(streamedText).toContain("| robots.txt |");
+      expect(streamedText).toContain("| sitemap.xml |");
+      expect(streamedText).toContain("sitemap.xml 返回 404");
+      expect(streamedText).toContain("https://www.ehafo.com");
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.not.objectContaining({ error: "invalid_tool_markup_final" }),
+      );
+      expect(provider.stream).toHaveBeenCalledTimes(1);
+    });
+
     it("合成阶段首次输出伪工具 XML 时应重试生成最终答复", async () => {
       const makeToolCallChunks = (
         id: string,

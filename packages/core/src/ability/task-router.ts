@@ -2,6 +2,7 @@ export type TaskToolProfile = {
   kind:
     | "default"
     | "news_brief"
+    | "seo_audit"
     | "reddit_rss"
     | "wechat_publish"
     | "pptx_generation"
@@ -73,6 +74,20 @@ export function buildTaskToolProfile(
       toolTotalLimits: { rss_top: 1, file_write: 2, send_file: 2 },
       webResearchToolLimit: 0,
       hint: "[任务工具边界]当前是 Reddit/RSS 日报任务：只能用 rss_top 获取订阅源 TopN，再用 file_write/send_file 输出。不要调用 web_search、web_fetch、bash 或其他抓取工具。",
+    };
+  }
+
+  if (isSeoAuditTask(inputText)) {
+    return {
+      kind: "seo_audit",
+      allowedTools: new Set(["web_fetch", "web_search", "bash"]),
+      toolTotalLimits: {
+        web_fetch: 4,
+        web_search: 2,
+        bash: 6,
+      },
+      webResearchToolLimit: 5,
+      hint: "[任务工具边界]当前是 SEO 审计任务：优先一次性获取首页、robots.txt、sitemap.xml、site: 收录结果；bash 只用于少量 header/HTML/meta/headings 检查。拿到这些事实后必须直接用 Markdown 表格输出，不要继续深挖或循环抓取。",
     };
   }
 
@@ -168,6 +183,21 @@ function isAutomationScheduleTask(inputText: string): boolean {
   return /自动化|定时|提醒|每天|每周|明天.*(?:提醒|上午|早上)|schedule|automation|reminder/i.test(
     inputText,
   );
+}
+
+function isSeoAuditTask(inputText: string): boolean {
+  const hasSeoIntent =
+    /\bseo\b|搜索引擎优化|站点优化|网站优化|收录|sitemap|robots/i.test(
+      inputText,
+    );
+  const hasAuditVerb =
+    /检查|审计|分析|评估|诊断|体检|audit|check|analy[sz]e|review/i.test(
+      inputText,
+    );
+  const hasSiteTarget =
+    /https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}/i.test(inputText);
+
+  return hasSeoIntent && hasAuditVerb && hasSiteTarget;
 }
 
 function shouldAllowProjectResearchForPptx(inputText: string): boolean {

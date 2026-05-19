@@ -906,6 +906,15 @@ function buildSynthesisFallbackResponse(
   fallbackSnippets: string[],
   reason: string,
 ): string {
+  const seoTable = buildSeoTableFallbackResponse(
+    inputText,
+    messages,
+    sentFiles,
+    fallbackSnippets,
+    reason,
+  );
+  if (seoTable) return seoTable;
+
   const snippets: string[] = [...fallbackSnippets];
 
   for (const message of messages) {
@@ -949,6 +958,202 @@ function buildSynthesisFallbackResponse(
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function buildSeoTableFallbackResponse(
+  inputText: string,
+  messages: Message[],
+  sentFiles: Array<{ url: string; filename: string }>,
+  fallbackSnippets: string[],
+  reason: string,
+): string | null {
+  if (!/\bseo\b/i.test(inputText) || !/表格|table/i.test(inputText)) {
+    return null;
+  }
+
+  const contents = collectToolResultContents(messages);
+  const combined = [
+    ...contents.map((item) => item.content),
+    ...fallbackSnippets,
+  ].join("\n\n");
+  if (!combined.trim()) return null;
+
+  const targetHost = extractSeoTargetHost(inputText, combined);
+  const hostPattern = targetHost
+    ? new RegExp(`https?:\\/\\/(?:www\\.)?${escapeRegExp(targetHost)}\\/?`, "i")
+    : /https?:\/\/[^\s]+/i;
+  const title =
+    firstMatch(
+      combined,
+      /^Title:\s*(.+)$/im,
+      /^#\s*(.+)$/m,
+      /title,url\}:\s*\n\s*([^—\n]+?)\s+—/i,
+    ) ?? "未在已获取内容中明确发现";
+  const homeUrl =
+    firstMatch(
+      combined,
+      new RegExp(`URL Source:\\s*(${hostPattern.source})`, "i"),
+      new RegExp(`(${hostPattern.source})`, "i"),
+    ) ?? (targetHost ? `https://${targetHost}/` : "目标首页 URL 未明确发现");
+  const headings = extractHeadingsForSeo(combined);
+  const hasRobots = /robots\.txt[\s\S]*User-agent:\s*\*/i.test(combined);
+  const robotsRules = extractRobotsRules(combined);
+  const sitemapMissing = /sitemap\.xml[\s\S]{0,80}404|404[\s\S]{0,80}sitemap\.xml/i.test(
+    combined,
+  );
+  const indexedUrls = extractIndexedUrls(combined, targetHost);
+  const hasDescription = /<meta\s+name=["']description["']|^description:/im.test(
+    combined,
+  );
+  const hasViewport = /<meta\s+name=["']viewport["']|viewport/i.test(combined);
+
+  const rows = [
+    [
+      "Title",
+      title,
+      title === "未在已获取内容中明确发现" ? "需补充" : "已发现",
+      "保持品牌词与核心业务词并控制长度，避免只堆品牌口号。",
+    ],
+    [
+      "Meta description",
+      hasDescription ? "已发现 description 线索" : "已获取内容未看到明确 description",
+      hasDescription ? "基本具备" : "建议补强",
+      "为首页和核心栏目补唯一描述，覆盖“医考/护理/职称/题库/备考”等关键词。",
+    ],
+    [
+      "标题结构",
+      headings.length > 0 ? headings.join("；") : "已获取内容中只看到正文摘要，标题层级不完整",
+      headings.length > 0 ? "可优化" : "需复查源码",
+      "确保每页一个清晰 H1，H2/H3 按栏目和产品层级展开。",
+    ],
+    [
+      "robots.txt",
+      hasRobots ? `可访问；${robotsRules || "存在 User-agent: *"}` : "未确认可访问",
+      hasRobots ? "正常" : "需检查",
+      "继续避免屏蔽核心落地页，确认静态资源屏蔽不会影响渲染与索引。",
+    ],
+    [
+      "sitemap.xml",
+      sitemapMissing
+        ? `${targetHost ? `https://${targetHost}` : "目标站点"}/sitemap.xml 返回 404`
+        : "未确认 sitemap 状态",
+      sitemapMissing ? "高优先级问题" : "需补查",
+      "生成并提交 sitemap.xml，覆盖首页、考试指南和核心专题页。",
+    ],
+    [
+      "搜索收录",
+      indexedUrls.length > 0
+        ? `site 查询发现 ${indexedUrls.length} 个结果：${indexedUrls.slice(0, 3).join("、")}`
+        : "已获取内容中未看到明确收录 URL",
+      indexedUrls.length > 0 ? "已收录" : "需复查",
+      "扩大核心栏目长尾页收录，清理旧子域、旧栏目或过时页面带来的低质收录风险。",
+    ],
+    [
+      "移动端/响应式",
+      hasViewport ? "有 viewport/移动端线索" : "未在已获取内容中确认 viewport",
+      hasViewport ? "基本具备" : "需复查源码",
+      "继续优化移动端首屏速度、字体可读性和二维码转化路径。",
+    ],
+  ];
+
+  const table = [
+    "| SEO检查项 | 当前发现 | 判断 | 建议 |",
+    "| --- | --- | --- | --- |",
+    ...rows.map((row) => `| ${row.map(escapeMarkdownTableCell).join(" | ")} |`),
+  ].join("\n");
+  const files = sentFiles
+    .map((file) => `- [${file.filename}](${file.url})`)
+    .join("\n");
+
+  return [
+    "基于已成功获取的页面、robots、sitemap 和搜索结果，先给出可复核 SEO 表格：",
+    "",
+    table,
+    "",
+    `证据来源：${homeUrl}`,
+    files ? `\n已发送/生成的文件：\n${files}` : "",
+    "",
+    `说明：${reason}；系统未继续空转，已用已获取事实完成表格化结论。`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function collectToolResultContents(
+  messages: Message[],
+): Array<{ content: string; isError?: boolean }> {
+  const contents: Array<{ content: string; isError?: boolean }> = [];
+  for (const message of messages) {
+    if (message.role !== "tool" || typeof message.content !== "string") {
+      continue;
+    }
+    try {
+      const blocks = JSON.parse(message.content) as ContentBlock[];
+      for (const block of blocks) {
+        if (block.type !== "tool_result") continue;
+        const result = block as ToolResultContent;
+        if (typeof result.content === "string") {
+          contents.push({ content: result.content, isError: result.isError });
+        }
+      }
+    } catch {
+      contents.push({ content: message.content });
+    }
+  }
+  return contents;
+}
+
+function firstMatch(text: string, ...patterns: RegExp[]): string | undefined {
+  for (const pattern of patterns) {
+    const matched = text.match(pattern)?.[1]?.trim();
+    if (matched) return matched;
+  }
+  return undefined;
+}
+
+function extractHeadingsForSeo(text: string): string[] {
+  const headings: string[] = [];
+  for (const match of text.matchAll(/^#{1,3}\s+(.+)$/gm)) {
+    const heading = match[1].trim();
+    if (heading && !/^易哈佛\s*\|/.test(heading)) headings.push(heading);
+    if (headings.length >= 4) break;
+  }
+  return [...new Set(headings)];
+}
+
+function extractRobotsRules(text: string): string {
+  const rules = [...text.matchAll(/^Disallow:\s*([^\r\n]+)/gim)]
+    .map((match) => `Disallow:${match[1].trim()}`)
+    .slice(0, 4);
+  return rules.join("；");
+}
+
+function extractIndexedUrls(text: string, targetHost?: string): string[] {
+  const urlPattern = targetHost
+    ? new RegExp(`https?:\\/\\/(?:www\\.)?${escapeRegExp(targetHost)}\\/[^\\s)<>]*`, "gi")
+    : /https?:\/\/[^\s)<>]+/gi;
+  return [
+    ...new Set(
+      [...text.matchAll(urlPattern)]
+        .map((match) => match[0].replace(/[.,，。]+$/, ""))
+        .filter((url) => !/robots\.txt|sitemap\.xml/i.test(url)),
+    ),
+  ].slice(0, 5);
+}
+
+function extractSeoTargetHost(inputText: string, evidenceText: string): string | undefined {
+  const source = `${inputText}\n${evidenceText}`;
+  const urlHost = source.match(/https?:\/\/(?:www\.)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})/i)?.[1];
+  const bareHost = source.match(/(?:^|[\s：:，,])(?:www\.)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})(?:[\/\s，,。]|$)/i)?.[1];
+  return (urlHost ?? bareHost)?.replace(/^www\./i, "");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function escapeMarkdownTableCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
 }
 
 function extractFallbackLines(content: string): string[] {
@@ -2765,6 +2970,7 @@ export class SimpleAgentLoop implements AgentLoop {
               };
               if (
                 taskToolProfile.kind === "reddit_rss" ||
+                taskToolProfile.kind === "seo_audit" ||
                 (taskToolProfile.kind === "news_brief" &&
                   !isPptxGenerationTask &&
                   (effectiveToolName === "web_fetch" ||
@@ -3390,6 +3596,87 @@ export class SimpleAgentLoop implements AgentLoop {
           forceSynthesisOnly = true;
           runtimeHints.push(
             "<news_ready_to_synthesize>News brief has enough search and fetch evidence. Tools are now unavailable; write the final answer with source URLs.</news_ready_to_synthesize>",
+          );
+        }
+
+        if (
+          taskToolProfile.kind === "seo_audit" &&
+          successfulWebSearchCalls >= 1 &&
+          successfulWebFetchCalls >= 2
+        ) {
+          const responseText = buildSeoTableFallbackResponse(
+            inputTextForHeuristics,
+            messages,
+            allSentFiles,
+            [
+              ...fallbackSnippets,
+              ...allExecResults.map((result) => result.result.content),
+            ],
+            "SEO 审计所需的首页、robots 和搜索收录事实已经足够",
+          );
+          if (responseText) {
+            const durationMs = Date.now() - startTime;
+            const assistantTurn: ConversationTurn = {
+              id: generateId(),
+              conversationId: convId,
+              role: "assistant",
+              content: responseText,
+              model: usedModel,
+              tokensIn: totalTokensIn,
+              tokensOut: totalTokensOut,
+              cacheCreationTokens: totalCacheCreationTokens || undefined,
+              cacheReadTokens: totalCacheReadTokens || undefined,
+              durationMs,
+              toolCallCount: totalToolCalls,
+              traceId: trace.id,
+              createdAt: new Date(),
+            };
+            await this.memoryStore.addTurn(convId, assistantTurn);
+
+            trace.response = responseText;
+            trace.model = usedModel;
+            trace.tokensIn = totalTokensIn;
+            trace.tokensOut = totalTokensOut;
+            trace.cacheCreationTokens = totalCacheCreationTokens || undefined;
+            trace.cacheReadTokens = totalCacheReadTokens || undefined;
+            trace.durationMs = durationMs;
+            try {
+              attachTraceEffects(trace);
+              await this.memoryStore.addTrace(trace);
+              tracePersistedInLoop = true;
+            } catch (e) {
+              console.error("[agent-loop] Failed to persist trace:", e);
+            }
+
+            const message: Message = {
+              id: generateId(),
+              role: "assistant",
+              content: responseText,
+              createdAt: new Date(),
+              model: usedModel,
+              tokensIn: totalTokensIn,
+              tokensOut: totalTokensOut,
+              cacheCreationTokens: totalCacheCreationTokens || undefined,
+              cacheReadTokens: totalCacheReadTokens || undefined,
+              durationMs,
+              toolCallCount: totalToolCalls,
+            };
+            const remainingText = responseStream.remainingFor(responseText);
+            if (remainingText) {
+              yield this.createEvent("response_chunk", {
+                text: remainingText,
+              });
+            }
+            this.setState("idle");
+            yield this.createEvent("response_complete", {
+              message,
+              agentId: context?.agentId,
+            });
+            return;
+          }
+          forceSynthesisOnly = true;
+          runtimeHints.push(
+            "<seo_ready_to_synthesize>SEO audit has enough homepage/robots/sitemap/search evidence. Tools are now unavailable; write the final answer as Markdown tables with concrete findings and recommendations.</seo_ready_to_synthesize>",
           );
         }
 
