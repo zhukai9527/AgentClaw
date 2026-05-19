@@ -3792,12 +3792,193 @@ describe("SimpleAgentLoop", () => {
         .map((event) => (event.data as { text: string }).text)
         .join("");
       expect(streamedText).not.toContain("<tool_call>");
-      expect(streamedText).toContain("| SEO检查项 |");
-      expect(streamedText).toContain("| Title |");
+      expect(streamedText).toContain("| 检查项 | 当前发现 | 判断 | 建议 | 证据 |");
+      expect(streamedText).toContain("| 页面标题 |");
       expect(streamedText).toContain("| robots.txt |");
       expect(streamedText).toContain("| sitemap.xml |");
       expect(streamedText).toContain("sitemap.xml 返回 404");
       expect(streamedText).toContain("https://www.ehafo.com");
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.not.objectContaining({ error: "invalid_tool_markup_final" }),
+      );
+      expect(provider.stream).toHaveBeenCalledTimes(1);
+    });
+
+    it("非 SEO 表格检查任务获取足够事实后也应直接合成通用证据表格", async () => {
+      const makeToolCallChunks = (
+        id: string,
+        name: string,
+        input: Record<string, unknown>,
+      ): LLMStreamChunk[] => [
+        { type: "tool_use_start", toolUse: { id, name, input: "" } },
+        {
+          type: "tool_use_delta",
+          toolUse: { id, name: "", input: JSON.stringify(input) },
+        },
+      ];
+      const firstRoundChunks: LLMStreamChunk[] = [
+        ...makeToolCallChunks("tc-home", "web_fetch", {
+          url: "https://www.example.com",
+        }),
+        ...makeToolCallChunks("tc-security", "web_fetch", {
+          url: "https://www.example.com/.well-known/security.txt",
+        }),
+        ...makeToolCallChunks("tc-search", "web_search", {
+          query: "site:example.com security",
+        }),
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const invalidChunks: LLMStreamChunk[] = [
+        {
+          type: "text",
+          text: "<tool_call>\n<function=bash>\n<parameter=command>curl -sI https://www.example.com</parameter>\n</function>\n</tool_call>",
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "end_turn",
+        },
+      ];
+
+      const provider = createMockProvider([firstRoundChunks, invalidChunks]);
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry: createMockToolRegistry([
+          {
+            ...createMockTool("web_fetch"),
+            execute: vi.fn(async (input: Record<string, unknown>) => {
+              const url = String(input.url ?? "");
+              if (url.includes("security.txt")) {
+                return {
+                  content:
+                    "HTTP 404 Not Found for https://www.example.com/.well-known/security.txt",
+                  isError: true,
+                  metadata: { timedOut: true },
+                };
+              }
+              return {
+                content:
+                  "Title: Example Domain\n\nURL Source: https://www.example.com/\n\nMarkdown Content:\n# Example Domain\n\nThis domain is for use in illustrative examples.",
+              };
+            }),
+          },
+          createMockTool("web_search", {
+            content:
+              "results[1]{title,url}:\n  Example Domain — This domain is for use in illustrative examples.\n  https://www.example.com/",
+          }),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 4 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream(
+          "检查www.example.com 的安全问题，用表格回答。",
+          "conv-generic-table-analysis",
+        ),
+      );
+
+      const streamedText = events
+        .filter((event) => event.type === "response_chunk")
+        .map((event) => (event.data as { text: string }).text)
+        .join("");
+      expect(streamedText).not.toContain("<tool_call>");
+      expect(streamedText).toContain("| 检查项 | 当前发现 | 判断 | 建议 | 证据 |");
+      expect(streamedText).toContain("security.txt 返回 404");
+      expect(streamedText).toContain("https://www.example.com");
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.not.objectContaining({ error: "invalid_tool_markup_final" }),
+      );
+      expect(provider.stream).toHaveBeenCalledTimes(1);
+    });
+
+    it("表格化检查只有 bash 证据时也应直接合成通用证据表格", async () => {
+      const makeToolCallChunks = (
+        id: string,
+        command: string,
+      ): LLMStreamChunk[] => [
+        { type: "tool_use_start", toolUse: { id, name: "bash", input: "" } },
+        {
+          type: "tool_use_delta",
+          toolUse: { id, name: "", input: JSON.stringify({ command }) },
+        },
+      ];
+      const firstRoundChunks: LLMStreamChunk[] = [
+        ...makeToolCallChunks(
+          "tc-head",
+          "curl -sI https://www.example.com",
+        ),
+        ...makeToolCallChunks(
+          "tc-security",
+          "curl -sI https://www.example.com/.well-known/security.txt",
+        ),
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const invalidChunks: LLMStreamChunk[] = [
+        {
+          type: "text",
+          text: "<tool_call>\n<function=bash>\n<parameter=command>curl -s https://www.example.com</parameter>\n</function>\n</tool_call>",
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "end_turn",
+        },
+      ];
+
+      const provider = createMockProvider([firstRoundChunks, invalidChunks]);
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry: createMockToolRegistry([
+          {
+            ...createMockTool("bash"),
+            execute: vi.fn(async (input: Record<string, unknown>) => {
+              const command = String(input.command ?? "");
+              if (command.includes("security.txt")) {
+                return {
+                  content:
+                    "HTTP/1.1 404 Not Found\nServer: cloudflare\nContent-Type: text/html\nURL Source: https://www.example.com/.well-known/security.txt",
+                };
+              }
+              return {
+                content:
+                  "HTTP/1.1 200 OK\nServer: cloudflare\nContent-Type: text/html\nStrict-Transport-Security: max-age=31536000\nURL Source: https://www.example.com/",
+              };
+            }),
+          },
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 4 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream(
+          "检查www.example.com 的安全问题，用表格回答。",
+          "conv-bash-only-table-analysis",
+        ),
+      );
+
+      const streamedText = events
+        .filter((event) => event.type === "response_chunk")
+        .map((event) => (event.data as { text: string }).text)
+        .join("");
+      expect(streamedText).toContain("| 检查项 | 当前发现 | 判断 | 建议 | 证据 |");
+      expect(streamedText).toContain("security.txt 返回 404");
+      expect(streamedText).not.toContain("<tool_call>");
       expect(memoryStore.addTrace).toHaveBeenCalledWith(
         expect.not.objectContaining({ error: "invalid_tool_markup_final" }),
       );

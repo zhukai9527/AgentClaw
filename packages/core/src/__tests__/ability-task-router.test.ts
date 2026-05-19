@@ -29,14 +29,14 @@ describe("ability task router", () => {
     expect(profile.toolTotalLimits.schedule).toBe(2);
   });
 
-  it("SEO 表格审计使用受限工具预算，避免过度抓取", () => {
+  it("表格化检查任务使用通用证据预算，避免按领域穷举", () => {
     const profile = buildTaskToolProfile(
       "专业的检查www.ehafo.com 的seo，用表格回答。",
       false,
       false,
     );
 
-    expect(profile.kind).toBe("seo_audit");
+    expect(profile.kind).toBe("evidence_table_analysis");
     expect(profile.allowedTools).toEqual(
       new Set(["web_fetch", "web_search", "bash"]),
     );
@@ -46,7 +46,24 @@ describe("ability task router", () => {
       bash: 6,
     });
     expect(profile.webResearchToolLimit).toBe(5);
-    expect(profile.hint).toContain("SEO 审计");
+    expect(profile.hint).toContain("表格化检查");
+
+    const securityProfile = buildTaskToolProfile(
+      "检查www.example.com 的安全问题，用表格回答。",
+      false,
+      false,
+    );
+    expect(securityProfile.kind).toBe("evidence_table_analysis");
+    expect(securityProfile.allowedTools).toEqual(
+      new Set(["web_fetch", "web_search", "bash"]),
+    );
+    expect(securityProfile.toolTotalLimits).toMatchObject({
+      web_fetch: 4,
+      web_search: 2,
+      bash: 6,
+    });
+    expect(securityProfile.webResearchToolLimit).toBe(5);
+    expect(securityProfile.hint).toContain("表格化检查");
   });
 
   it("按任务 profile 过滤工具定义", () => {

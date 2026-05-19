@@ -2,7 +2,7 @@ export type TaskToolProfile = {
   kind:
     | "default"
     | "news_brief"
-    | "seo_audit"
+    | "evidence_table_analysis"
     | "reddit_rss"
     | "wechat_publish"
     | "pptx_generation"
@@ -77,9 +77,9 @@ export function buildTaskToolProfile(
     };
   }
 
-  if (isSeoAuditTask(inputText)) {
+  if (isEvidenceTableAnalysisTask(inputText)) {
     return {
-      kind: "seo_audit",
+      kind: "evidence_table_analysis",
       allowedTools: new Set(["web_fetch", "web_search", "bash"]),
       toolTotalLimits: {
         web_fetch: 4,
@@ -87,7 +87,7 @@ export function buildTaskToolProfile(
         bash: 6,
       },
       webResearchToolLimit: 5,
-      hint: "[任务工具边界]当前是 SEO 审计任务：优先一次性获取首页、robots.txt、sitemap.xml、site: 收录结果；bash 只用于少量 header/HTML/meta/headings 检查。拿到这些事实后必须直接用 Markdown 表格输出，不要继续深挖或循环抓取。",
+      hint: "[任务工具边界]当前是表格化检查/分析任务：先用少量 web_fetch/web_search/bash 获取目标、公开页面、搜索结果或响应头等证据；拿到可支撑表格的事实后必须直接输出 Markdown 表格，不要继续深挖或循环抓取。",
     };
   }
 
@@ -185,19 +185,18 @@ function isAutomationScheduleTask(inputText: string): boolean {
   );
 }
 
-function isSeoAuditTask(inputText: string): boolean {
-  const hasSeoIntent =
-    /\bseo\b|搜索引擎优化|站点优化|网站优化|收录|sitemap|robots/i.test(
-      inputText,
-    );
-  const hasAuditVerb =
+function isEvidenceTableAnalysisTask(inputText: string): boolean {
+  const wantsTable = /表格|table/i.test(inputText);
+  const hasAnalysisVerb =
     /检查|审计|分析|评估|诊断|体检|audit|check|analy[sz]e|review/i.test(
       inputText,
     );
-  const hasSiteTarget =
-    /https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}/i.test(inputText);
+  const hasResearchableTarget =
+    /https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}|官网|网站|网页|站点|公司|产品|竞品|品牌|安全|性能|转化|\bseo\b|搜索引擎优化|收录|sitemap|robots/i.test(
+      inputText,
+    );
 
-  return hasSeoIntent && hasAuditVerb && hasSiteTarget;
+  return wantsTable && hasAnalysisVerb && hasResearchableTarget;
 }
 
 function shouldAllowProjectResearchForPptx(inputText: string): boolean {

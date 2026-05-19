@@ -906,14 +906,14 @@ function buildSynthesisFallbackResponse(
   fallbackSnippets: string[],
   reason: string,
 ): string {
-  const seoTable = buildSeoTableFallbackResponse(
+  const evidenceTable = buildEvidenceTableFallbackResponse(
     inputText,
     messages,
     sentFiles,
     fallbackSnippets,
     reason,
   );
-  if (seoTable) return seoTable;
+  if (evidenceTable) return evidenceTable;
 
   const snippets: string[] = [...fallbackSnippets];
 
@@ -960,14 +960,14 @@ function buildSynthesisFallbackResponse(
     .join("\n");
 }
 
-function buildSeoTableFallbackResponse(
+function buildEvidenceTableFallbackResponse(
   inputText: string,
   messages: Message[],
   sentFiles: Array<{ url: string; filename: string }>,
   fallbackSnippets: string[],
   reason: string,
 ): string | null {
-  if (!/\bseo\b/i.test(inputText) || !/表格|table/i.test(inputText)) {
+  if (!isEvidenceTableRequest(inputText)) {
     return null;
   }
 
@@ -978,7 +978,7 @@ function buildSeoTableFallbackResponse(
   ].join("\n\n");
   if (!combined.trim()) return null;
 
-  const targetHost = extractSeoTargetHost(inputText, combined);
+  const targetHost = extractEvidenceTargetHost(inputText, combined);
   const hostPattern = targetHost
     ? new RegExp(`https?:\\/\\/(?:www\\.)?${escapeRegExp(targetHost)}\\/?`, "i")
     : /https?:\/\/[^\s]+/i;
@@ -995,70 +995,113 @@ function buildSeoTableFallbackResponse(
       new RegExp(`URL Source:\\s*(${hostPattern.source})`, "i"),
       new RegExp(`(${hostPattern.source})`, "i"),
     ) ?? (targetHost ? `https://${targetHost}/` : "目标首页 URL 未明确发现");
-  const headings = extractHeadingsForSeo(combined);
+  const headings = extractHeadingsForEvidenceTable(combined);
   const hasRobots = /robots\.txt[\s\S]*User-agent:\s*\*/i.test(combined);
   const robotsRules = extractRobotsRules(combined);
   const sitemapMissing = /sitemap\.xml[\s\S]{0,80}404|404[\s\S]{0,80}sitemap\.xml/i.test(
     combined,
   );
+  const securityMissing =
+    /security\.txt/i.test(combined) &&
+    /(?:HTTP\/[^\n]*404|HTTP 404|404 Not Found)/i.test(combined);
   const indexedUrls = extractIndexedUrls(combined, targetHost);
   const hasDescription = /<meta\s+name=["']description["']|^description:/im.test(
     combined,
   );
   const hasViewport = /<meta\s+name=["']viewport["']|viewport/i.test(combined);
+  const httpSummary = extractHttpSummary(combined);
 
-  const rows = [
+  const rows: string[][] = [
     [
-      "Title",
+      "页面标题",
       title,
       title === "未在已获取内容中明确发现" ? "需补充" : "已发现",
-      "保持品牌词与核心业务词并控制长度，避免只堆品牌口号。",
-    ],
-    [
-      "Meta description",
-      hasDescription ? "已发现 description 线索" : "已获取内容未看到明确 description",
-      hasDescription ? "基本具备" : "建议补强",
-      "为首页和核心栏目补唯一描述，覆盖“医考/护理/职称/题库/备考”等关键词。",
+      "标题应直接服务用户请求中的检查目标，避免只堆品牌口号或泛化描述。",
+      homeUrl,
     ],
     [
       "标题结构",
       headings.length > 0 ? headings.join("；") : "已获取内容中只看到正文摘要，标题层级不完整",
       headings.length > 0 ? "可优化" : "需复查源码",
-      "确保每页一个清晰 H1，H2/H3 按栏目和产品层级展开。",
+      "围绕检查目标拆清主标题和子标题，避免关键结论只能从正文猜测。",
+      homeUrl,
     ],
-    [
+  ];
+  if (hasDescription || /\bseo\b|搜索引擎优化|收录|站点优化|网站优化/i.test(inputText)) {
+    rows.push([
+      "Meta description",
+      hasDescription ? "已发现 description 线索" : "已获取内容未看到明确 description",
+      hasDescription ? "基本具备" : "建议补强",
+      "为核心页面补唯一描述，并覆盖用户请求中的关键主题词。",
+      homeUrl,
+    ]);
+  }
+  if (/robots\.txt/i.test(combined) || /\bseo\b|robots|收录/i.test(inputText)) {
+    rows.push([
       "robots.txt",
       hasRobots ? `可访问；${robotsRules || "存在 User-agent: *"}` : "未确认可访问",
       hasRobots ? "正常" : "需检查",
-      "继续避免屏蔽核心落地页，确认静态资源屏蔽不会影响渲染与索引。",
-    ],
-    [
+      "确认没有屏蔽核心页面或影响页面渲染所需资源。",
+      targetHost ? `https://${targetHost}/robots.txt` : "robots.txt 证据",
+    ]);
+  }
+  if (/sitemap\.xml/i.test(combined) || /\bseo\b|sitemap|收录/i.test(inputText)) {
+    rows.push([
       "sitemap.xml",
       sitemapMissing
         ? `${targetHost ? `https://${targetHost}` : "目标站点"}/sitemap.xml 返回 404`
         : "未确认 sitemap 状态",
       sitemapMissing ? "高优先级问题" : "需补查",
-      "生成并提交 sitemap.xml，覆盖首页、考试指南和核心专题页。",
-    ],
+      "如果任务涉及站点发现或收录，应生成并提交 sitemap.xml。",
+      targetHost ? `https://${targetHost}/sitemap.xml` : "sitemap.xml 证据",
+    ]);
+  }
+  if (/security\.txt/i.test(combined) || /安全|security/i.test(inputText)) {
+    rows.push([
+      "security.txt",
+      securityMissing
+        ? `${targetHost ? `https://${targetHost}` : "目标站点"}/.well-known/security.txt 返回 404`
+        : "未确认 security.txt 状态",
+      securityMissing ? "建议补充" : "需复查",
+      "安全检查类任务可补充 security.txt，便于公开漏洞报告和安全联系人发现。",
+      targetHost
+        ? `https://${targetHost}/.well-known/security.txt`
+        : "security.txt 证据",
+    ]);
+  }
+  if (httpSummary) {
+    rows.push([
+      "HTTP/响应头",
+      httpSummary,
+      /HTTP Code:\s*(?:4|5)\d\d|HTTP\/[^\n]*\s(?:4|5)\d\d/i.test(combined)
+        ? "异常"
+        : "已获取",
+      "结合任务目标继续检查跳转、缓存、安全响应头和可访问性。",
+      homeUrl,
+    ]);
+  }
+  rows.push(
     [
-      "搜索收录",
+      "搜索结果/公开信息",
       indexedUrls.length > 0
-        ? `site 查询发现 ${indexedUrls.length} 个结果：${indexedUrls.slice(0, 3).join("、")}`
-        : "已获取内容中未看到明确收录 URL",
-      indexedUrls.length > 0 ? "已收录" : "需复查",
-      "扩大核心栏目长尾页收录，清理旧子域、旧栏目或过时页面带来的低质收录风险。",
+        ? `发现 ${indexedUrls.length} 个相关 URL：${indexedUrls.slice(0, 3).join("、")}`
+        : "已获取内容中未看到明确相关 URL",
+      indexedUrls.length > 0 ? "已有证据" : "需复查",
+      "后续判断应优先引用已抓取页面和搜索结果，避免无证据扩展。",
+      indexedUrls[0] ?? homeUrl,
     ],
     [
-      "移动端/响应式",
+      "移动端/页面基础",
       hasViewport ? "有 viewport/移动端线索" : "未在已获取内容中确认 viewport",
       hasViewport ? "基本具备" : "需复查源码",
-      "继续优化移动端首屏速度、字体可读性和二维码转化路径。",
+      "如果该项影响用户请求目标，应继续检查首屏速度、可读性和核心路径。",
+      homeUrl,
     ],
-  ];
+  );
 
   const table = [
-    "| SEO检查项 | 当前发现 | 判断 | 建议 |",
-    "| --- | --- | --- | --- |",
+    "| 检查项 | 当前发现 | 判断 | 建议 | 证据 |",
+    "| --- | --- | --- | --- | --- |",
     ...rows.map((row) => `| ${row.map(escapeMarkdownTableCell).join(" | ")} |`),
   ].join("\n");
   const files = sentFiles
@@ -1066,11 +1109,11 @@ function buildSeoTableFallbackResponse(
     .join("\n");
 
   return [
-    "基于已成功获取的页面、robots、sitemap 和搜索结果，先给出可复核 SEO 表格：",
+    "基于已成功获取的工具证据，先给出可复核的表格结论：",
     "",
     table,
     "",
-    `证据来源：${homeUrl}`,
+    `主要证据来源：${homeUrl}`,
     files ? `\n已发送/生成的文件：\n${files}` : "",
     "",
     `说明：${reason}；系统未继续空转，已用已获取事实完成表格化结论。`,
@@ -1111,7 +1154,44 @@ function firstMatch(text: string, ...patterns: RegExp[]): string | undefined {
   return undefined;
 }
 
-function extractHeadingsForSeo(text: string): string[] {
+function isEvidenceTableRequest(inputText: string): boolean {
+  return (
+    /表格|table/i.test(inputText) &&
+    /检查|审计|分析|评估|诊断|体检|对比|调研|audit|check|analy[sz]e|review|compare|research/i.test(
+      inputText,
+    )
+  );
+}
+
+function hasEnoughEvidenceForTableCompletion(
+  successfulWebSearchCalls: number,
+  successfulWebFetchCalls: number,
+  currentResultContents: string[],
+): boolean {
+  const currentEvidenceCount = currentResultContents.filter((content) =>
+    content.trim(),
+  ).length;
+  const hasCurrentUrlEvidence = currentResultContents.some((content) =>
+    /URL Source:|https?:\/\/|HTTP \d{3}|HTTP\/|results\[/i.test(content),
+  );
+  const hasToolEvidence =
+    successfulWebSearchCalls >= 1 ||
+    successfulWebFetchCalls >= 1 ||
+    currentEvidenceCount >= 2;
+  const hasSearchOrMultipleSources =
+    successfulWebSearchCalls >= 1 ||
+    successfulWebFetchCalls >= 2 ||
+    currentEvidenceCount >= 2;
+
+  return (
+    currentEvidenceCount >= 2 &&
+    hasCurrentUrlEvidence &&
+    hasToolEvidence &&
+    hasSearchOrMultipleSources
+  );
+}
+
+function extractHeadingsForEvidenceTable(text: string): string[] {
   const headings: string[] = [];
   for (const match of text.matchAll(/^#{1,3}\s+(.+)$/gm)) {
     const heading = match[1].trim();
@@ -1128,6 +1208,20 @@ function extractRobotsRules(text: string): string {
   return rules.join("；");
 }
 
+function extractHttpSummary(text: string): string | undefined {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) =>
+      /^(HTTP Code|HTTP\/|Server:|Content-Type:|Strict-Transport-Security:|Content-Security-Policy:|X-Frame-Options:|X-Content-Type-Options:|Referrer-Policy:|Time Total:|Redirect)/i.test(
+        line,
+      ),
+    )
+    .slice(0, 5);
+  return lines.length > 0 ? lines.join("；") : undefined;
+}
+
 function extractIndexedUrls(text: string, targetHost?: string): string[] {
   const urlPattern = targetHost
     ? new RegExp(`https?:\\/\\/(?:www\\.)?${escapeRegExp(targetHost)}\\/[^\\s)<>]*`, "gi")
@@ -1141,7 +1235,7 @@ function extractIndexedUrls(text: string, targetHost?: string): string[] {
   ].slice(0, 5);
 }
 
-function extractSeoTargetHost(inputText: string, evidenceText: string): string | undefined {
+function extractEvidenceTargetHost(inputText: string, evidenceText: string): string | undefined {
   const source = `${inputText}\n${evidenceText}`;
   const urlHost = source.match(/https?:\/\/(?:www\.)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})/i)?.[1];
   const bareHost = source.match(/(?:^|[\s：:，,])(?:www\.)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})(?:[\/\s，,。]|$)/i)?.[1];
@@ -2970,7 +3064,7 @@ export class SimpleAgentLoop implements AgentLoop {
               };
               if (
                 taskToolProfile.kind === "reddit_rss" ||
-                taskToolProfile.kind === "seo_audit" ||
+                taskToolProfile.kind === "evidence_table_analysis" ||
                 (taskToolProfile.kind === "news_brief" &&
                   !isPptxGenerationTask &&
                   (effectiveToolName === "web_fetch" ||
@@ -3600,11 +3694,14 @@ export class SimpleAgentLoop implements AgentLoop {
         }
 
         if (
-          taskToolProfile.kind === "seo_audit" &&
-          successfulWebSearchCalls >= 1 &&
-          successfulWebFetchCalls >= 2
+          taskToolProfile.kind === "evidence_table_analysis" &&
+          hasEnoughEvidenceForTableCompletion(
+            successfulWebSearchCalls,
+            successfulWebFetchCalls,
+            allExecResults.map((result) => result.result.content),
+          )
         ) {
-          const responseText = buildSeoTableFallbackResponse(
+          const responseText = buildEvidenceTableFallbackResponse(
             inputTextForHeuristics,
             messages,
             allSentFiles,
@@ -3612,7 +3709,7 @@ export class SimpleAgentLoop implements AgentLoop {
               ...fallbackSnippets,
               ...allExecResults.map((result) => result.result.content),
             ],
-            "SEO 审计所需的首页、robots 和搜索收录事实已经足够",
+            "表格化检查/分析所需的最小证据已经足够",
           );
           if (responseText) {
             const durationMs = Date.now() - startTime;
@@ -3676,7 +3773,7 @@ export class SimpleAgentLoop implements AgentLoop {
           }
           forceSynthesisOnly = true;
           runtimeHints.push(
-            "<seo_ready_to_synthesize>SEO audit has enough homepage/robots/sitemap/search evidence. Tools are now unavailable; write the final answer as Markdown tables with concrete findings and recommendations.</seo_ready_to_synthesize>",
+            "<evidence_table_ready_to_synthesize>Evidence table task has enough tool evidence. Tools are now unavailable; write the final answer as Markdown tables with concrete findings and recommendations.</evidence_table_ready_to_synthesize>",
           );
         }
 
