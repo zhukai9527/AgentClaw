@@ -43,7 +43,7 @@
   <rect x="260" y="432" width="680" height="96" class="box-alt"/>
   <text x="600" y="462" text-anchor="middle" class="label">core</text>
   <text x="600" y="490" text-anchor="middle" class="text">AgentLoop · Orchestrator · ContextManager</text>
-  <text x="600" y="516" text-anchor="middle" class="small">Planner · SubAgentManager · SkillRegistry</text>
+  <text x="600" y="516" text-anchor="middle" class="small">TaskManager · SubAgentManager · SkillRegistry</text>
 
   <rect x="60" y="610" width="1080" height="200" class="layer"/>
   <text x="90" y="648" class="layer-title">功能层</text>

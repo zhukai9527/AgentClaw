@@ -75,11 +75,11 @@ types → providers/tools/memory → core → gateway/cli
 
 | 包 | 职责 |
 |---|---|
-| `types` | 所有共享接口：LLMProvider, Message, ContentBlock, AgentEvent, Tool, ToolExecutionContext, MemoryStore, Skill, Planner |
+| `types` | 所有共享接口：LLMProvider, Message, ContentBlock, AgentEvent, Tool, ToolExecutionContext, MemoryStore, Skill |
 | `providers` | LLM 适配器：ClaudeProvider, OpenAICompatibleProvider, GeminiProvider, SmartRouter |
 | `tools` | 工具注册表 + 内置工具（shell, file_read/write/edit, glob, grep, web_search, web_fetch, sandbox, subagent, browser_cdp 等）+ MCP 客户端 |
 | `memory` | SQLite 持久化（better-sqlite3）：对话历史、长期记忆、向量嵌入、FTS5 全文索引 |
-| `core` | SimpleAgentLoop（思考-行动-观察循环）、SimpleOrchestrator（会话管理）、SimplePlanner（任务分解）、ContextManager、MemoryExtractor、SkillRegistry、ToolHookManager（工具钩子）、SimpleSubAgentManager（子代理） |
+| `core` | SimpleAgentLoop（思考-行动-观察循环）、SimpleOrchestrator（会话管理）、TaskManager（任务捕获/队列/DAG）、ContextManager、MemoryExtractor、SkillRegistry、ToolHookManager（工具钩子）、SimpleSubAgentManager（子代理） |
 | `gateway` | Fastify HTTP/WS 服务 + ChannelManager（统一渠道生命周期）+ REST API + 定时任务调度 |
 | `cli` | 终端交互式对话 |
 | `web` | React 19 + Vite 前端（ChatPage, TasksPage, AgentsPage, ProjectDetailPage, SettingsPage, SkillsPage, MemoryPage, TracesPage 等） |
