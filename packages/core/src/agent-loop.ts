@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AgentLoop,
   AgentState,
   AgentConfig,
@@ -56,6 +56,12 @@ import {
   isPdfExtractionTask,
   recoverPdfTextFromSessionPdf,
 } from "./ability/pdf-guard.js";
+import {
+  buildSynthesisFallbackResponse,
+  currentLocalDateString,
+  evaluateCompletionPolicies,
+  extractFallbackLines,
+} from "./completion-policies/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -788,19 +794,6 @@ function hardenPptxClaudeCodeInput(
   };
 }
 
-function currentLocalDateString(date = new Date()): string {
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const parts = new Intl.DateTimeFormat("zh-CN", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const value = (type: string) =>
-    parts.find((part) => part.type === type)?.value ?? "";
-  return `${value("year")}-${value("month")}-${value("day")}`;
-}
-
 function isAiNewsLikeTask(inputText: string): boolean {
   const hasAiTopic =
     /\bAI\b|人工智能|artificial intelligence|machine learning|LLM|大模型/i.test(
@@ -897,491 +890,6 @@ function buildToolFactHint(results: ToolFactInput[]): string | null {
     unique.map((fact) => `- ${fact}`).join("\n") +
     "\n</facts_from_tools>"
   );
-}
-
-function buildSynthesisFallbackResponse(
-  inputText: string,
-  messages: Message[],
-  sentFiles: Array<{ url: string; filename: string }>,
-  fallbackSnippets: string[],
-  reason: string,
-): string {
-  const evidenceTable = buildEvidenceTableFallbackResponse(
-    inputText,
-    messages,
-    sentFiles,
-    fallbackSnippets,
-    reason,
-  );
-  if (evidenceTable) return evidenceTable;
-
-  const snippets: string[] = [...fallbackSnippets];
-
-  for (const message of messages) {
-    if (message.role !== "tool" || typeof message.content !== "string") {
-      continue;
-    }
-    try {
-      const blocks = JSON.parse(message.content) as ContentBlock[];
-      for (const block of blocks) {
-        if (block.type !== "tool_result") continue;
-        const result = block as ToolResultContent;
-        if (result.isError || typeof result.content !== "string") continue;
-        snippets.push(...extractFallbackLines(result.content));
-      }
-    } catch {
-      snippets.push(...extractFallbackLines(message.content));
-    }
-  }
-
-  const unique = [...new Set(snippets)].slice(0, 12);
-  const files = sentFiles
-    .map((file) => `- [${file.filename}](${file.url})`)
-    .join("\n");
-  const heading = inputText.includes("Reddit")
-    ? "已根据已抓取的 Reddit/RSS 结果生成阶段性总结。"
-    : "已根据已获取的搜索和网页结果生成阶段性总结。";
-  const body =
-    unique.length > 0
-      ? unique.map((line) => `- ${line}`).join("\n")
-      : /预算|budget|limit/i.test(reason)
-        ? "- 已达到工具预算，但没有足够可用事实形成可靠摘要。"
-        : "- 当前上下文没有足够可用事实形成可靠摘要。";
-
-  return [
-    heading,
-    "",
-    body,
-    files ? `\n已发送/生成的文件：\n${files}` : "",
-    "",
-    `说明：${reason}，系统已停止继续调用工具以避免空转。`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-function buildNewsBriefCompletionResponse(
-  fallbackSnippets: string[],
-  currentResultContents: string[],
-  reason: string,
-): string | null {
-  const lines = [
-    ...fallbackSnippets,
-    ...currentResultContents.flatMap(extractFallbackLines),
-  ];
-  const unique = [...new Set(lines)];
-  const items = unique
-    .filter((line) => !/^https?:\/\//i.test(line))
-    .filter((line) => !/^\[content compacted\]/i.test(line))
-    .slice(0, 6);
-  const sources = unique
-    .filter((line) => /^https?:\/\//i.test(line))
-    .slice(0, 6);
-
-  if (items.length === 0 && sources.length === 0) return null;
-
-  const briefItems =
-    items.length > 0
-      ? items.map((line) => `- ${line}`).join("\n")
-      : "- 已获取到来源链接，但可抽取标题不足；建议后续改用更高质量新闻源。";
-  const sourceList =
-    sources.length > 0
-      ? sources.map((url) => `- ${url}`).join("\n")
-      : "- 已获取的工具结果中未提取到明确 URL。";
-
-  return [
-    `今日 AI 简报（${currentLocalDateString()}）`,
-    "",
-    briefItems,
-    "",
-    "今日洞察：AI 新闻任务已达到可用来源数量，继续抓取的边际收益低于空转风险；本次优先基于已获取事实给出简报。",
-    "",
-    "来源链接：",
-    sourceList,
-    "",
-    `说明：${reason}；系统已停止继续调用工具以避免空转。`,
-  ].join("\n");
-}
-
-function buildRedditRssCompletionResponse(
-  fallbackSnippets: string[],
-  currentResultContents: string[],
-  reason: string,
-): string | null {
-  const combined = [...currentResultContents, ...fallbackSnippets].join("\n");
-  if (!/reddit|rss|subreddit|r\//i.test(combined)) return null;
-
-  const lines = combined
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => !/^Saved to:/i.test(line))
-    .slice(0, 80);
-  if (lines.length === 0) return null;
-
-  const body = lines
-    .map((line) => {
-      if (/^##\s+/.test(line)) return line;
-      if (/^[-*]\s+/.test(line)) return line;
-      if (/^https?:\/\//i.test(line)) return `- ${line}`;
-      return `- ${line}`;
-    })
-    .join("\n");
-
-  return [
-    `# 📡 Reddit 科技AI日报 - ${currentLocalDateString()}`,
-    "",
-    body,
-    "",
-    "## 今日洞察",
-    "Reddit RSS 抓取结果已返回，系统已按现有结果完成日报；如出现 403/抓取失败，说明 Reddit 当前限制了该订阅源访问，不应继续改用未授权的重复抓取路径空转。",
-    "",
-    `说明：${reason}；系统已停止继续调用工具以避免空转。`,
-  ].join("\n");
-}
-
-function shouldCompleteRedditRssDeterministically(
-  currentResultContents: string[],
-): boolean {
-  const combined = currentResultContents.join("\n");
-  return /Saved to:|抓取失败|HTTP 403|fetch failed|rss_top .*limit/i.test(
-    combined,
-  );
-}
-
-function extractSavedPathFromText(text: string): string | undefined {
-  return text
-    .match(/Saved to:\s*([^\r\n]+)/i)?.[1]
-    ?.trim()
-    .replace(/\\/g, "/");
-}
-
-function buildEvidenceTableFallbackResponse(
-  inputText: string,
-  messages: Message[],
-  sentFiles: Array<{ url: string; filename: string }>,
-  fallbackSnippets: string[],
-  reason: string,
-): string | null {
-  if (!isEvidenceTableRequest(inputText)) {
-    return null;
-  }
-
-  const contents = collectToolResultContents(messages);
-  const combined = [
-    ...contents.map((item) => item.content),
-    ...fallbackSnippets,
-  ].join("\n\n");
-  if (!combined.trim()) return null;
-
-  const targetHost = extractEvidenceTargetHost(inputText, combined);
-  const hostPattern = targetHost
-    ? new RegExp(`https?:\\/\\/(?:www\\.)?${escapeRegExp(targetHost)}\\/?`, "i")
-    : /https?:\/\/[^\s]+/i;
-  const title =
-    firstMatch(
-      combined,
-      /^Title:\s*(.+)$/im,
-      /^#\s*(.+)$/m,
-      /title,url\}:\s*\n\s*([^—\n]+?)\s+—/i,
-    ) ?? "未在已获取内容中明确发现";
-  const homeUrl =
-    firstMatch(
-      combined,
-      new RegExp(`URL Source:\\s*(${hostPattern.source})`, "i"),
-      new RegExp(`(${hostPattern.source})`, "i"),
-    ) ?? (targetHost ? `https://${targetHost}/` : "目标首页 URL 未明确发现");
-  const headings = extractHeadingsForEvidenceTable(combined);
-  const hasRobots = /robots\.txt[\s\S]*User-agent:\s*\*/i.test(combined);
-  const robotsRules = extractRobotsRules(combined);
-  const sitemapMissing = /sitemap\.xml[\s\S]{0,80}404|404[\s\S]{0,80}sitemap\.xml/i.test(
-    combined,
-  );
-  const securityMissing =
-    /security\.txt/i.test(combined) &&
-    /(?:HTTP\/[^\n]*404|HTTP 404|404 Not Found)/i.test(combined);
-  const indexedUrls = extractIndexedUrls(combined, targetHost);
-  const hasDescription = /<meta\s+name=["']description["']|^description:/im.test(
-    combined,
-  );
-  const hasViewport = /<meta\s+name=["']viewport["']|viewport/i.test(combined);
-  const httpSummary = extractHttpSummary(combined);
-
-  const rows: string[][] = [
-    [
-      "页面标题",
-      title,
-      title === "未在已获取内容中明确发现" ? "需补充" : "已发现",
-      "标题应直接服务用户请求中的检查目标，避免只堆品牌口号或泛化描述。",
-      homeUrl,
-    ],
-    [
-      "标题结构",
-      headings.length > 0 ? headings.join("；") : "已获取内容中只看到正文摘要，标题层级不完整",
-      headings.length > 0 ? "可优化" : "需复查源码",
-      "围绕检查目标拆清主标题和子标题，避免关键结论只能从正文猜测。",
-      homeUrl,
-    ],
-  ];
-  if (hasDescription || /\bseo\b|搜索引擎优化|收录|站点优化|网站优化/i.test(inputText)) {
-    rows.push([
-      "Meta description",
-      hasDescription ? "已发现 description 线索" : "已获取内容未看到明确 description",
-      hasDescription ? "基本具备" : "建议补强",
-      "为核心页面补唯一描述，并覆盖用户请求中的关键主题词。",
-      homeUrl,
-    ]);
-  }
-  if (/robots\.txt/i.test(combined) || /\bseo\b|robots|收录/i.test(inputText)) {
-    rows.push([
-      "robots.txt",
-      hasRobots ? `可访问；${robotsRules || "存在 User-agent: *"}` : "未确认可访问",
-      hasRobots ? "正常" : "需检查",
-      "确认没有屏蔽核心页面或影响页面渲染所需资源。",
-      targetHost ? `https://${targetHost}/robots.txt` : "robots.txt 证据",
-    ]);
-  }
-  if (/sitemap\.xml/i.test(combined) || /\bseo\b|sitemap|收录/i.test(inputText)) {
-    rows.push([
-      "sitemap.xml",
-      sitemapMissing
-        ? `${targetHost ? `https://${targetHost}` : "目标站点"}/sitemap.xml 返回 404`
-        : "未确认 sitemap 状态",
-      sitemapMissing ? "高优先级问题" : "需补查",
-      "如果任务涉及站点发现或收录，应生成并提交 sitemap.xml。",
-      targetHost ? `https://${targetHost}/sitemap.xml` : "sitemap.xml 证据",
-    ]);
-  }
-  if (/security\.txt/i.test(combined) || /安全|security/i.test(inputText)) {
-    rows.push([
-      "security.txt",
-      securityMissing
-        ? `${targetHost ? `https://${targetHost}` : "目标站点"}/.well-known/security.txt 返回 404`
-        : "未确认 security.txt 状态",
-      securityMissing ? "建议补充" : "需复查",
-      "安全检查类任务可补充 security.txt，便于公开漏洞报告和安全联系人发现。",
-      targetHost
-        ? `https://${targetHost}/.well-known/security.txt`
-        : "security.txt 证据",
-    ]);
-  }
-  if (httpSummary) {
-    rows.push([
-      "HTTP/响应头",
-      httpSummary,
-      /HTTP Code:\s*(?:4|5)\d\d|HTTP\/[^\n]*\s(?:4|5)\d\d/i.test(combined)
-        ? "异常"
-        : "已获取",
-      "结合任务目标继续检查跳转、缓存、安全响应头和可访问性。",
-      homeUrl,
-    ]);
-  }
-  rows.push(
-    [
-      "搜索结果/公开信息",
-      indexedUrls.length > 0
-        ? `发现 ${indexedUrls.length} 个相关 URL：${indexedUrls.slice(0, 3).join("、")}`
-        : "已获取内容中未看到明确相关 URL",
-      indexedUrls.length > 0 ? "已有证据" : "需复查",
-      "后续判断应优先引用已抓取页面和搜索结果，避免无证据扩展。",
-      indexedUrls[0] ?? homeUrl,
-    ],
-    [
-      "移动端/页面基础",
-      hasViewport ? "有 viewport/移动端线索" : "未在已获取内容中确认 viewport",
-      hasViewport ? "基本具备" : "需复查源码",
-      "如果该项影响用户请求目标，应继续检查首屏速度、可读性和核心路径。",
-      homeUrl,
-    ],
-  );
-
-  const table = [
-    "| 检查项 | 当前发现 | 判断 | 建议 | 证据 |",
-    "| --- | --- | --- | --- | --- |",
-    ...rows.map((row) => `| ${row.map(escapeMarkdownTableCell).join(" | ")} |`),
-  ].join("\n");
-  const files = sentFiles
-    .map((file) => `- [${file.filename}](${file.url})`)
-    .join("\n");
-
-  return [
-    "基于已成功获取的工具证据，先给出可复核的表格结论：",
-    "",
-    table,
-    "",
-    `主要证据来源：${homeUrl}`,
-    files ? `\n已发送/生成的文件：\n${files}` : "",
-    "",
-    `说明：${reason}；系统未继续空转，已用已获取事实完成表格化结论。`,
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-function collectToolResultContents(
-  messages: Message[],
-): Array<{ content: string; isError?: boolean }> {
-  const contents: Array<{ content: string; isError?: boolean }> = [];
-  for (const message of messages) {
-    if (message.role !== "tool" || typeof message.content !== "string") {
-      continue;
-    }
-    try {
-      const blocks = JSON.parse(message.content) as ContentBlock[];
-      for (const block of blocks) {
-        if (block.type !== "tool_result") continue;
-        const result = block as ToolResultContent;
-        if (typeof result.content === "string") {
-          contents.push({ content: result.content, isError: result.isError });
-        }
-      }
-    } catch {
-      contents.push({ content: message.content });
-    }
-  }
-  return contents;
-}
-
-function firstMatch(text: string, ...patterns: RegExp[]): string | undefined {
-  for (const pattern of patterns) {
-    const matched = text.match(pattern)?.[1]?.trim();
-    if (matched) return matched;
-  }
-  return undefined;
-}
-
-function isEvidenceTableRequest(inputText: string): boolean {
-  return (
-    /表格|table/i.test(inputText) &&
-    /检查|审计|分析|评估|诊断|体检|对比|调研|audit|check|analy[sz]e|review|compare|research/i.test(
-      inputText,
-    )
-  );
-}
-
-function hasEnoughEvidenceForTableCompletion(
-  successfulWebSearchCalls: number,
-  successfulWebFetchCalls: number,
-  currentResultContents: string[],
-): boolean {
-  const currentEvidenceCount = currentResultContents.filter((content) =>
-    content.trim(),
-  ).length;
-  const hasCurrentUrlEvidence = currentResultContents.some((content) =>
-    /URL Source:|https?:\/\/|HTTP \d{3}|HTTP\/|results\[/i.test(content),
-  );
-  const hasToolEvidence =
-    successfulWebSearchCalls >= 1 ||
-    successfulWebFetchCalls >= 1 ||
-    currentEvidenceCount >= 2;
-  const hasSearchOrMultipleSources =
-    successfulWebSearchCalls >= 1 ||
-    successfulWebFetchCalls >= 2 ||
-    currentEvidenceCount >= 2;
-
-  return (
-    currentEvidenceCount >= 2 &&
-    hasCurrentUrlEvidence &&
-    hasToolEvidence &&
-    hasSearchOrMultipleSources
-  );
-}
-
-function extractHeadingsForEvidenceTable(text: string): string[] {
-  const headings: string[] = [];
-  for (const match of text.matchAll(/^#{1,3}\s+(.+)$/gm)) {
-    const heading = match[1].trim();
-    if (heading && !/^易哈佛\s*\|/.test(heading)) headings.push(heading);
-    if (headings.length >= 4) break;
-  }
-  return [...new Set(headings)];
-}
-
-function extractRobotsRules(text: string): string {
-  const rules = [...text.matchAll(/^Disallow:\s*([^\r\n]+)/gim)]
-    .map((match) => `Disallow:${match[1].trim()}`)
-    .slice(0, 4);
-  return rules.join("；");
-}
-
-function extractHttpSummary(text: string): string | undefined {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) =>
-      /^(HTTP Code|HTTP\/|Server:|Content-Type:|Strict-Transport-Security:|Content-Security-Policy:|X-Frame-Options:|X-Content-Type-Options:|Referrer-Policy:|Time Total:|Redirect)/i.test(
-        line,
-      ),
-    )
-    .slice(0, 5);
-  return lines.length > 0 ? lines.join("；") : undefined;
-}
-
-function extractIndexedUrls(text: string, targetHost?: string): string[] {
-  const urlPattern = targetHost
-    ? new RegExp(`https?:\\/\\/(?:www\\.)?${escapeRegExp(targetHost)}\\/[^\\s)<>]*`, "gi")
-    : /https?:\/\/[^\s)<>]+/gi;
-  return [
-    ...new Set(
-      [...text.matchAll(urlPattern)]
-        .map((match) => match[0].replace(/[.,，。]+$/, ""))
-        .filter((url) => !/robots\.txt|sitemap\.xml/i.test(url)),
-    ),
-  ].slice(0, 5);
-}
-
-function extractEvidenceTargetHost(inputText: string, evidenceText: string): string | undefined {
-  const source = `${inputText}\n${evidenceText}`;
-  const urlHost = source.match(/https?:\/\/(?:www\.)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})/i)?.[1];
-  const bareHost = source.match(/(?:^|[\s：:，,])(?:www\.)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})(?:[\/\s，,。]|$)/i)?.[1];
-  return (urlHost ?? bareHost)?.replace(/^www\./i, "");
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function escapeMarkdownTableCell(value: string): string {
-  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ").trim();
-}
-
-function extractFallbackLines(content: string): string[] {
-  const lines = content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const selected: string[] = [];
-
-  for (const line of lines) {
-    if (selected.length >= 8) break;
-    if (
-      line.startsWith("results[") ||
-      line.startsWith("hint:") ||
-      line.startsWith("rawPath:") ||
-      line.startsWith("observation:") ||
-      line.startsWith("promptChars:") ||
-      line.startsWith("savedChars:") ||
-      line.startsWith("rawChars:")
-    ) {
-      continue;
-    }
-    if (/^https?:\/\//.test(line)) {
-      selected.push(line);
-      continue;
-    }
-    if (
-      line.includes(" — ") ||
-      line.startsWith("#") ||
-      line.startsWith("- ") ||
-      line.startsWith("🔥") ||
-      /^[A-Za-z0-9_ -]+:/.test(line)
-    ) {
-      selected.push(line.replace(/^[-#]\s*/, "").slice(0, 240));
-    }
-  }
-
-  return selected;
 }
 
 function extractWeatherFacts(
@@ -3796,90 +3304,38 @@ export class SimpleAgentLoop implements AgentLoop {
         const currentResultContents = allExecResults.map(
           (result) => result.result.content,
         );
-        let deterministicResponseText: string | null = null;
-        let deterministicSendPath: string | undefined;
+        const completionDecision = evaluateCompletionPolicies({
+          taskKind: taskToolProfile.kind,
+          inputText: inputTextForHeuristics,
+          messages,
+          sentFiles: allSentFiles,
+          fallbackSnippets,
+          currentResultContents,
+          toolResults: allExecResults,
+          successfulWebSearchCalls,
+          successfulWebFetchCalls,
+          wantsFileDelivery: wantsFileDelivery(inputTextForHeuristics),
+        });
 
-        if (
-          taskToolProfile.kind === "reddit_rss" &&
-          allExecResults.some((result) => result.effectiveToolName === "rss_top") &&
-          shouldCompleteRedditRssDeterministically(currentResultContents)
-        ) {
-          deterministicResponseText = buildRedditRssCompletionResponse(
-            fallbackSnippets,
-            currentResultContents,
-            "Reddit/RSS 工具已返回可交付结果",
-          );
-          deterministicSendPath = currentResultContents
-            .map(extractSavedPathFromText)
-            .find((path): path is string => Boolean(path));
-        }
+        if (completionDecision) {
+          for (const artifact of completionDecision.artifacts) {
+            if (!context?.sendFile) continue;
+            if (artifact.kind === "send_existing_file") {
+              await context.sendFile(artifact.path, basename(artifact.path));
+              recordDirectSendEffect(artifact.path, artifact.sendEffectSource);
+              continue;
+            }
 
-        if (
-          !deterministicResponseText &&
-          taskToolProfile.kind === "news_brief" &&
-          successfulWebSearchCalls >= 3 &&
-          successfulWebFetchCalls >= 2
-        ) {
-          deterministicResponseText = buildNewsBriefCompletionResponse(
-            fallbackSnippets,
-            currentResultContents,
-            "新闻简报已获取足够搜索和网页证据",
-          );
-        }
-
-        if (
-          !deterministicResponseText &&
-          taskToolProfile.kind === "evidence_table_analysis" &&
-          hasEnoughEvidenceForTableCompletion(
-            successfulWebSearchCalls,
-            successfulWebFetchCalls,
-            currentResultContents,
-          )
-        ) {
-          deterministicResponseText = buildEvidenceTableFallbackResponse(
-            inputTextForHeuristics,
-            messages,
-            allSentFiles,
-            [
-              ...fallbackSnippets,
-              ...currentResultContents,
-            ],
-            "表格化检查/分析所需的最小证据已经足够",
-          );
-        }
-
-        if (deterministicResponseText) {
-          if (
-            !deterministicSendPath &&
-            taskToolProfile.kind === "reddit_rss" &&
-            context?.sendFile &&
-            wantsFileDelivery(inputTextForHeuristics)
-          ) {
-            deterministicSendPath = join(
+            const artifactPath = join(
               ensureSessionTmpDir(),
-              `reddit-tech-ai-daily-${currentLocalDateString()}.md`,
+              artifact.filename,
             ).replace(/\\/g, "/");
-            writeFileSync(
-              deterministicSendPath,
-              deterministicResponseText,
-              "utf-8",
-            );
-            recordDirectWriteEffect(
-              deterministicSendPath,
-              "auto_write_reddit_rss_report",
-            );
+            writeFileSync(artifactPath, artifact.content, "utf-8");
+            recordDirectWriteEffect(artifactPath, artifact.writeEffectSource);
+            await context.sendFile(artifactPath, basename(artifactPath));
+            recordDirectSendEffect(artifactPath, artifact.sendEffectSource);
           }
-
-          if (deterministicSendPath && context?.sendFile) {
-            await context.sendFile(
-              deterministicSendPath,
-              basename(deterministicSendPath),
-            );
-            recordDirectSendEffect(
-              deterministicSendPath,
-              "auto_send_reddit_rss_report",
-            );
-          }
+          const deterministicResponseText = completionDecision.text;
           const durationMs = Date.now() - startTime;
           const assistantTurn: ConversationTurn = {
             id: generateId(),
@@ -3939,31 +3395,6 @@ export class SimpleAgentLoop implements AgentLoop {
             agentId: context?.agentId,
           });
           return;
-        }
-
-        if (
-          taskToolProfile.kind === "news_brief" &&
-          successfulWebSearchCalls >= 3 &&
-          successfulWebFetchCalls >= 2
-        ) {
-          forceSynthesisOnly = true;
-          runtimeHints.push(
-            "<news_ready_to_synthesize>News brief has enough search and fetch evidence. Tools are now unavailable; write the final answer with source URLs.</news_ready_to_synthesize>",
-          );
-        }
-
-        if (
-          taskToolProfile.kind === "evidence_table_analysis" &&
-          hasEnoughEvidenceForTableCompletion(
-            successfulWebSearchCalls,
-            successfulWebFetchCalls,
-            currentResultContents,
-          )
-        ) {
-          forceSynthesisOnly = true;
-          runtimeHints.push(
-            "<evidence_table_ready_to_synthesize>Evidence table task has enough tool evidence. Tools are now unavailable; write the final answer as Markdown tables with concrete findings and recommendations.</evidence_table_ready_to_synthesize>",
-          );
         }
 
         // Fingerprint: first 300 chars of LLM output + tool names called (normalized)
