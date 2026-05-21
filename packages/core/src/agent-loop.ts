@@ -960,6 +960,102 @@ function buildSynthesisFallbackResponse(
     .join("\n");
 }
 
+function buildNewsBriefCompletionResponse(
+  fallbackSnippets: string[],
+  currentResultContents: string[],
+  reason: string,
+): string | null {
+  const lines = [
+    ...fallbackSnippets,
+    ...currentResultContents.flatMap(extractFallbackLines),
+  ];
+  const unique = [...new Set(lines)];
+  const items = unique
+    .filter((line) => !/^https?:\/\//i.test(line))
+    .filter((line) => !/^\[content compacted\]/i.test(line))
+    .slice(0, 6);
+  const sources = unique
+    .filter((line) => /^https?:\/\//i.test(line))
+    .slice(0, 6);
+
+  if (items.length === 0 && sources.length === 0) return null;
+
+  const briefItems =
+    items.length > 0
+      ? items.map((line) => `- ${line}`).join("\n")
+      : "- 已获取到来源链接，但可抽取标题不足；建议后续改用更高质量新闻源。";
+  const sourceList =
+    sources.length > 0
+      ? sources.map((url) => `- ${url}`).join("\n")
+      : "- 已获取的工具结果中未提取到明确 URL。";
+
+  return [
+    `今日 AI 简报（${currentLocalDateString()}）`,
+    "",
+    briefItems,
+    "",
+    "今日洞察：AI 新闻任务已达到可用来源数量，继续抓取的边际收益低于空转风险；本次优先基于已获取事实给出简报。",
+    "",
+    "来源链接：",
+    sourceList,
+    "",
+    `说明：${reason}；系统已停止继续调用工具以避免空转。`,
+  ].join("\n");
+}
+
+function buildRedditRssCompletionResponse(
+  fallbackSnippets: string[],
+  currentResultContents: string[],
+  reason: string,
+): string | null {
+  const combined = [...currentResultContents, ...fallbackSnippets].join("\n");
+  if (!/reddit|rss|subreddit|r\//i.test(combined)) return null;
+
+  const lines = combined
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^Saved to:/i.test(line))
+    .slice(0, 80);
+  if (lines.length === 0) return null;
+
+  const body = lines
+    .map((line) => {
+      if (/^##\s+/.test(line)) return line;
+      if (/^[-*]\s+/.test(line)) return line;
+      if (/^https?:\/\//i.test(line)) return `- ${line}`;
+      return `- ${line}`;
+    })
+    .join("\n");
+
+  return [
+    `# 📡 Reddit 科技AI日报 - ${currentLocalDateString()}`,
+    "",
+    body,
+    "",
+    "## 今日洞察",
+    "Reddit RSS 抓取结果已返回，系统已按现有结果完成日报；如出现 403/抓取失败，说明 Reddit 当前限制了该订阅源访问，不应继续改用未授权的重复抓取路径空转。",
+    "",
+    `说明：${reason}；系统已停止继续调用工具以避免空转。`,
+  ].join("\n");
+}
+
+function shouldCompleteRedditRssDeterministically(
+  currentResultContents: string[],
+): boolean {
+  const combined = currentResultContents.join("\n");
+  return /Saved to:|抓取失败|HTTP 403|fetch failed|rss_top .*limit/i.test(
+    combined,
+  );
+}
+
+function extractSavedPathFromText(text: string): string | undefined {
+  return text
+    .match(/Saved to:\s*([^\r\n]+)/i)?.[1]
+    ?.trim()
+    .replace(/\\/g, "/");
+}
+
 function buildEvidenceTableFallbackResponse(
   inputText: string,
   messages: Message[],
@@ -1526,6 +1622,21 @@ export class SimpleAgentLoop implements AgentLoop {
           target,
           reversible: false,
           deliverable: true,
+          verified: true,
+        },
+      });
+    };
+
+    const recordDirectWriteEffect = (target: string, source: string): void => {
+      trace.steps.push({
+        type: "tool_result",
+        name: source,
+        content: `Auto-wrote file: ${basename(target)}`,
+        isError: false,
+        effect: {
+          kind: "write",
+          target,
+          reversible: true,
           verified: true,
         },
       });
@@ -3682,6 +3793,154 @@ export class SimpleAgentLoop implements AgentLoop {
           }
         }
 
+        const currentResultContents = allExecResults.map(
+          (result) => result.result.content,
+        );
+        let deterministicResponseText: string | null = null;
+        let deterministicSendPath: string | undefined;
+
+        if (
+          taskToolProfile.kind === "reddit_rss" &&
+          allExecResults.some((result) => result.effectiveToolName === "rss_top") &&
+          shouldCompleteRedditRssDeterministically(currentResultContents)
+        ) {
+          deterministicResponseText = buildRedditRssCompletionResponse(
+            fallbackSnippets,
+            currentResultContents,
+            "Reddit/RSS 工具已返回可交付结果",
+          );
+          deterministicSendPath = currentResultContents
+            .map(extractSavedPathFromText)
+            .find((path): path is string => Boolean(path));
+        }
+
+        if (
+          !deterministicResponseText &&
+          taskToolProfile.kind === "news_brief" &&
+          successfulWebSearchCalls >= 3 &&
+          successfulWebFetchCalls >= 2
+        ) {
+          deterministicResponseText = buildNewsBriefCompletionResponse(
+            fallbackSnippets,
+            currentResultContents,
+            "新闻简报已获取足够搜索和网页证据",
+          );
+        }
+
+        if (
+          !deterministicResponseText &&
+          taskToolProfile.kind === "evidence_table_analysis" &&
+          hasEnoughEvidenceForTableCompletion(
+            successfulWebSearchCalls,
+            successfulWebFetchCalls,
+            currentResultContents,
+          )
+        ) {
+          deterministicResponseText = buildEvidenceTableFallbackResponse(
+            inputTextForHeuristics,
+            messages,
+            allSentFiles,
+            [
+              ...fallbackSnippets,
+              ...currentResultContents,
+            ],
+            "表格化检查/分析所需的最小证据已经足够",
+          );
+        }
+
+        if (deterministicResponseText) {
+          if (
+            !deterministicSendPath &&
+            taskToolProfile.kind === "reddit_rss" &&
+            context?.sendFile &&
+            wantsFileDelivery(inputTextForHeuristics)
+          ) {
+            deterministicSendPath = join(
+              ensureSessionTmpDir(),
+              `reddit-tech-ai-daily-${currentLocalDateString()}.md`,
+            ).replace(/\\/g, "/");
+            writeFileSync(
+              deterministicSendPath,
+              deterministicResponseText,
+              "utf-8",
+            );
+            recordDirectWriteEffect(
+              deterministicSendPath,
+              "auto_write_reddit_rss_report",
+            );
+          }
+
+          if (deterministicSendPath && context?.sendFile) {
+            await context.sendFile(
+              deterministicSendPath,
+              basename(deterministicSendPath),
+            );
+            recordDirectSendEffect(
+              deterministicSendPath,
+              "auto_send_reddit_rss_report",
+            );
+          }
+          const durationMs = Date.now() - startTime;
+          const assistantTurn: ConversationTurn = {
+            id: generateId(),
+            conversationId: convId,
+            role: "assistant",
+            content: deterministicResponseText,
+            model: usedModel,
+            tokensIn: totalTokensIn,
+            tokensOut: totalTokensOut,
+            cacheCreationTokens: totalCacheCreationTokens || undefined,
+            cacheReadTokens: totalCacheReadTokens || undefined,
+            durationMs,
+            toolCallCount: totalToolCalls,
+            traceId: trace.id,
+            createdAt: new Date(),
+          };
+          await this.memoryStore.addTurn(convId, assistantTurn);
+
+          trace.response = deterministicResponseText;
+          trace.model = usedModel;
+          trace.tokensIn = totalTokensIn;
+          trace.tokensOut = totalTokensOut;
+          trace.cacheCreationTokens = totalCacheCreationTokens || undefined;
+          trace.cacheReadTokens = totalCacheReadTokens || undefined;
+          trace.durationMs = durationMs;
+          try {
+            attachTraceEffects(trace);
+            await this.memoryStore.addTrace(trace);
+            tracePersistedInLoop = true;
+          } catch (e) {
+            console.error("[agent-loop] Failed to persist trace:", e);
+          }
+
+          const message: Message = {
+            id: generateId(),
+            role: "assistant",
+            content: deterministicResponseText,
+            createdAt: new Date(),
+            model: usedModel,
+            tokensIn: totalTokensIn,
+            tokensOut: totalTokensOut,
+            cacheCreationTokens: totalCacheCreationTokens || undefined,
+            cacheReadTokens: totalCacheReadTokens || undefined,
+            durationMs,
+            toolCallCount: totalToolCalls,
+          };
+          const remainingText =
+            responseStream.remainingFor(deterministicResponseText);
+          if (remainingText) {
+            yield this.createEvent("response_chunk", {
+              text: remainingText,
+            });
+          }
+          this.setState("idle");
+          yield this.createEvent("response_complete", {
+            message,
+            agentId: context?.agentId,
+          });
+          return;
+        }
+
         if (
           taskToolProfile.kind === "news_brief" &&
           successfulWebSearchCalls >= 3 &&
@@ -3698,79 +3957,9 @@ export class SimpleAgentLoop implements AgentLoop {
           hasEnoughEvidenceForTableCompletion(
             successfulWebSearchCalls,
             successfulWebFetchCalls,
-            allExecResults.map((result) => result.result.content),
+            currentResultContents,
           )
         ) {
-          const responseText = buildEvidenceTableFallbackResponse(
-            inputTextForHeuristics,
-            messages,
-            allSentFiles,
-            [
-              ...fallbackSnippets,
-              ...allExecResults.map((result) => result.result.content),
-            ],
-            "表格化检查/分析所需的最小证据已经足够",
-          );
-          if (responseText) {
-            const durationMs = Date.now() - startTime;
-            const assistantTurn: ConversationTurn = {
-              id: generateId(),
-              conversationId: convId,
-              role: "assistant",
-              content: responseText,
-              model: usedModel,
-              tokensIn: totalTokensIn,
-              tokensOut: totalTokensOut,
-              cacheCreationTokens: totalCacheCreationTokens || undefined,
-              cacheReadTokens: totalCacheReadTokens || undefined,
-              durationMs,
-              toolCallCount: totalToolCalls,
-              traceId: trace.id,
-              createdAt: new Date(),
-            };
-            await this.memoryStore.addTurn(convId, assistantTurn);
-
-            trace.response = responseText;
-            trace.model = usedModel;
-            trace.tokensIn = totalTokensIn;
-            trace.tokensOut = totalTokensOut;
-            trace.cacheCreationTokens = totalCacheCreationTokens || undefined;
-            trace.cacheReadTokens = totalCacheReadTokens || undefined;
-            trace.durationMs = durationMs;
-            try {
-              attachTraceEffects(trace);
-              await this.memoryStore.addTrace(trace);
-              tracePersistedInLoop = true;
-            } catch (e) {
-              console.error("[agent-loop] Failed to persist trace:", e);
-            }
-
-            const message: Message = {
-              id: generateId(),
-              role: "assistant",
-              content: responseText,
-              createdAt: new Date(),
-              model: usedModel,
-              tokensIn: totalTokensIn,
-              tokensOut: totalTokensOut,
-              cacheCreationTokens: totalCacheCreationTokens || undefined,
-              cacheReadTokens: totalCacheReadTokens || undefined,
-              durationMs,
-              toolCallCount: totalToolCalls,
-            };
-            const remainingText = responseStream.remainingFor(responseText);
-            if (remainingText) {
-              yield this.createEvent("response_chunk", {
-                text: remainingText,
-              });
-            }
-            this.setState("idle");
-            yield this.createEvent("response_complete", {
-              message,
-              agentId: context?.agentId,
-            });
-            return;
-          }
           forceSynthesisOnly = true;
           runtimeHints.push(
             "<evidence_table_ready_to_synthesize>Evidence table task has enough tool evidence. Tools are now unavailable; write the final answer as Markdown tables with concrete findings and recommendations.</evidence_table_ready_to_synthesize>",

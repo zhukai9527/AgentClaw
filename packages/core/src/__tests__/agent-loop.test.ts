@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, resolve } from "node:path";
 import { SimpleAgentLoop } from "../agent-loop.js";
 import type {
   LLMProvider,
@@ -3692,6 +3698,284 @@ describe("SimpleAgentLoop", () => {
       expect(memoryStore.addTrace).toHaveBeenCalledWith(
         expect.objectContaining({ error: "invalid_tool_markup_final" }),
       );
+    });
+
+    it("新闻简报拿到足够来源后应直接生成简报，不进入伪工具 XML 轮次", async () => {
+      const makeToolCallChunks = (
+        id: string,
+        name: string,
+        input: Record<string, unknown>,
+      ): LLMStreamChunk[] => [
+        { type: "tool_use_start", toolUse: { id, name, input: "" } },
+        {
+          type: "tool_use_delta",
+          toolUse: { id, name: "", input: JSON.stringify(input) },
+        },
+      ];
+      const firstRoundChunks: LLMStreamChunk[] = [
+        ...makeToolCallChunks("tc-search-1", "web_search", {
+          query: "AI news today May 21 2026",
+        }),
+        ...makeToolCallChunks("tc-search-2", "web_search", {
+          query: "OpenAI Google DeepMind Anthropic news this week 2026",
+        }),
+        ...makeToolCallChunks("tc-search-3", "web_search", {
+          query: "AI regulation policy May 2026",
+        }),
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const secondRoundChunks: LLMStreamChunk[] = [
+        ...makeToolCallChunks("tc-fetch-1", "web_fetch", {
+          url: "https://www.theverge.com/ai-artificial-intelligence",
+        }),
+        ...makeToolCallChunks("tc-fetch-2", "web_fetch", {
+          url: "https://blog.mean.ceo/ai-advancements-news-may-2026/",
+        }),
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const invalidChunks: LLMStreamChunk[] = [
+        {
+          type: "text",
+          text: "<tool_call>\n<function=web_fetch>\n<parameter=url>https://techcrunch.com/category/artificial-intelligence/</parameter>\n</function>\n</tool_call>",
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "end_turn",
+        },
+      ];
+      const provider = createMockProvider([
+        firstRoundChunks,
+        secondRoundChunks,
+        invalidChunks,
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry: createMockToolRegistry([
+          {
+            ...createMockTool("web_search"),
+            execute: vi.fn(async (input: Record<string, unknown>) => ({
+              content:
+                `results[2]{title,url}:\n  Nvidia data center revenue jumps on AI demand — ${String(input.query)}\n  https://www.theverge.com/ai-artificial-intelligence\n  White House releases AI policy framework — regulation update\n  https://www.whitehouse.gov/ai-policy`,
+            })),
+          },
+          {
+            ...createMockTool("web_fetch"),
+            execute: vi.fn(async (input: Record<string, unknown>) => ({
+              content:
+                `Title: AI News Source\nURL Source: ${String(input.url)}\nNvidia reported record AI data center revenue. Intuit cut jobs to focus on AI services. AI regulation updates continue in May 2026.`,
+            })),
+          },
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("在外网搜索今日AI界新闻生成简报", "conv-news-direct"),
+      );
+
+      const streamedText = events
+        .filter((event) => event.type === "response_chunk")
+        .map((event) => (event.data as { text: string }).text)
+        .join("");
+      expect(streamedText).toContain("今日 AI 简报");
+      expect(streamedText).toContain("来源链接");
+      expect(streamedText).not.toContain("<tool_call>");
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.not.objectContaining({ error: "invalid_tool_markup_final" }),
+      );
+      expect(provider.stream).toHaveBeenCalledTimes(2);
+    });
+
+    it("Reddit RSS 定时任务抓取失败但已保存报告时应发送并完成，不进入伪工具 XML 轮次", async () => {
+      const makeToolCallChunks = (
+        id: string,
+        name: string,
+        input: Record<string, unknown>,
+      ): LLMStreamChunk[] => [
+        { type: "tool_use_start", toolUse: { id, name, input: "" } },
+        {
+          type: "tool_use_delta",
+          toolUse: { id, name: "", input: JSON.stringify(input) },
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const invalidChunks: LLMStreamChunk[] = [
+        {
+          type: "text",
+          text: "<tool_call>\n<function=web_search>\n<parameter=query>site:reddit.com/r/technology top today</parameter>\n</function>\n</tool_call>",
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "end_turn",
+        },
+      ];
+      const reportPath =
+        "D:/mycode/agentclaw/data/tmp/conv-rss-direct/reddit_tech_ai_daily.md";
+      const sendFile = vi.fn().mockResolvedValue(undefined);
+      const provider = createMockProvider([
+        makeToolCallChunks("tc-rss", "rss_top", {
+          feeds: ["r/technology", "r/artificial"],
+          topN: 5,
+          save_as: reportPath,
+        }),
+        invalidChunks,
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("rss_top", {
+            content:
+              "## r/technology\n- 抓取失败：HTTP 403 Blocked\n- https://www.reddit.com/r/technology/.rss\n\n## r/artificial\n- 抓取失败：HTTP 403 Blocked\n- https://www.reddit.com/r/artificial/.rss\n\nSaved to: D:/mycode/agentclaw/data/tmp/conv-rss-direct/reddit_tech_ai_daily.md",
+            metadata: {
+              filePath: reportPath,
+              feeds: 2,
+              saved: true,
+            },
+            effect: {
+              kind: "write",
+              target: reportPath,
+              reversible: true,
+              verified: true,
+            },
+          }),
+          createMockTool("file_write"),
+          createMockTool("send_file"),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream(
+          "执行以下任务，生成一份中文科技/AI日报推送给主人：Reddit RSS 日报，最后用 send_file 发送",
+          "conv-rss-direct",
+          { sendFile },
+        ),
+      );
+
+      const streamedText = events
+        .filter((event) => event.type === "response_chunk")
+        .map((event) => (event.data as { text: string }).text)
+        .join("");
+      expect(streamedText).toContain("Reddit 科技AI日报");
+      expect(streamedText).toContain("抓取失败");
+      expect(streamedText).not.toContain("<tool_call>");
+      expect(sendFile).toHaveBeenCalledWith(reportPath, basename(reportPath));
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.not.objectContaining({ error: "invalid_tool_markup_final" }),
+      );
+      expect(provider.stream).toHaveBeenCalledTimes(1);
+    });
+
+    it("Reddit RSS 定时任务未提供 save_as 时应由 agent loop 落盘并发送报告", async () => {
+      const makeToolCallChunks = (
+        id: string,
+        name: string,
+        input: Record<string, unknown>,
+      ): LLMStreamChunk[] => [
+        { type: "tool_use_start", toolUse: { id, name, input: "" } },
+        {
+          type: "tool_use_delta",
+          toolUse: { id, name: "", input: JSON.stringify(input) },
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const invalidChunks: LLMStreamChunk[] = [
+        {
+          type: "text",
+          text: "<tool_call>\n<function=web_fetch>\n<parameter=url>https://reddit.com/r/technology</parameter>\n</function>\n</tool_call>",
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "end_turn",
+        },
+      ];
+      const sentPaths: string[] = [];
+      const sendFile = vi.fn(async (filePath: string) => {
+        sentPaths.push(filePath);
+      });
+      const provider = createMockProvider([
+        makeToolCallChunks("tc-rss", "rss_top", {
+          feeds: ["r/technology", "r/artificial"],
+          topN: 5,
+        }),
+        invalidChunks,
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("rss_top", {
+            content:
+              "## r/technology\n- 抓取失败：HTTP 403 Blocked\n- https://www.reddit.com/r/technology/.rss\n\n## r/artificial\n- 抓取失败：fetch failed\n- https://www.reddit.com/r/artificial/.rss",
+          }),
+          createMockTool("file_write"),
+          createMockTool("send_file"),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5 },
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "执行以下任务，生成一份中文科技/AI日报推送给主人：Reddit RSS 日报，最后用 send_file 发送",
+          "conv-rss-direct-write",
+          { sendFile },
+        ),
+      );
+
+      expect(sendFile).toHaveBeenCalledTimes(1);
+      const sentPath = sentPaths[0].replace(/\\/g, "/");
+      expect(sentPath).toContain(
+        "data/tmp/conv-rss-direct-write/reddit-tech-ai-daily-",
+      );
+      expect(sentPath).toMatch(/\.md$/);
+      expect(existsSync(sentPath)).toBe(true);
+      expect(readFileSync(sentPath, "utf-8")).toContain("Reddit 科技AI日报");
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          effects: expect.arrayContaining([
+            expect.objectContaining({
+              kind: "send",
+              target: sentPath,
+              deliverable: true,
+            }),
+          ]),
+        }),
+      );
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.not.objectContaining({ error: "invalid_tool_markup_final" }),
+      );
+      expect(provider.stream).toHaveBeenCalledTimes(1);
     });
 
     it("SEO 表格任务获取足够事实后应直接合成表格，不进入伪工具 XML 轮次", async () => {
