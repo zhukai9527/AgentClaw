@@ -81,6 +81,20 @@ export interface Trace {
   cacheReadTokens?: number;
   durationMs: number;
   error?: string;
+  /** Suggested branch point when this trace encountered recoverable failure */
+  branchRecovery?: BranchRecoverySuggestion;
+  createdAt: Date;
+}
+
+export type BranchRecoveryReason = "tool_error" | "loop_error" | "llm_error";
+
+export interface BranchRecoverySuggestion {
+  traceId: string;
+  conversationId: string;
+  fromTurnId: string;
+  reason: BranchRecoveryReason;
+  message: string;
+  failedToolNames?: string[];
   createdAt: Date;
 }
 

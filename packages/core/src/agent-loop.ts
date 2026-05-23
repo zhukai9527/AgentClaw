@@ -858,6 +858,40 @@ function attachTraceEffects(trace: Trace): void {
   }
 }
 
+function attachBranchRecovery(trace: Trace, userTurn: ConversationTurn): void {
+  const failedToolNames = trace.steps
+    .filter((step) => step.type === "tool_result" && step.isError === true)
+    .map((step) => {
+      const rawName = step.name ?? step.toolName;
+      return typeof rawName === "string" ? rawName : undefined;
+    })
+    .filter((name): name is string => Boolean(name));
+  const uniqueFailedToolNames = Array.from(new Set(failedToolNames));
+  const hasToolError = uniqueFailedToolNames.length > 0;
+  if (!trace.error && !hasToolError) return;
+  if (trace.branchRecovery) return;
+
+  const reason =
+    trace.error === "llm_stream_error"
+      ? "llm_error"
+      : hasToolError
+        ? "tool_error"
+        : "loop_error";
+  trace.branchRecovery = {
+    traceId: trace.id,
+    conversationId: trace.conversationId,
+    fromTurnId: userTurn.id,
+    reason,
+    message:
+      reason === "tool_error"
+        ? "这条执行路径出现工具错误，可以从本轮用户输入重新开一个分支，换一种工具链继续。"
+        : "这条执行路径没有稳定完成，可以从本轮用户输入重新开一个分支继续。",
+    failedToolNames:
+      uniqueFailedToolNames.length > 0 ? uniqueFailedToolNames : undefined,
+    createdAt: new Date(),
+  };
+}
+
 /**
  * Extract high-signal facts from tool outputs and feed them back as a runtime
  * hint. This helps weaker models avoid saying "not found" when the answer is
@@ -981,9 +1015,7 @@ function hasSufficientWeatherFacts(factHint: string): boolean {
     return true;
   }
   const hasSpecificDate =
-    /\d{1,2}月\d{1,2}日|\d{1,2}日（|今天|明天|tomorrow|today/i.test(
-      factHint,
-    );
+    /\d{1,2}月\d{1,2}日|\d{1,2}日（|今天|明天|tomorrow|today/i.test(factHint);
   const hasForecastSignal = /晴|多云|阴|小雨|中雨|大雨|雪|℃|°C|°F|风/.test(
     factHint,
   );
@@ -1296,7 +1328,9 @@ export class SimpleAgentLoop implements AgentLoop {
       isNewsBriefTask,
       isAiNewsTask,
       isPptxGenerationTask,
-      { pptxVerifierPath: resolveBundledPptxVerifierPath().replace(/\\/g, "/") },
+      {
+        pptxVerifierPath: resolveBundledPptxVerifierPath().replace(/\\/g, "/"),
+      },
     );
     if (taskToolProfile.hint) {
       runtimeHints.push(taskToolProfile.hint);
@@ -1333,11 +1367,21 @@ export class SimpleAgentLoop implements AgentLoop {
     const userTurn: ConversationTurn = {
       id: generateId(),
       conversationId: convId,
+      parentId: context?.conversationParentTurnId,
+      branchId: context?.conversationBranchId,
       role: "user",
       content: userContentForStorage,
       createdAt: new Date(),
     };
     await this.memoryStore.addTurn(convId, userTurn);
+
+    let tracePersistedInLoop = false;
+    const persistTrace = async (): Promise<void> => {
+      attachTraceEffects(trace);
+      attachBranchRecovery(trace, userTurn);
+      await this.memoryStore.addTrace(trace);
+      tracePersistedInLoop = true;
+    };
 
     // Track per-tool failure counts across iterations to prevent retry avalanche
     const toolFailCounts = new Map<string, number>();
@@ -1462,10 +1506,10 @@ export class SimpleAgentLoop implements AgentLoop {
     // Wrap the entire loop in try-finally to guarantee trace persistence.
     // Without this, if the consumer (orchestrator/WS) stops pulling from the
     // generator (user abort, disconnect), the trace is never saved.
-    let tracePersistedInLoop = false;
     try {
-      const directPolicyDecision =
-        evaluateUserInputPolicy(inputTextForHeuristics);
+      const directPolicyDecision = evaluateUserInputPolicy(
+        inputTextForHeuristics,
+      );
       const directSafetyResponse =
         directPolicyDecision?.action === "direct_response"
           ? directPolicyDecision.response
@@ -1498,10 +1542,10 @@ export class SimpleAgentLoop implements AgentLoop {
         trace.tokensIn = 0;
         trace.tokensOut = 0;
         trace.durationMs = durationMs;
-        attachTraceEffects(trace);
-        await this.memoryStore.addTrace(trace);
-        tracePersistedInLoop = true;
-        yield this.createEvent("response_chunk", { text: directSafetyResponse });
+        await persistTrace();
+        yield this.createEvent("response_chunk", {
+          text: directSafetyResponse,
+        });
         this.setState("idle");
         yield this.createEvent("response_complete", {
           message: {
@@ -2099,9 +2143,7 @@ export class SimpleAgentLoop implements AgentLoop {
           trace.durationMs = durationMs;
           if (forcedStopReason) trace.error = forcedStopReason;
           try {
-            attachTraceEffects(trace);
-            await this.memoryStore.addTrace(trace);
-            tracePersistedInLoop = true;
+            await persistTrace();
           } catch (e) {
             console.error("[agent-loop] Failed to persist trace:", e);
           }
@@ -2784,7 +2826,10 @@ export class SimpleAgentLoop implements AgentLoop {
                 sessionTmpDir,
                 inputTextForHeuristics,
               );
-              if (recovered && !String(result.content ?? "").includes(recovered)) {
+              if (
+                recovered &&
+                !String(result.content ?? "").includes(recovered)
+              ) {
                 result.content = `${String(result.content ?? "")}${recovered}`;
                 result.metadata = {
                   ...(result.metadata ?? {}),
@@ -3116,9 +3161,7 @@ export class SimpleAgentLoop implements AgentLoop {
               trace.tokensOut = totalTokensOut;
               trace.durationMs = hDuration;
               try {
-                attachTraceEffects(trace);
-                await this.memoryStore.addTrace(trace);
-                tracePersistedInLoop = true;
+                await persistTrace();
               } catch (e) {
                 console.error("[agent-loop] Failed to persist trace:", e);
               }
@@ -3222,9 +3265,7 @@ export class SimpleAgentLoop implements AgentLoop {
           trace.durationMs = durationMs;
           trace.error = "terminal_tool_failure";
           try {
-            attachTraceEffects(trace);
-            await this.memoryStore.addTrace(trace);
-            tracePersistedInLoop = true;
+            await persistTrace();
           } catch (e) {
             console.error("[agent-loop] Failed to persist trace:", e);
           }
@@ -3362,9 +3403,7 @@ export class SimpleAgentLoop implements AgentLoop {
           trace.cacheReadTokens = totalCacheReadTokens || undefined;
           trace.durationMs = durationMs;
           try {
-            attachTraceEffects(trace);
-            await this.memoryStore.addTrace(trace);
-            tracePersistedInLoop = true;
+            await persistTrace();
           } catch (e) {
             console.error("[agent-loop] Failed to persist trace:", e);
           }
@@ -3382,8 +3421,9 @@ export class SimpleAgentLoop implements AgentLoop {
             durationMs,
             toolCallCount: totalToolCalls,
           };
-          const remainingText =
-            responseStream.remainingFor(deterministicResponseText);
+          const remainingText = responseStream.remainingFor(
+            deterministicResponseText,
+          );
           if (remainingText) {
             yield this.createEvent("response_chunk", {
               text: remainingText,
@@ -3541,9 +3581,7 @@ export class SimpleAgentLoop implements AgentLoop {
           trace.cacheReadTokens = totalCacheReadTokens || undefined;
           trace.durationMs = durationMs;
           try {
-            attachTraceEffects(trace);
-            await this.memoryStore.addTrace(trace);
-            tracePersistedInLoop = true;
+            await persistTrace();
           } catch (e) {
             console.error("[agent-loop] Failed to persist trace:", e);
           }
@@ -3668,9 +3706,7 @@ export class SimpleAgentLoop implements AgentLoop {
           ? "llm_stream_error"
           : "max_iterations_reached";
       try {
-        attachTraceEffects(trace);
-        await this.memoryStore.addTrace(trace);
-        tracePersistedInLoop = true;
+        await persistTrace();
       } catch (e) {
         console.error("[agent-loop] Failed to persist trace:", e);
       }
@@ -3718,8 +3754,7 @@ export class SimpleAgentLoop implements AgentLoop {
         trace.durationMs = Date.now() - startTime;
         trace.error = "generator_aborted";
         try {
-          attachTraceEffects(trace);
-          await this.memoryStore.addTrace(trace);
+          await persistTrace();
           console.log(
             `[agent-loop] Trace ${trace.id} saved on generator abort (${trace.steps.length} steps)`,
           );

@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS traces (
   cache_read_tokens INTEGER DEFAULT 0,
   duration_ms INTEGER DEFAULT 0,
   error TEXT,
+  branch_recovery TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_traces_created ON traces(created_at DESC);
@@ -401,6 +402,7 @@ export function initDatabase(dbPath: string): DbAdapter {
   // Traces: add channel and agent_id columns
   addColumnIfMissing(db, "traces", "channel", "TEXT");
   addColumnIfMissing(db, "traces", "agent_id", "TEXT DEFAULT 'default'");
+  addColumnIfMissing(db, "traces", "branch_recovery", "TEXT");
   // Traces: add prompt cache token columns
   addColumnIfMissing(
     db,

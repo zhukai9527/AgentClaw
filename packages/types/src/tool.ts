@@ -168,6 +168,10 @@ export interface ToolExecutionContext {
   preSelectedSkillName?: string;
   /** Original user message text before parseUserContent transformation (for DB storage) */
   originalUserText?: string;
+  /** Explicit parent turn for the next user turn, used by branch recovery reruns */
+  conversationParentTurnId?: string | null;
+  /** Explicit branch id for the next user turn */
+  conversationBranchId?: string;
   /** Per-session working directory (absolute path, forward slashes) */
   workDir?: string;
   /** Tool execution hooks (before/after) */

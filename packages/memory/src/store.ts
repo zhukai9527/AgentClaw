@@ -2249,8 +2249,8 @@ export class SQLiteMemoryStore implements MemoryStore {
   async addTrace(trace: Trace): Promise<void> {
     this.db
       .prepare(
-        `INSERT INTO traces (id, conversation_id, user_input, system_prompt, skill_match, steps, response, model, channel, agent_id, tokens_in, tokens_out, cache_creation_tokens, cache_read_tokens, duration_ms, error, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO traces (id, conversation_id, user_input, system_prompt, skill_match, steps, response, model, channel, agent_id, tokens_in, tokens_out, cache_creation_tokens, cache_read_tokens, duration_ms, error, branch_recovery, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         trace.id,
@@ -2269,6 +2269,7 @@ export class SQLiteMemoryStore implements MemoryStore {
         trace.cacheReadTokens ?? 0,
         trace.durationMs,
         trace.error ?? null,
+        trace.branchRecovery ? JSON.stringify(trace.branchRecovery) : null,
         trace.createdAt.toISOString(),
       );
   }
@@ -3336,6 +3337,7 @@ interface TraceRow {
   cache_read_tokens: number;
   duration_ms: number;
   error: string | null;
+  branch_recovery: string | null;
   created_at: string;
 }
 
@@ -3364,8 +3366,25 @@ function rowToTrace(row: TraceRow): Trace {
     cacheReadTokens: row.cache_read_tokens || undefined,
     durationMs: row.duration_ms,
     error: row.error ?? undefined,
+    branchRecovery: parseBranchRecovery(row.branch_recovery),
     createdAt: new Date(row.created_at),
   };
+}
+
+function parseBranchRecovery(
+  value: string | null,
+): Trace["branchRecovery"] | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as Trace["branchRecovery"];
+    if (!parsed) return undefined;
+    return {
+      ...parsed,
+      createdAt: new Date(parsed.createdAt),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function deriveTraceEffects(steps: Trace["steps"]): ToolEffect[] {

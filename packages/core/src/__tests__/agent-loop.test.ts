@@ -23,6 +23,7 @@ import type {
   ToolExecutionContext,
   ToolResult,
   ConversationTurn,
+  Trace,
 } from "@agentclaw/types";
 import type { ToolRegistryImpl } from "@agentclaw/tools";
 
@@ -442,6 +443,31 @@ describe("SimpleAgentLoop", () => {
       expect(secondCall[1].role).toBe("assistant");
     });
 
+    it("恢复分支应允许显式指定用户消息父节点", async () => {
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry,
+        contextManager,
+        memoryStore,
+      });
+
+      await collectEvents(
+        loop.runStream("替换失败请求", "conv-recovery-parent", {
+          conversationParentTurnId: "parent-turn",
+          conversationBranchId: "recovery:failed-user",
+        }),
+      );
+
+      const firstCall = (memoryStore.addTurn as ReturnType<typeof vi.fn>).mock
+        .calls[0];
+      expect(firstCall[1]).toMatchObject({
+        role: "user",
+        content: "替换失败请求",
+        parentId: "parent-turn",
+        branchId: "recovery:failed-user",
+      });
+    });
+
     it("run() 应返回完整的助手消息", async () => {
       const loop = new SimpleAgentLoop({
         provider,
@@ -582,7 +608,8 @@ describe("SimpleAgentLoop", () => {
       const bashTool = createMockTool("bash", { content: "deleted" });
       const testProvider = createMockProvider([
         createToolCallChunks("tc-bash", "bash", {
-          command: "cd D:/mycode/agentclaw && git reset --hard && git clean -fd",
+          command:
+            "cd D:/mycode/agentclaw && git reset --hard && git clean -fd",
         }),
         [
           { type: "text", text: "已拒绝危险操作，需要确认。" },
@@ -615,7 +642,9 @@ describe("SimpleAgentLoop", () => {
     });
 
     it("纯文本多轮延续追问不应暴露文件或执行工具", async () => {
-      const fileWriteTool = createMockTool("file_write", { content: "written" });
+      const fileWriteTool = createMockTool("file_write", {
+        content: "written",
+      });
       const testProvider = createMockProvider([
         createToolCallChunks("tc-file", "file_write", {
           path: "report.md",
@@ -639,7 +668,10 @@ describe("SimpleAgentLoop", () => {
       });
 
       const events = await collectEvents(
-        loop.runStream("继续第 3 项，展开为可执行验收步骤。", "conv-text-followup"),
+        loop.runStream(
+          "继续第 3 项，展开为可执行验收步骤。",
+          "conv-text-followup",
+        ),
       );
 
       expect(fileWriteTool.execute).not.toHaveBeenCalled();
@@ -1521,7 +1553,10 @@ describe("SimpleAgentLoop", () => {
       });
 
       const events = await collectEvents(
-        loop.runStream("Reddit RSS 日报，最后用 send_file 发送", "conv-rss-invalid"),
+        loop.runStream(
+          "Reddit RSS 日报，最后用 send_file 发送",
+          "conv-rss-invalid",
+        ),
       );
 
       const streamedText = events
@@ -2601,9 +2636,7 @@ describe("SimpleAgentLoop", () => {
 
       expect(memoryStore.addTrace).toHaveBeenCalledWith(
         expect.objectContaining({
-          effects: expect.arrayContaining([
-            expect.objectContaining(effect),
-          ]),
+          effects: expect.arrayContaining([expect.objectContaining(effect)]),
           steps: expect.arrayContaining([
             expect.objectContaining({
               type: "tool_result",
@@ -2732,6 +2765,15 @@ describe("SimpleAgentLoop", () => {
         (call: unknown[]) => (call[1] as { role: string }).role === "tool",
       );
       expect(toolTurnCalls.length).toBe(1);
+
+      const persistedTrace = (memoryStore.addTrace as ReturnType<typeof vi.fn>)
+        .mock.calls[0][0] as Trace;
+      expect(persistedTrace.branchRecovery).toMatchObject({
+        conversationId: "conv-4",
+        fromTurnId: expect.any(String),
+        reason: "tool_error",
+        failedToolNames: ["failing_tool"],
+      });
     });
 
     it("大工具输出应创建 observation，返回给模型和 trace 的 content 是小摘要", async () => {
@@ -2874,8 +2916,12 @@ describe("SimpleAgentLoop", () => {
       const fetchTool = createMockTool("web_fetch", { content: largeContent });
       const sentFiles: Array<{ url: string; filename: string }> = [];
       const sendFile = vi.fn(async (_path: string, filename?: string) => {
-        const sentName = filename ?? _path.split(/[\\/]/).pop() ?? "download.md";
-        sentFiles.push({ url: `/files/conv-fulltext/${sentName}`, filename: sentName });
+        const sentName =
+          filename ?? _path.split(/[\\/]/).pop() ?? "download.md";
+        sentFiles.push({
+          url: `/files/conv-fulltext/${sentName}`,
+          filename: sentName,
+        });
       });
       const loop = new SimpleAgentLoop({
         provider: testProvider,
@@ -2886,10 +2932,14 @@ describe("SimpleAgentLoop", () => {
       });
 
       const events = await collectEvents(
-        loop.runStream("https://x.com/HiTw93/status/2034627967926825175\n获取全文", "conv-fulltext", {
-          sendFile,
-          sentFiles,
-        }),
+        loop.runStream(
+          "https://x.com/HiTw93/status/2034627967926825175\n获取全文",
+          "conv-fulltext",
+          {
+            sendFile,
+            sentFiles,
+          },
+        ),
       );
 
       expect(sendFile).toHaveBeenCalledTimes(1);
@@ -2898,7 +2948,9 @@ describe("SimpleAgentLoop", () => {
       );
       expect(sendFile.mock.calls[0][1]).toBeUndefined();
 
-      const completeEvent = events.find((event) => event.type === "response_complete");
+      const completeEvent = events.find(
+        (event) => event.type === "response_complete",
+      );
       expect(completeEvent).toBeDefined();
       const message = (completeEvent!.data as { message: Message }).message;
       expect(String(message.content)).toContain("[");
@@ -2928,7 +2980,8 @@ describe("SimpleAgentLoop", () => {
         content: "Saved to agent-article.md (31114 chars).",
         metadata: {
           saved: true,
-          filePath: "D:/mycode/agentclaw/data/tmp/conv-save-send/agent-article.md",
+          filePath:
+            "D:/mycode/agentclaw/data/tmp/conv-save-send/agent-article.md",
           originalLength: 31114,
         },
       });
@@ -2955,7 +3008,9 @@ describe("SimpleAgentLoop", () => {
       expect(sendFile).toHaveBeenCalledWith(
         "D:/mycode/agentclaw/data/tmp/conv-save-send/agent-article.md",
       );
-      const completeEvent = events.find((event) => event.type === "response_complete");
+      const completeEvent = events.find(
+        (event) => event.type === "response_complete",
+      );
       expect(completeEvent).toBeDefined();
       const message = (completeEvent!.data as { message: Message }).message;
       expect(String(message.content)).toContain("agent-article.md");
@@ -2965,7 +3020,8 @@ describe("SimpleAgentLoop", () => {
         expect.arrayContaining([
           expect.objectContaining({
             kind: "send",
-            target: "D:/mycode/agentclaw/data/tmp/conv-save-send/agent-article.md",
+            target:
+              "D:/mycode/agentclaw/data/tmp/conv-save-send/agent-article.md",
             deliverable: true,
           }),
         ]),
@@ -3766,15 +3822,13 @@ describe("SimpleAgentLoop", () => {
           {
             ...createMockTool("web_search"),
             execute: vi.fn(async (input: Record<string, unknown>) => ({
-              content:
-                `results[2]{title,url}:\n  Nvidia data center revenue jumps on AI demand — ${String(input.query)}\n  https://www.theverge.com/ai-artificial-intelligence\n  White House releases AI policy framework — regulation update\n  https://www.whitehouse.gov/ai-policy`,
+              content: `results[2]{title,url}:\n  Nvidia data center revenue jumps on AI demand — ${String(input.query)}\n  https://www.theverge.com/ai-artificial-intelligence\n  White House releases AI policy framework — regulation update\n  https://www.whitehouse.gov/ai-policy`,
             })),
           },
           {
             ...createMockTool("web_fetch"),
             execute: vi.fn(async (input: Record<string, unknown>) => ({
-              content:
-                `Title: AI News Source\nURL Source: ${String(input.url)}\nNvidia reported record AI data center revenue. Intuit cut jobs to focus on AI services. AI regulation updates continue in May 2026.`,
+              content: `Title: AI News Source\nURL Source: ${String(input.url)}\nNvidia reported record AI data center revenue. Intuit cut jobs to focus on AI services. AI regulation updates continue in May 2026.`,
             })),
           },
         ]),
@@ -4076,7 +4130,9 @@ describe("SimpleAgentLoop", () => {
         .map((event) => (event.data as { text: string }).text)
         .join("");
       expect(streamedText).not.toContain("<tool_call>");
-      expect(streamedText).toContain("| 检查项 | 当前发现 | 判断 | 建议 | 证据 |");
+      expect(streamedText).toContain(
+        "| 检查项 | 当前发现 | 判断 | 建议 | 证据 |",
+      );
       expect(streamedText).toContain("| 页面标题 |");
       expect(streamedText).toContain("| robots.txt |");
       expect(streamedText).toContain("| sitemap.xml |");
@@ -4174,7 +4230,9 @@ describe("SimpleAgentLoop", () => {
         .map((event) => (event.data as { text: string }).text)
         .join("");
       expect(streamedText).not.toContain("<tool_call>");
-      expect(streamedText).toContain("| 检查项 | 当前发现 | 判断 | 建议 | 证据 |");
+      expect(streamedText).toContain(
+        "| 检查项 | 当前发现 | 判断 | 建议 | 证据 |",
+      );
       expect(streamedText).toContain("security.txt 返回 404");
       expect(streamedText).toContain("https://www.example.com");
       expect(memoryStore.addTrace).toHaveBeenCalledWith(
@@ -4195,10 +4253,7 @@ describe("SimpleAgentLoop", () => {
         },
       ];
       const firstRoundChunks: LLMStreamChunk[] = [
-        ...makeToolCallChunks(
-          "tc-head",
-          "curl -sI https://www.example.com",
-        ),
+        ...makeToolCallChunks("tc-head", "curl -sI https://www.example.com"),
         ...makeToolCallChunks(
           "tc-security",
           "curl -sI https://www.example.com/.well-known/security.txt",
@@ -4260,7 +4315,9 @@ describe("SimpleAgentLoop", () => {
         .filter((event) => event.type === "response_chunk")
         .map((event) => (event.data as { text: string }).text)
         .join("");
-      expect(streamedText).toContain("| 检查项 | 当前发现 | 判断 | 建议 | 证据 |");
+      expect(streamedText).toContain(
+        "| 检查项 | 当前发现 | 判断 | 建议 | 证据 |",
+      );
       expect(streamedText).toContain("security.txt 返回 404");
       expect(streamedText).not.toContain("<tool_call>");
       expect(memoryStore.addTrace).toHaveBeenCalledWith(
@@ -4421,7 +4478,9 @@ describe("SimpleAgentLoop", () => {
         config: { maxIterations: 4 },
       });
 
-      await collectEvents(loop.runStream("明天天气怎么样？", "conv-weather-monthly"));
+      await collectEvents(
+        loop.runStream("明天天气怎么样？", "conv-weather-monthly"),
+      );
 
       expect(fetchTool.execute).toHaveBeenCalledWith(
         expect.objectContaining({

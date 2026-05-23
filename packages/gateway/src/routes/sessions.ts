@@ -65,6 +65,31 @@ function serializeTurn(turn: ConversationTurn) {
   };
 }
 
+function createRestToolContext(): ToolExecutionContext {
+  const tmpDir = resolve(process.cwd(), "data", "tmp");
+  const sentFiles: Array<{ url: string; filename: string }> = [];
+  return {
+    sentFiles,
+    sendFile: async (filePath: string) => {
+      const filename = basename(filePath);
+      const abs = resolve(filePath);
+      let relPath = filename;
+      if (abs.startsWith(tmpDir)) {
+        relPath = relative(tmpDir, abs).replace(/\\/g, "/");
+      } else {
+        mkdirSync(tmpDir, { recursive: true });
+        try {
+          copyFileSync(abs, join(tmpDir, filename));
+        } catch {}
+      }
+      const url = `/files/${relPath.split("/").map(encodeURIComponent).join("/")}`;
+      if (!sentFiles.some((f) => f.url === url)) {
+        sentFiles.push({ url, filename });
+      }
+    },
+  };
+}
+
 export function registerSessionRoutes(
   app: FastifyInstance,
   ctx: AppContext,
@@ -229,34 +254,94 @@ export function registerSessionRoutes(
         }
 
         // Provide sendFile so tools like send_file work in REST mode too
-        const tmpDir = resolve(process.cwd(), "data", "tmp");
-        const sentFiles: Array<{ url: string; filename: string }> = [];
-        const toolContext: ToolExecutionContext = {
-          sentFiles,
-          sendFile: async (filePath: string) => {
-            const filename = basename(filePath);
-            const abs = resolve(filePath);
-            let relPath = filename;
-            if (abs.startsWith(tmpDir)) {
-              relPath = relative(tmpDir, abs).replace(/\\/g, "/");
-            } else {
-              mkdirSync(tmpDir, { recursive: true });
-              try {
-                copyFileSync(abs, join(tmpDir, filename));
-              } catch {}
-            }
-            const url = `/files/${relPath.split("/").map(encodeURIComponent).join("/")}`;
-            if (!sentFiles.some((f) => f.url === url)) {
-              sentFiles.push({ url, filename });
-            }
-          },
-        };
+        const toolContext = createRestToolContext();
         const message = await ctx.orchestrator.processInput(
           id,
           content,
           toolContext,
         );
         return reply.send({ message: serializeMessage(message) });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // POST /api/sessions/:id/recover-branch - Replace a failed user turn with a new branch input
+  app.post<{
+    Params: { id: string };
+    Body: { fromTurnId: string; content: string };
+  }>(
+    "/api/sessions/:id/recover-branch",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1 } },
+        },
+        body: {
+          type: "object",
+          required: ["fromTurnId", "content"],
+          properties: {
+            fromTurnId: { type: "string", minLength: 1 },
+            content: { type: "string", minLength: 1 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        const session = await ctx.orchestrator.getSession(req.params.id);
+        if (!session) {
+          return reply
+            .status(404)
+            .send({ error: `Session not found: ${req.params.id}` });
+        }
+        const tree = await ctx.orchestrator.getSessionTree(req.params.id);
+        if (!tree) {
+          return reply
+            .status(404)
+            .send({ error: `Session not found: ${req.params.id}` });
+        }
+        const sourceTurn = tree.turns.find(
+          (turn) => turn.id === req.body.fromTurnId,
+        );
+        if (!sourceTurn) {
+          return reply.status(400).send({
+            error: `Turn not found in session: ${req.body.fromTurnId}`,
+          });
+        }
+        if (sourceTurn.role !== "user") {
+          return reply.status(400).send({
+            error: "recover-branch requires a user turn as fromTurnId",
+          });
+        }
+
+        const toolContext = createRestToolContext();
+        const message = await ctx.orchestrator.processInput(
+          req.params.id,
+          req.body.content,
+          {
+            ...toolContext,
+            conversationParentTurnId: sourceTurn.parentId ?? null,
+            conversationBranchId: `recovery:${sourceTurn.id}`,
+          },
+        );
+        const updatedTree = await ctx.orchestrator.getSessionTree(
+          req.params.id,
+        );
+        return reply.send({
+          message: serializeMessage(message),
+          tree: updatedTree
+            ? {
+                conversationId: updatedTree.conversationId,
+                activeLeafId: updatedTree.activeLeafId,
+                turns: updatedTree.turns.map(serializeTurn),
+              }
+            : undefined,
+        });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return reply.status(500).send({ error: message });
@@ -389,6 +474,47 @@ export function registerSessionRoutes(
           activeLeafId: tree.activeLeafId,
           turns: tree.turns.map(serializeTurn),
         });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // GET /api/sessions/:id/recovery-suggestions - List branch recovery points
+  app.get<{ Params: { id: string } }>(
+    "/api/sessions/:id/recovery-suggestions",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        const session = await ctx.orchestrator.getSession(req.params.id);
+        if (!session) {
+          return reply
+            .status(404)
+            .send({ error: `Session not found: ${req.params.id}` });
+        }
+        const traces = await ctx.memoryStore.getTraces(
+          50,
+          0,
+          undefined,
+          session.conversationId,
+        );
+        const suggestions = traces.items
+          .map((trace) => trace.branchRecovery)
+          .filter((suggestion) => suggestion !== undefined)
+          .map((suggestion) => ({
+            ...suggestion,
+            createdAt: suggestion.createdAt.toISOString(),
+          }));
+        return reply.send(suggestions);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return reply.status(500).send({ error: message });

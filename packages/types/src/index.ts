@@ -40,6 +40,8 @@ export type {
 
 export type {
   MemoryType,
+  BranchRecoveryReason,
+  BranchRecoverySuggestion,
   MemoryEntry,
   MemoryQuery,
   MemorySearchResult,

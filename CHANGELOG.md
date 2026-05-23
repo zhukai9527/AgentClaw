@@ -4,6 +4,7 @@
 
 ### Added
 - **会话树第一阶段原语**：对话轮次新增 `parentId`、`branchId` 和 conversation active leaf 持久化，`getHistory()` 在树形会话中只回放当前 active branch，同时保留旧线性会话兼容读取；新增 session tree 读取和 active leaf 切换 API，为后续“回到某一步重新走另一条路径”的智能分支能力打底。
+- **失败路径分支恢复建议**：Agent trace 遇到工具错误、循环错误或 LLM 流错误时会持久化 `branchRecovery`，记录可重新分支的用户轮次、失败原因和失败工具；Gateway 新增 recovery suggestions 与 recover branch API，支持把失败用户轮次替换为新的同级分支重新执行，而不是只暴露一条失败记录。
 
 ### Fixed
 - **旧库会话树迁移启动顺序**：会话树索引延后到 `parent_id` 列迁移之后创建，避免已有 SQLite 数据库启动 gateway 时因旧 `turns` 表缺列失败。

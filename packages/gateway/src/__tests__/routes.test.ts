@@ -33,6 +33,7 @@ function createMockContext(_overrides: Partial<AppContext> = {}): AppContext {
     toolRegistry: {} as any,
     memoryStore: {
       getHistory: vi.fn(),
+      getTraces: vi.fn(),
       saveSession: vi.fn(),
       getUsageStats: vi.fn(),
     } as any,
@@ -321,6 +322,139 @@ describe("Session 路由", () => {
       expect(ctx.orchestrator.setSessionActiveLeaf).toHaveBeenCalledWith(
         "s1",
         "turn-root",
+      );
+    });
+  });
+
+  describe("GET /api/sessions/:id/recovery-suggestions", () => {
+    it("返回当前 session 的分支恢复建议", async () => {
+      (ctx.orchestrator.getSession as any).mockResolvedValue({
+        id: "s1",
+        conversationId: "conv-1",
+        createdAt: new Date(),
+        lastActiveAt: new Date(),
+      });
+      (ctx.memoryStore.getTraces as any).mockResolvedValue({
+        total: 2,
+        items: [
+          {
+            id: "trace-2",
+            conversationId: "conv-1",
+            userInput: "retry",
+            steps: [],
+            tokensIn: 1,
+            tokensOut: 1,
+            durationMs: 1,
+            createdAt: new Date("2026-05-23T12:00:02Z"),
+            branchRecovery: {
+              traceId: "trace-2",
+              conversationId: "conv-1",
+              fromTurnId: "turn-user-1",
+              reason: "tool_error",
+              message: "可以从本轮用户输入重新开一个分支。",
+              failedToolNames: ["bash"],
+              createdAt: new Date("2026-05-23T12:00:02Z"),
+            },
+          },
+          {
+            id: "trace-1",
+            conversationId: "conv-1",
+            userInput: "ok",
+            steps: [],
+            tokensIn: 1,
+            tokensOut: 1,
+            durationMs: 1,
+            createdAt: new Date("2026-05-23T12:00:01Z"),
+          },
+        ],
+      });
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/sessions/s1/recovery-suggestions",
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual([
+        expect.objectContaining({
+          traceId: "trace-2",
+          fromTurnId: "turn-user-1",
+          reason: "tool_error",
+          failedToolNames: ["bash"],
+        }),
+      ]);
+      expect(ctx.memoryStore.getTraces).toHaveBeenCalledWith(
+        50,
+        0,
+        undefined,
+        "conv-1",
+      );
+    });
+  });
+
+  describe("POST /api/sessions/:id/recover-branch", () => {
+    it("用失败用户轮次的父节点创建替换分支", async () => {
+      (ctx.orchestrator.getSession as any).mockResolvedValue({
+        id: "s1",
+        conversationId: "conv-1",
+        createdAt: new Date(),
+        lastActiveAt: new Date(),
+      });
+      (ctx.orchestrator.getSessionTree as any)
+        .mockResolvedValueOnce({
+          conversationId: "conv-1",
+          activeLeafId: "failed-assistant",
+          turns: [
+            {
+              id: "parent-user",
+              conversationId: "conv-1",
+              parentId: null,
+              branchId: "main",
+              role: "user",
+              content: "上一个稳定问题",
+              createdAt: new Date("2026-05-23T12:00:00Z"),
+            },
+            {
+              id: "failed-user",
+              conversationId: "conv-1",
+              parentId: "parent-user",
+              branchId: "main",
+              role: "user",
+              content: "失败请求",
+              createdAt: new Date("2026-05-23T12:00:01Z"),
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          conversationId: "conv-1",
+          activeLeafId: "new-assistant",
+          turns: [],
+        });
+      (ctx.orchestrator.processInput as any).mockResolvedValue({
+        id: "new-assistant",
+        role: "assistant",
+        content: "恢复完成",
+        createdAt: new Date("2026-05-23T12:00:02Z"),
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/sessions/s1/recover-branch",
+        payload: {
+          fromTurnId: "failed-user",
+          content: "替换失败请求重新执行",
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().tree.activeLeafId).toBe("new-assistant");
+      expect(ctx.orchestrator.processInput).toHaveBeenCalledWith(
+        "s1",
+        "替换失败请求重新执行",
+        expect.objectContaining({
+          conversationParentTurnId: "parent-user",
+          conversationBranchId: "recovery:failed-user",
+        }),
       );
     });
   });

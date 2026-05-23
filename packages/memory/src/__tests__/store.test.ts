@@ -647,6 +647,62 @@ describe("SQLiteMemoryStore — 对话轮次", () => {
       { id: "branch-b", parentId: "root-user" },
     ]);
   });
+
+  it("显式 parentId=null 的用户轮次应作为根级替换分支", async () => {
+    const convId = "conv-tree-root-recovery";
+
+    await store.addTurn(
+      convId,
+      makeTurn({
+        id: "failed-root-user",
+        conversationId: convId,
+        content: "失败请求",
+      }),
+    );
+    await store.addTurn(
+      convId,
+      makeTurn({
+        id: "failed-assistant",
+        conversationId: convId,
+        role: "assistant",
+        content: "失败结果",
+      }),
+    );
+    await store.addTurn(
+      convId,
+      makeTurn({
+        id: "replacement-root-user",
+        conversationId: convId,
+        parentId: null,
+        branchId: "recovery:failed-root-user",
+        content: "替换请求",
+      }),
+    );
+
+    const history = await store.getHistory(convId);
+    const tree = await (store as any).getConversationTree(convId);
+
+    expect(history.map((turn) => turn.id)).toEqual(["replacement-root-user"]);
+    expect(
+      tree.turns.map((turn: ConversationTurn) => ({
+        id: turn.id,
+        parentId: turn.parentId === undefined ? null : turn.parentId,
+        branchId: turn.branchId,
+      })),
+    ).toEqual([
+      { id: "failed-root-user", parentId: null, branchId: "main" },
+      {
+        id: "failed-assistant",
+        parentId: "failed-root-user",
+        branchId: "main",
+      },
+      {
+        id: "replacement-root-user",
+        parentId: null,
+        branchId: "recovery:failed-root-user",
+      },
+    ]);
+  });
 });
 
 describe("SQLiteMemoryStore — 记忆 CRUD", () => {
@@ -1105,6 +1161,42 @@ describe("SQLiteMemoryStore — Traces", () => {
 
     const listed = await store.getTraces(1, 0);
     expect(listed.items[0].effects).toEqual([effect]);
+  });
+
+  it("addTrace + getTrace 应持久化分支恢复建议", async () => {
+    await store.addTrace({
+      id: "trace-recovery-1",
+      conversationId: "conv-recovery",
+      userInput: "重试这个任务",
+      steps: [{ type: "tool_result", name: "bash", isError: true }],
+      branchRecovery: {
+        traceId: "trace-recovery-1",
+        conversationId: "conv-recovery",
+        fromTurnId: "turn-user-1",
+        reason: "tool_error",
+        message: "可以从本轮用户输入重新开一个分支。",
+        failedToolNames: ["bash"],
+        createdAt: new Date("2026-05-23T12:00:00.000Z"),
+      },
+      tokensIn: 10,
+      tokensOut: 5,
+      durationMs: 100,
+      createdAt: new Date("2026-05-23T12:00:01.000Z"),
+    });
+
+    const loaded = await store.getTrace("trace-recovery-1");
+    const listed = await store.getTraces(1, 0);
+
+    expect(loaded?.branchRecovery).toMatchObject({
+      traceId: "trace-recovery-1",
+      fromTurnId: "turn-user-1",
+      reason: "tool_error",
+      failedToolNames: ["bash"],
+    });
+    expect(loaded?.branchRecovery?.createdAt).toEqual(
+      new Date("2026-05-23T12:00:00.000Z"),
+    );
+    expect(listed.items[0].branchRecovery?.fromTurnId).toBe("turn-user-1");
   });
 
   it("getTrace 查询不存在的 ID 应返回 null", async () => {
