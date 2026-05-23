@@ -756,6 +756,37 @@ function pptxOnlySentFileMarkdown(
   return markdownForSentFiles(pptxFiles);
 }
 
+function newsBriefCompletedArtifactResponse(
+  steps: TraceStep[],
+  sentFiles: Array<{ url: string; filename: string }>,
+  reason: string,
+): string | null {
+  const writtenFiles = steps
+    .flatMap((step) => {
+      const effect = (step as { effect?: ToolEffect }).effect;
+      return step.type === "tool_result" &&
+        effect?.kind === "write" &&
+        effect.verified &&
+        typeof effect.target === "string"
+        ? [effect.target]
+        : [];
+    })
+    .filter((target, index, all) => all.indexOf(target) === index);
+  if (writtenFiles.length === 0 && sentFiles.length === 0) return null;
+
+  const sentMd = sentFiles.length > 0 ? markdownForSentFiles(sentFiles) : "";
+  const writtenMd = writtenFiles.map((file) => `- ${file}`).join("\n");
+  return [
+    "AI 新闻简报已生成。",
+    sentMd ? `\n已发送文件：\n${sentMd}` : "",
+    writtenMd ? `\n已生成文件：\n${writtenMd}` : "",
+    "",
+    `说明：${reason}；后续模型尝试了无关或不可执行的工具调用，系统已停止继续调用工具并保留已完成成果。`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function hardenPptxClaudeCodeInput(
   input: Record<string, unknown>,
   workDir?: string,
@@ -1933,14 +1964,26 @@ export class SimpleAgentLoop implements AgentLoop {
 
         if (forceSynthesisOnly && toolCalls.length > 0) {
           toolCalls.length = 0;
-          forcedStopReason = "synthesis_only_tool_call_suppressed";
-          fullText = buildSynthesisFallbackResponse(
-            inputTextForHeuristics,
-            messages,
-            allSentFiles,
-            fallbackSnippets,
-            "当前阶段不再允许继续调用工具，模型仍尝试继续调用工具",
-          );
+          const completedArtifact =
+            taskToolProfile.kind === "news_brief"
+              ? newsBriefCompletedArtifactResponse(
+                  trace.steps as TraceStep[],
+                  allSentFiles,
+                  "新闻简报已生成",
+                )
+              : null;
+          if (completedArtifact) {
+            fullText = completedArtifact;
+          } else {
+            forcedStopReason = "synthesis_only_tool_call_suppressed";
+            fullText = buildSynthesisFallbackResponse(
+              inputTextForHeuristics,
+              messages,
+              allSentFiles,
+              fallbackSnippets,
+              "当前阶段不再允许继续调用工具，模型仍尝试继续调用工具",
+            );
+          }
         }
 
         totalToolCalls += toolCalls.length;
@@ -1988,43 +2031,56 @@ export class SimpleAgentLoop implements AgentLoop {
           INVALID_TOOL_MARKUP_RE.test(fullText) &&
           iterations < this._config.maxIterations
         ) {
-          invalidFinalMarkupRetries++;
-          if (
-            isPptxGenerationTask &&
-            allSentFiles.every((f) => !/\.pptx$/i.test(f.filename)) &&
-            invalidFinalMarkupRetries < 3
-          ) {
-            runtimeHints.push(
-              "[PPTX任务继续]上一轮输出了不可执行的伪工具标记。工具仍可用；不要输出 XML/tool_call/function/parameter 文本。下一步必须用结构化工具调用：use_skill pptx（如未加载）、claude_code/bash 生成 deck、verify_pptx.py --json 验证、send_file 发送验证通过的 .pptx。",
-            );
-            continue;
-          }
-          if (
-            taskToolProfile.kind === "reddit_rss" &&
-            allSentFiles.length === 0 &&
-            invalidFinalMarkupRetries < 3
-          ) {
-            runtimeHints.push(
-              `[RSS任务继续]上一轮输出了不可执行的伪工具标记。工具仍可用；不要输出 XML/tool_call/function/parameter 文本。rss_top 的结果已经在上下文中，禁止再调用 rss_top 或 file_read。下一步必须用结构化工具调用：file_write 写入 ${sessionTmpDir}/reddit-tech-ai-daily.md，然后 send_file 发送该 Markdown 文件。`,
-            );
-            continue;
-          }
-          if (invalidFinalMarkupRetries >= 2) {
-            forcedStopReason = "invalid_tool_markup_final";
-            fullText = buildSynthesisFallbackResponse(
-              inputTextForHeuristics,
-              messages,
-              allSentFiles,
-              fallbackSnippets,
-              "模型输出了不可执行的工具标记",
-            );
+          const completedArtifact =
+            taskToolProfile.kind === "news_brief"
+              ? newsBriefCompletedArtifactResponse(
+                  trace.steps as TraceStep[],
+                  allSentFiles,
+                  "新闻简报已生成",
+                )
+              : null;
+          if (completedArtifact) {
+            fullText = completedArtifact;
             storedText = fullText;
           } else {
-            forceSynthesisOnly = true;
-            runtimeHints.push(
-              "[SYSTEM] Your last output was invalid tool-call markup rendered as text. Tools are not available now. Do not output XML/tool_call/function/parameter tags. Write the final user-facing answer directly in Chinese from the facts already gathered.",
-            );
-            continue;
+            invalidFinalMarkupRetries++;
+            if (
+              isPptxGenerationTask &&
+              allSentFiles.every((f) => !/\.pptx$/i.test(f.filename)) &&
+              invalidFinalMarkupRetries < 3
+            ) {
+              runtimeHints.push(
+                "[PPTX任务继续]上一轮输出了不可执行的伪工具标记。工具仍可用；不要输出 XML/tool_call/function/parameter 文本。下一步必须用结构化工具调用：use_skill pptx（如未加载）、claude_code/bash 生成 deck、verify_pptx.py --json 验证、send_file 发送验证通过的 .pptx。",
+              );
+              continue;
+            }
+            if (
+              taskToolProfile.kind === "reddit_rss" &&
+              allSentFiles.length === 0 &&
+              invalidFinalMarkupRetries < 3
+            ) {
+              runtimeHints.push(
+                `[RSS任务继续]上一轮输出了不可执行的伪工具标记。工具仍可用；不要输出 XML/tool_call/function/parameter 文本。rss_top 的结果已经在上下文中，禁止再调用 rss_top 或 file_read。下一步必须用结构化工具调用：file_write 写入 ${sessionTmpDir}/reddit-tech-ai-daily.md，然后 send_file 发送该 Markdown 文件。`,
+              );
+              continue;
+            }
+            if (invalidFinalMarkupRetries >= 2) {
+              forcedStopReason = "invalid_tool_markup_final";
+              fullText = buildSynthesisFallbackResponse(
+                inputTextForHeuristics,
+                messages,
+                allSentFiles,
+                fallbackSnippets,
+                "模型输出了不可执行的工具标记",
+              );
+              storedText = fullText;
+            } else {
+              forceSynthesisOnly = true;
+              runtimeHints.push(
+                "[SYSTEM] Your last output was invalid tool-call markup rendered as text. Tools are not available now. Do not output XML/tool_call/function/parameter tags. Write the final user-facing answer directly in Chinese from the facts already gathered.",
+              );
+              continue;
+            }
           }
         }
 
