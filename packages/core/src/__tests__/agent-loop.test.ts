@@ -3950,7 +3950,7 @@ describe("SimpleAgentLoop", () => {
                 bytesWritten: Buffer.byteLength(String(input.content), "utf-8"),
               },
               effect: {
-                kind: "write",
+                kind: "write" as const,
                 target: String(input.path),
                 reversible: true,
                 verified: true,
@@ -3974,6 +3974,240 @@ describe("SimpleAgentLoop", () => {
         .join("");
       expect(streamedText).toContain("AI 新闻简报已生成");
       expect(streamedText).toContain(briefPath);
+      expect(streamedText).not.toContain("<tool_call>");
+      expect(streamedText).not.toContain("阶段性总结");
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.not.objectContaining({ error: "invalid_tool_markup_final" }),
+      );
+    });
+
+    it("新闻简报已写出文件后若继续结构化调工具应直接保留成果", async () => {
+      const makeToolCallChunks = (
+        id: string,
+        name: string,
+        input: Record<string, unknown>,
+      ): LLMStreamChunk[] => [
+        { type: "tool_use_start", toolUse: { id, name, input: "" } },
+        {
+          type: "tool_use_delta",
+          toolUse: { id, name: "", input: JSON.stringify(input) },
+        },
+      ];
+      const briefPath = "C:/Users/voroj/ai-news-brief-force-synthesis.md";
+      const searchChunks: LLMStreamChunk[] = [
+        ...makeToolCallChunks("tc-search-1", "web_search", {
+          query: "AI news today May 2026",
+        }),
+        ...makeToolCallChunks("tc-search-2", "web_search", {
+          query: "OpenAI Google Anthropic AI news May 2026",
+        }),
+        ...makeToolCallChunks("tc-search-3", "web_search", {
+          query: "AI safety regulation May 2026",
+        }),
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const writeChunks: LLMStreamChunk[] = [
+        ...makeToolCallChunks("tc-write", "file_write", {
+          path: briefPath,
+          content: "# AI 简报\n\n- Google updates AI Search",
+        }),
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const blockedBashChunks: LLMStreamChunk[] = [
+        ...makeToolCallChunks("tc-bash", "bash", {
+          command: "ping -n 4 google.com",
+        }),
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const suppressedToolChunks: LLMStreamChunk[] = [
+        ...makeToolCallChunks("tc-fetch-after-stop", "web_fetch", {
+          url: "https://example.com/extra",
+        }),
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const webFetchExecute = vi.fn(async () => ({
+        content: "should not execute",
+      }));
+      const provider = createMockProvider([
+        searchChunks,
+        writeChunks,
+        blockedBashChunks,
+        suppressedToolChunks,
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry: createMockToolRegistry([
+          {
+            ...createMockTool("web_search"),
+            execute: vi.fn(async (input: Record<string, unknown>) => ({
+              content: `results[2]{title,url}:\n  AI roundup — ${String(input.query)}\n  https://medium.com/@example/ai-roundup\n  AI video\n  https://www.youtube.com/watch?v=abc`,
+            })),
+          },
+          {
+            ...createMockTool("file_write"),
+            execute: vi.fn(async (input: Record<string, unknown>) => ({
+              content: `Successfully wrote to ${String(input.path)}`,
+              isError: false,
+              effect: {
+                kind: "write" as const,
+                target: String(input.path),
+                reversible: true,
+                verified: true,
+              },
+            })),
+          },
+          createMockTool("bash"),
+          {
+            ...createMockTool("web_fetch"),
+            execute: webFetchExecute,
+          },
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 6 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("在外网搜索今日AI界新闻生成简报", "conv-news-force-synthesis"),
+      );
+
+      const streamedText = events
+        .filter((event) => event.type === "response_chunk")
+        .map((event) => (event.data as { text: string }).text)
+        .join("");
+      expect(streamedText).toContain("AI 新闻简报已生成");
+      expect(streamedText).toContain(briefPath);
+      expect(streamedText).not.toContain("阶段性总结");
+      expect(webFetchExecute).not.toHaveBeenCalled();
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          error: "synthesis_only_tool_call_suppressed",
+        }),
+      );
+    });
+
+    it("新闻简报已发送文件后遇到伪工具标记应保留发送链接", async () => {
+      const makeToolCallChunks = (
+        id: string,
+        name: string,
+        input: Record<string, unknown>,
+      ): LLMStreamChunk[] => [
+        { type: "tool_use_start", toolUse: { id, name, input: "" } },
+        {
+          type: "tool_use_delta",
+          toolUse: { id, name: "", input: JSON.stringify(input) },
+        },
+      ];
+      const writeAndSendChunks: LLMStreamChunk[] = [
+        ...makeToolCallChunks("tc-write", "file_write", {
+          path: "brief.md",
+          content: "# AI 简报\n\n- Sent artifact",
+        }),
+        ...makeToolCallChunks("tc-send", "send_file", {
+          path: "brief.md",
+        }),
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const invalidMarkupChunks: LLMStreamChunk[] = [
+        {
+          type: "text",
+          text: "<tool_call>\n<function=web_fetch>\n<parameter=url>https://example.com</parameter>\n</function>\n</tool_call>",
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "end_turn",
+        },
+      ];
+      const provider = createMockProvider([
+        writeAndSendChunks,
+        invalidMarkupChunks,
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry: createMockToolRegistry([
+          {
+            ...createMockTool("file_write"),
+            execute: vi.fn(async (input: Record<string, unknown>) => ({
+              content: `Successfully wrote to ${String(input.path)}`,
+              isError: false,
+              effect: {
+                kind: "write" as const,
+                target: String(input.path),
+                reversible: true,
+                verified: true,
+              },
+            })),
+          },
+          {
+            ...createMockTool("send_file"),
+            execute: vi.fn(
+              async (
+                _input: Record<string, unknown>,
+                context?: ToolExecutionContext,
+              ) => {
+                context?.sentFiles?.push({
+                  url: "/files/conv-news-sent-file/brief.md",
+                  filename: "brief.md",
+                });
+                return {
+                  content: "File sent: brief.md",
+                  isError: false,
+                  effect: {
+                    kind: "send" as const,
+                    target: "brief.md",
+                    reversible: false,
+                    deliverable: true,
+                    verified: true,
+                  },
+                };
+              },
+            ),
+          },
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 4 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("在外网搜索今日AI界新闻生成简报", "conv-news-sent-file", {
+          sentFiles: [],
+        }),
+      );
+
+      const streamedText = events
+        .filter((event) => event.type === "response_chunk")
+        .map((event) => (event.data as { text: string }).text)
+        .join("");
+      expect(streamedText).toContain("AI 新闻简报已生成");
+      expect(streamedText).toContain("[brief.md](/files/conv-news-sent-file/brief.md)");
       expect(streamedText).not.toContain("<tool_call>");
       expect(streamedText).not.toContain("阶段性总结");
       expect(memoryStore.addTrace).toHaveBeenCalledWith(
