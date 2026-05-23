@@ -1,5 +1,5 @@
 import type { Message, ContentBlock } from "./message.js";
-import type { SessionData } from "./memory.js";
+import type { ConversationTree, SessionData } from "./memory.js";
 import type { ToolExecutionContext } from "./tool.js";
 
 /** Agent loop state */
@@ -224,6 +224,15 @@ export interface Orchestrator {
     input: string | ContentBlock[],
     context?: ToolExecutionContext,
   ): AsyncIterable<AgentEvent>;
+
+  /** Read the full conversation tree for a session */
+  getSessionTree(sessionId: string): Promise<ConversationTree | undefined>;
+
+  /** Move a session to a previous turn or clear its active branch pointer */
+  setSessionActiveLeaf(
+    sessionId: string,
+    turnId: string | null,
+  ): Promise<ConversationTree | undefined>;
 
   /** List active sessions */
   listSessions(): Promise<Session[]>;

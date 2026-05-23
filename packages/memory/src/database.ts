@@ -4,6 +4,7 @@ const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,
   title TEXT,
+  active_leaf_turn_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   metadata TEXT
@@ -12,6 +13,8 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE TABLE IF NOT EXISTS turns (
   id TEXT PRIMARY KEY,
   conversation_id TEXT NOT NULL REFERENCES conversations(id),
+  parent_id TEXT REFERENCES turns(id),
+  branch_id TEXT NOT NULL DEFAULT 'main',
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
   content TEXT NOT NULL,
   tool_calls TEXT,
@@ -26,6 +29,7 @@ CREATE TABLE IF NOT EXISTS turns (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_turns_conversation ON turns(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_turns_parent ON turns(conversation_id, parent_id);
 
 CREATE TABLE IF NOT EXISTS memories (
   id TEXT PRIMARY KEY,
@@ -350,6 +354,9 @@ export function initDatabase(dbPath: string): DbAdapter {
   addColumnIfMissing(db, "turns", "trace_id", "TEXT");
   addColumnIfMissing(db, "turns", "duration_ms", "INTEGER");
   addColumnIfMissing(db, "turns", "tool_call_count", "INTEGER");
+  addColumnIfMissing(db, "turns", "parent_id", "TEXT");
+  addColumnIfMissing(db, "turns", "branch_id", "TEXT NOT NULL DEFAULT 'main'");
+  addColumnIfMissing(db, "conversations", "active_leaf_turn_id", "TEXT");
   addColumnIfMissing(db, "sessions", "title", "TEXT");
   addColumnIfMissing(db, "sessions", "status", "TEXT DEFAULT 'done'");
   // Fix: old migration used DEFAULT 'active', bulk-correct existing rows
@@ -411,18 +418,63 @@ export function initDatabase(dbPath: string): DbAdapter {
   addColumnIfMissing(db, "skill_changes", "conversation_id", "TEXT");
 
   // Observation Store：兼容已存在的早期/部分表结构
-  addColumnIfMissing(db, "observations", "trace_id", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(
+    db,
+    "observations",
+    "trace_id",
+    "TEXT NOT NULL DEFAULT ''",
+  );
   addColumnIfMissing(db, "observations", "step_id", "TEXT NOT NULL DEFAULT ''");
-  addColumnIfMissing(db, "observations", "tool_name", "TEXT NOT NULL DEFAULT ''");
-  addColumnIfMissing(db, "observations", "input_hash", "TEXT NOT NULL DEFAULT ''");
-  addColumnIfMissing(db, "observations", "content_hash", "TEXT NOT NULL DEFAULT ''");
-  addColumnIfMissing(db, "observations", "raw_path", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(
+    db,
+    "observations",
+    "tool_name",
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  addColumnIfMissing(
+    db,
+    "observations",
+    "input_hash",
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  addColumnIfMissing(
+    db,
+    "observations",
+    "content_hash",
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  addColumnIfMissing(
+    db,
+    "observations",
+    "raw_path",
+    "TEXT NOT NULL DEFAULT ''",
+  );
   addColumnIfMissing(db, "observations", "preview", "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, "observations", "facts", "TEXT NOT NULL DEFAULT '[]'");
-  addColumnIfMissing(db, "observations", "metadata", "TEXT NOT NULL DEFAULT '{}'");
-  addColumnIfMissing(db, "observations", "raw_chars", "INTEGER NOT NULL DEFAULT 0");
-  addColumnIfMissing(db, "observations", "prompt_chars", "INTEGER NOT NULL DEFAULT 0");
-  addColumnIfMissing(db, "observations", "saved_chars", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(
+    db,
+    "observations",
+    "metadata",
+    "TEXT NOT NULL DEFAULT '{}'",
+  );
+  addColumnIfMissing(
+    db,
+    "observations",
+    "raw_chars",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  addColumnIfMissing(
+    db,
+    "observations",
+    "prompt_chars",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
+  addColumnIfMissing(
+    db,
+    "observations",
+    "saved_chars",
+    "INTEGER NOT NULL DEFAULT 0",
+  );
   addColumnIfMissing(
     db,
     "observations",
@@ -435,8 +487,18 @@ export function initDatabase(dbPath: string): DbAdapter {
     "observation_id",
     "TEXT NOT NULL DEFAULT ''",
   );
-  addColumnIfMissing(db, "observation_reads", "trace_id", "TEXT NOT NULL DEFAULT ''");
-  addColumnIfMissing(db, "observation_reads", "step_id", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(
+    db,
+    "observation_reads",
+    "trace_id",
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  addColumnIfMissing(
+    db,
+    "observation_reads",
+    "step_id",
+    "TEXT NOT NULL DEFAULT ''",
+  );
   addColumnIfMissing(db, "observation_reads", "query", "TEXT");
   addColumnIfMissing(db, "observation_reads", "offset", "INTEGER");
   addColumnIfMissing(db, "observation_reads", "length", "INTEGER");
@@ -453,8 +515,18 @@ export function initDatabase(dbPath: string): DbAdapter {
     "TEXT NOT NULL DEFAULT ''",
   );
 
-  addColumnIfMissing(db, "memory_usage", "memory_id", "TEXT NOT NULL DEFAULT ''");
-  addColumnIfMissing(db, "memory_usage", "source", "TEXT NOT NULL DEFAULT 'prompt_injection'");
+  addColumnIfMissing(
+    db,
+    "memory_usage",
+    "memory_id",
+    "TEXT NOT NULL DEFAULT ''",
+  );
+  addColumnIfMissing(
+    db,
+    "memory_usage",
+    "source",
+    "TEXT NOT NULL DEFAULT 'prompt_injection'",
+  );
   addColumnIfMissing(db, "memory_usage", "conversation_id", "TEXT");
   addColumnIfMissing(db, "memory_usage", "trace_id", "TEXT");
   addColumnIfMissing(db, "memory_usage", "agent_id", "TEXT");
@@ -465,6 +537,7 @@ export function initDatabase(dbPath: string): DbAdapter {
   try {
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_tasks_executor ON tasks(executor);
+      CREATE INDEX IF NOT EXISTS idx_turns_parent ON turns(conversation_id, parent_id);
       CREATE INDEX IF NOT EXISTS idx_tasks_deadline ON tasks(deadline);
       CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
       CREATE INDEX IF NOT EXISTS idx_observations_content_hash ON observations(content_hash);

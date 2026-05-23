@@ -516,6 +516,92 @@ describe("SQLiteMemoryStore — 对话轮次", () => {
     const turns = await store.getHistory("conv-1");
     expect(turns[0].reasoningContent).toBe("用户要列目录，需要调用 bash。");
   });
+
+  it("addTurn 应自动形成 parent 链并更新 active leaf", async () => {
+    const convId = "conv-tree-chain";
+
+    await store.addTurn(
+      convId,
+      makeTurn({ id: "t-user", conversationId: convId, content: "方案 A" }),
+    );
+    await store.addTurn(
+      convId,
+      makeTurn({
+        id: "t-assistant",
+        conversationId: convId,
+        role: "assistant",
+        content: "A 的结果",
+      }),
+    );
+
+    const rows = db
+      .prepare(
+        "SELECT id, parent_id, branch_id FROM turns WHERE conversation_id = ? ORDER BY created_at ASC",
+      )
+      .all(convId) as Array<{
+      id: string;
+      parent_id: string | null;
+      branch_id: string;
+    }>;
+    const conversation = db
+      .prepare("SELECT active_leaf_turn_id FROM conversations WHERE id = ?")
+      .get(convId) as { active_leaf_turn_id: string | null };
+
+    expect(rows).toEqual([
+      { id: "t-user", parent_id: null, branch_id: "main" },
+      { id: "t-assistant", parent_id: "t-user", branch_id: "main" },
+    ]);
+    expect(conversation.active_leaf_turn_id).toBe("t-assistant");
+  });
+
+  it("切换 active leaf 后 getHistory 只返回当前分支路径", async () => {
+    const convId = "conv-tree-branch";
+
+    await store.addTurn(
+      convId,
+      makeTurn({
+        id: "root-user",
+        conversationId: convId,
+        content: "做一个方案",
+      }),
+    );
+    await store.addTurn(
+      convId,
+      makeTurn({
+        id: "branch-a",
+        conversationId: convId,
+        role: "assistant",
+        content: "方案 A",
+      }),
+    );
+
+    await (store as any).setActiveConversationLeaf(convId, "root-user");
+    await store.addTurn(
+      convId,
+      makeTurn({
+        id: "branch-b",
+        conversationId: convId,
+        role: "assistant",
+        content: "方案 B",
+      }),
+    );
+
+    const history = await store.getHistory(convId);
+    const tree = await (store as any).getConversationTree(convId);
+
+    expect(history.map((turn) => turn.id)).toEqual(["root-user", "branch-b"]);
+    expect(tree.activeLeafId).toBe("branch-b");
+    expect(
+      tree.turns.map((turn: ConversationTurn) => ({
+        id: turn.id,
+        parentId: turn.parentId === undefined ? null : turn.parentId,
+      })),
+    ).toEqual([
+      { id: "root-user", parentId: null },
+      { id: "branch-a", parentId: "root-user" },
+      { id: "branch-b", parentId: "root-user" },
+    ]);
+  });
 });
 
 describe("SQLiteMemoryStore — 记忆 CRUD", () => {

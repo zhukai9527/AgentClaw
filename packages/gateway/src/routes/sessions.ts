@@ -1,6 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../bootstrap.js";
-import type { Message, ToolExecutionContext } from "@agentclaw/types";
+import type {
+  ConversationTurn,
+  Message,
+  ToolExecutionContext,
+} from "@agentclaw/types";
 import { basename, join, resolve, relative } from "node:path";
 import { copyFileSync, mkdirSync } from "node:fs";
 import { extractText } from "../utils.js";
@@ -39,6 +43,25 @@ function serializeMessage(msg: Message) {
     durationMs: msg.durationMs,
     toolCallCount: msg.toolCallCount,
     createdAt: msg.createdAt.toISOString(),
+  };
+}
+
+function serializeTurn(turn: ConversationTurn) {
+  return {
+    id: turn.id,
+    parentId: turn.parentId ?? null,
+    branchId: turn.branchId ?? "main",
+    role: turn.role,
+    content: turn.content,
+    model: turn.model,
+    tokensIn: turn.tokensIn,
+    tokensOut: turn.tokensOut,
+    durationMs: turn.durationMs,
+    toolCallCount: turn.toolCallCount,
+    traceId: turn.traceId,
+    createdAt: turn.createdAt.toISOString(),
+    ...(turn.toolCalls ? { toolCalls: turn.toolCalls } : {}),
+    ...(turn.toolResults ? { toolResults: turn.toolResults } : {}),
   };
 }
 
@@ -291,6 +314,81 @@ export function registerSessionRoutes(
         }));
 
         return reply.send(messages);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // GET /api/sessions/:id/tree - Get full conversation tree
+  app.get<{ Params: { id: string } }>(
+    "/api/sessions/:id/tree",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        const tree = await ctx.orchestrator.getSessionTree(req.params.id);
+        if (!tree) {
+          return reply
+            .status(404)
+            .send({ error: `Session not found: ${req.params.id}` });
+        }
+        return reply.send({
+          conversationId: tree.conversationId,
+          activeLeafId: tree.activeLeafId,
+          turns: tree.turns.map(serializeTurn),
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // POST /api/sessions/:id/active-leaf - Switch current branch pointer
+  app.post<{ Params: { id: string }; Body: { turnId?: string | null } }>(
+    "/api/sessions/:id/active-leaf",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1 } },
+        },
+        body: {
+          type: "object",
+          properties: {
+            turnId: {
+              anyOf: [{ type: "string", minLength: 1 }, { type: "null" }],
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        const tree = await ctx.orchestrator.setSessionActiveLeaf(
+          req.params.id,
+          req.body.turnId ?? null,
+        );
+        if (!tree) {
+          return reply
+            .status(404)
+            .send({ error: `Session not found: ${req.params.id}` });
+        }
+        return reply.send({
+          conversationId: tree.conversationId,
+          activeLeafId: tree.activeLeafId,
+          turns: tree.turns.map(serializeTurn),
+        });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return reply.status(500).send({ error: message });

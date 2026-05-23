@@ -352,8 +352,7 @@ export class SimpleOrchestrator implements Orchestrator {
       recordEvolutionRun: (input) => memoryStore.recordEvolutionRun(input),
       updateEvolutionRun: (id, updates) =>
         memoryStore.updateEvolutionRun(id, updates),
-      recordEvolutionEvent: (event) =>
-        memoryStore.recordEvolutionEvent(event),
+      recordEvolutionEvent: (event) => memoryStore.recordEvolutionEvent(event),
       listEvolutionRuns: (query) => memoryStore.listEvolutionRuns(query),
       listEvolutionEvents: (query) => memoryStore.listEvolutionEvents(query),
       recordBackgroundJob: (job) => memoryStore.recordBackgroundJob(job),
@@ -671,6 +670,43 @@ Message: ${userText.slice(0, 300)}`;
       if (stored.length > 0) return stored;
     } catch {}
     return Array.from(this.sessions.values());
+  }
+
+  async getSessionTree(
+    sessionId: string,
+  ): Promise<import("@agentclaw/types").ConversationTree | undefined> {
+    const session = await this.getSession(sessionId);
+    if (!session) return undefined;
+    if (!this.memoryStore.getConversationTree) {
+      throw new Error(
+        "Conversation tree is not supported by this memory store",
+      );
+    }
+    return this.memoryStore.getConversationTree(session.conversationId);
+  }
+
+  async setSessionActiveLeaf(
+    sessionId: string,
+    turnId: string | null,
+  ): Promise<import("@agentclaw/types").ConversationTree | undefined> {
+    const session = await this.getSession(sessionId);
+    if (!session) return undefined;
+    if (
+      !this.memoryStore.setActiveConversationLeaf ||
+      !this.memoryStore.getConversationTree
+    ) {
+      throw new Error(
+        "Conversation tree is not supported by this memory store",
+      );
+    }
+    await this.memoryStore.setActiveConversationLeaf(
+      session.conversationId,
+      turnId,
+    );
+    session.lastActiveAt = new Date();
+    await this.memoryStore.saveSession(session);
+    this.onSessionUpdated?.(session);
+    return this.memoryStore.getConversationTree(session.conversationId);
   }
 
   /** Return IDs of sessions that have an active agent loop running */

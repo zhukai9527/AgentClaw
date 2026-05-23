@@ -190,11 +190,7 @@ export type EvolutionRunStatus =
   | "failed"
   | "rolled_back";
 
-export type EvolutionResult =
-  | "improved"
-  | "neutral"
-  | "regressed"
-  | "unknown";
+export type EvolutionResult = "improved" | "neutral" | "regressed" | "unknown";
 
 export type EvolutionEventType =
   | "proposal"
@@ -446,6 +442,15 @@ export interface MemoryStore {
     limit?: number,
   ): Promise<ConversationTurn[]>;
 
+  /** Get all turns in a conversation tree plus the active leaf pointer */
+  getConversationTree?(conversationId: string): Promise<ConversationTree>;
+
+  /** Move the active branch pointer to a turn in this conversation, or clear it */
+  setActiveConversationLeaf?(
+    conversationId: string,
+    turnId: string | null,
+  ): Promise<void>;
+
   /** Full-text search conversation history */
   searchHistory?(
     conversationId: string,
@@ -604,18 +609,22 @@ export interface MemoryStore {
   recordMemoryUsage?(event: MemoryUsageEvent): Promise<MemoryUsageRecord>;
 
   /** Aggregate per-memory effectiveness/pollution telemetry. */
-  listMemoryEffectiveness?(
-    options?: { namespace?: string },
-  ): Promise<MemoryEffectivenessStats[]>;
+  listMemoryEffectiveness?(options?: {
+    namespace?: string;
+  }): Promise<MemoryEffectivenessStats[]>;
 
   /** Automatically deprecate memories proven harmful by usage telemetry. */
-  runMemoryJanitor?(options?: MemoryJanitorOptions): Promise<MemoryJanitorResult>;
+  runMemoryJanitor?(
+    options?: MemoryJanitorOptions,
+  ): Promise<MemoryJanitorResult>;
 }
 
 /** A single conversation turn stored in memory */
 export interface ConversationTurn {
   id: string;
   conversationId: string;
+  parentId?: string | null;
+  branchId?: string;
   role: MessageRole;
   content: string;
   toolCalls?: string; // JSON
@@ -630,4 +639,11 @@ export interface ConversationTurn {
   toolCallCount?: number;
   traceId?: string;
   createdAt: Date;
+}
+
+/** Full conversation tree state for branch navigation and replay */
+export interface ConversationTree {
+  conversationId: string;
+  activeLeafId: string | null;
+  turns: ConversationTurn[];
 }

@@ -8,6 +8,7 @@ import type {
   Project,
   SessionData,
   ConversationTurn,
+  ConversationTree,
   Trace,
   SkillChangeInput,
   SkillChangeQuery,
@@ -1165,15 +1166,29 @@ export class SQLiteMemoryStore implements MemoryStore {
   async addTurn(conversationId: string, turn: ConversationTurn): Promise<void> {
     // Auto-create conversation if it doesn't exist
     this.ensureConversation(conversationId);
+    const turnId = turn.id || randomUUID();
+    const parentId =
+      turn.parentId !== undefined
+        ? turn.parentId
+        : this.getCurrentLeafOrLatestTurnId(conversationId);
+    if (parentId) {
+      this.assertTurnBelongsToConversation(conversationId, parentId);
+    }
+    const branchId =
+      turn.branchId ??
+      (parentId ? this.getTurnBranchId(parentId) : undefined) ??
+      "main";
 
     this.db
       .prepare(
-        `INSERT INTO turns (id, conversation_id, role, content, tool_calls, tool_results, reasoning_content, model, tokens_in, tokens_out, duration_ms, tool_call_count, trace_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO turns (id, conversation_id, parent_id, branch_id, role, content, tool_calls, tool_results, reasoning_content, model, tokens_in, tokens_out, duration_ms, tool_call_count, trace_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
-        turn.id || randomUUID(),
+        turnId,
         conversationId,
+        parentId,
+        branchId,
         turn.role,
         turn.content,
         turn.toolCalls ?? null,
@@ -1191,7 +1206,6 @@ export class SQLiteMemoryStore implements MemoryStore {
       );
 
     // Sync to FTS index
-    const turnId = turn.id || randomUUID();
     try {
       this.db
         .prepare(
@@ -1205,9 +1219,9 @@ export class SQLiteMemoryStore implements MemoryStore {
     // Update conversation's updated_at timestamp
     this.db
       .prepare(
-        "UPDATE conversations SET updated_at = datetime('now') WHERE id = ?",
+        "UPDATE conversations SET active_leaf_turn_id = ?, updated_at = datetime('now') WHERE id = ?",
       )
-      .run(conversationId);
+      .run(turnId, conversationId);
   }
 
   /**
@@ -1260,6 +1274,28 @@ export class SQLiteMemoryStore implements MemoryStore {
     conversationId: string,
     limit?: number,
   ): Promise<ConversationTurn[]> {
+    const activeLeafId = this.getActiveLeafId(conversationId);
+    if (activeLeafId) {
+      const rows = this.db
+        .prepare(
+          `WITH RECURSIVE path(id, depth) AS (
+             SELECT id, 0 FROM turns WHERE id = ? AND conversation_id = ?
+             UNION ALL
+             SELECT t.parent_id, path.depth + 1
+             FROM turns t
+             JOIN path ON t.id = path.id
+             WHERE t.parent_id IS NOT NULL
+           )
+           SELECT turns.*
+           FROM path
+           JOIN turns ON turns.id = path.id
+           ORDER BY path.depth DESC`,
+        )
+        .all(activeLeafId, conversationId) as TurnRow[];
+      const turns = rows.map(rowToConversationTurn);
+      return limit ? turns.slice(-limit) : turns;
+    }
+
     const sql = limit
       ? "SELECT * FROM (SELECT * FROM turns WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?) ORDER BY created_at ASC"
       : "SELECT * FROM turns WHERE conversation_id = ? ORDER BY created_at ASC";
@@ -1270,6 +1306,35 @@ export class SQLiteMemoryStore implements MemoryStore {
     const rows = this.db.prepare(sql).all(...params) as TurnRow[];
 
     return rows.map(rowToConversationTurn);
+  }
+
+  async getConversationTree(conversationId: string): Promise<ConversationTree> {
+    const activeLeafId = this.getActiveLeafId(conversationId);
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM turns WHERE conversation_id = ? ORDER BY created_at ASC",
+      )
+      .all(conversationId) as TurnRow[];
+    return {
+      conversationId,
+      activeLeafId,
+      turns: rows.map(rowToConversationTurn),
+    };
+  }
+
+  async setActiveConversationLeaf(
+    conversationId: string,
+    turnId: string | null,
+  ): Promise<void> {
+    this.ensureConversation(conversationId);
+    if (turnId) {
+      this.assertTurnBelongsToConversation(conversationId, turnId);
+    }
+    this.db
+      .prepare(
+        "UPDATE conversations SET active_leaf_turn_id = ?, updated_at = datetime('now') WHERE id = ?",
+      )
+      .run(turnId, conversationId);
   }
 
   async deleteTurnsFrom(
@@ -1291,6 +1356,13 @@ export class SQLiteMemoryStore implements MemoryStore {
         "DELETE FROM turns WHERE conversation_id = ? AND created_at >= ?",
       )
       .run(conversationId, fromCreatedAt);
+
+    const latest = this.getLatestTurnId(conversationId);
+    this.db
+      .prepare(
+        "UPDATE conversations SET active_leaf_turn_id = ?, updated_at = datetime('now') WHERE id = ?",
+      )
+      .run(latest, conversationId);
 
     return result.changes;
   }
@@ -2567,6 +2639,52 @@ export class SQLiteMemoryStore implements MemoryStore {
 
   // ─── Helpers ───────────────────────────────────────────────────
 
+  private getActiveLeafId(conversationId: string): string | null {
+    const row = this.db
+      .prepare("SELECT active_leaf_turn_id FROM conversations WHERE id = ?")
+      .get(conversationId) as
+      | { active_leaf_turn_id: string | null }
+      | undefined;
+    return row?.active_leaf_turn_id ?? null;
+  }
+
+  private getLatestTurnId(conversationId: string): string | null {
+    const row = this.db
+      .prepare(
+        "SELECT id FROM turns WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(conversationId) as { id: string } | undefined;
+    return row?.id ?? null;
+  }
+
+  private getCurrentLeafOrLatestTurnId(conversationId: string): string | null {
+    return (
+      this.getActiveLeafId(conversationId) ??
+      this.getLatestTurnId(conversationId)
+    );
+  }
+
+  private getTurnBranchId(turnId: string): string | null {
+    const row = this.db
+      .prepare("SELECT branch_id FROM turns WHERE id = ?")
+      .get(turnId) as { branch_id: string | null } | undefined;
+    return row?.branch_id ?? null;
+  }
+
+  private assertTurnBelongsToConversation(
+    conversationId: string,
+    turnId: string,
+  ): void {
+    const row = this.db
+      .prepare("SELECT id FROM turns WHERE id = ? AND conversation_id = ?")
+      .get(turnId, conversationId) as { id: string } | undefined;
+    if (!row) {
+      throw new Error(
+        `Turn "${turnId}" does not belong to conversation "${conversationId}"`,
+      );
+    }
+  }
+
   private ensureConversation(conversationId: string): void {
     this.db
       .prepare(
@@ -2694,6 +2812,8 @@ interface ObservationReadRow {
 interface TurnRow {
   id: string;
   conversation_id: string;
+  parent_id: string | null;
+  branch_id: string | null;
   role: string;
   content: string;
   tool_calls: string | null;
@@ -3265,6 +3385,8 @@ function rowToConversationTurn(row: TurnRow): ConversationTurn {
   return {
     id: row.id,
     conversationId: row.conversation_id,
+    parentId: row.parent_id,
+    branchId: row.branch_id ?? "main",
     role: row.role as ConversationTurn["role"],
     content: row.content,
     toolCalls: row.tool_calls ?? undefined,

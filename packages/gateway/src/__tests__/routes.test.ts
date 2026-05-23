@@ -21,6 +21,8 @@ function createMockContext(_overrides: Partial<AppContext> = {}): AppContext {
       createSession: vi.fn(),
       listSessions: vi.fn(),
       getSession: vi.fn(),
+      getSessionTree: vi.fn(),
+      setSessionActiveLeaf: vi.fn(),
       closeSession: vi.fn(),
       processInput: vi.fn(),
       processInputStream: vi.fn(),
@@ -244,6 +246,82 @@ describe("Session 路由", () => {
 
       expect(res.statusCode).toBe(404);
       expect(res.json().error).toContain("Session not found");
+    });
+  });
+
+  describe("Session tree routes", () => {
+    it("GET /api/sessions/:id/tree 返回完整会话树", async () => {
+      (ctx.orchestrator.getSessionTree as any).mockResolvedValue({
+        conversationId: "conv-1",
+        activeLeafId: "turn-b",
+        turns: [
+          {
+            id: "turn-root",
+            conversationId: "conv-1",
+            parentId: null,
+            branchId: "main",
+            role: "user",
+            content: "做一个方案",
+            createdAt: new Date("2026-05-23T10:00:00Z"),
+          },
+          {
+            id: "turn-b",
+            conversationId: "conv-1",
+            parentId: "turn-root",
+            branchId: "main",
+            role: "assistant",
+            content: "方案 B",
+            createdAt: new Date("2026-05-23T10:01:00Z"),
+          },
+        ],
+      });
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/sessions/s1/tree",
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        conversationId: "conv-1",
+        activeLeafId: "turn-b",
+        turns: [
+          { id: "turn-root", parentId: null, content: "做一个方案" },
+          { id: "turn-b", parentId: "turn-root", content: "方案 B" },
+        ],
+      });
+      expect(ctx.orchestrator.getSessionTree).toHaveBeenCalledWith("s1");
+    });
+
+    it("POST /api/sessions/:id/active-leaf 切换 active leaf", async () => {
+      (ctx.orchestrator.setSessionActiveLeaf as any).mockResolvedValue({
+        conversationId: "conv-1",
+        activeLeafId: "turn-root",
+        turns: [
+          {
+            id: "turn-root",
+            conversationId: "conv-1",
+            parentId: null,
+            branchId: "main",
+            role: "user",
+            content: "做一个方案",
+            createdAt: new Date("2026-05-23T10:00:00Z"),
+          },
+        ],
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/sessions/s1/active-leaf",
+        payload: { turnId: "turn-root" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().activeLeafId).toBe("turn-root");
+      expect(ctx.orchestrator.setSessionActiveLeaf).toHaveBeenCalledWith(
+        "s1",
+        "turn-root",
+      );
     });
   });
 });
@@ -557,7 +635,9 @@ describe("Memory 路由", () => {
       importance: 0.7,
       metadata: { testRun, status: "active", tag: "old" },
     });
-    const beforeEmbedding = (await store.get(editable.id))?.embedding?.join(",");
+    const beforeEmbedding = (await store.get(editable.id))?.embedding?.join(
+      ",",
+    );
 
     const patchRes = await app.inject({
       method: "PATCH",
@@ -627,16 +707,14 @@ describe("Memory 路由", () => {
     });
     expect(mergeRes.statusCode).toBe(200);
     const merged = mergeRes.json();
-    const visibleIds = (
-      await store.search({ query: testRun, limit: 20 })
-    ).map((result) => result.entry.id);
+    const visibleIds = (await store.search({ query: testRun, limit: 20 })).map(
+      (result) => result.entry.id,
+    );
     expect(visibleIds).toContain(merged.target.id);
     expect(visibleIds).not.toContain(sourceA.id);
     expect(visibleIds).not.toContain(sourceB.id);
     expect(merged.deprecatedIds).toEqual([sourceA.id, sourceB.id]);
-    expect((await store.get(sourceA.id))?.metadata?.status).toBe(
-      "superseded",
-    );
+    expect((await store.get(sourceA.id))?.metadata?.status).toBe("superseded");
     expect((await store.get(sourceB.id))?.metadata?.supersededBy).toBe(
       merged.target.id,
     );

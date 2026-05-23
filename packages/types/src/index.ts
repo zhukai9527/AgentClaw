@@ -75,6 +75,7 @@ export type {
   SkillUsageStats,
   MemoryStore,
   ConversationTurn,
+  ConversationTree,
   TraceStep,
   Trace,
   BackgroundJobStatus,
