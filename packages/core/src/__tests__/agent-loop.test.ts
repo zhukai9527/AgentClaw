@@ -3816,6 +3816,9 @@ describe("SimpleAgentLoop", () => {
         secondRoundChunks,
         invalidChunks,
       ]);
+      const webFetchExecute = vi.fn(async (input: Record<string, unknown>) => ({
+        content: `Title: AI News Source\nURL Source: ${String(input.url)}\nNvidia reported record AI data center revenue. Intuit cut jobs to focus on AI services. AI regulation updates continue in May 2026.`,
+      }));
       const loop = new SimpleAgentLoop({
         provider,
         toolRegistry: createMockToolRegistry([
@@ -3827,9 +3830,7 @@ describe("SimpleAgentLoop", () => {
           },
           {
             ...createMockTool("web_fetch"),
-            execute: vi.fn(async (input: Record<string, unknown>) => ({
-              content: `Title: AI News Source\nURL Source: ${String(input.url)}\nNvidia reported record AI data center revenue. Intuit cut jobs to focus on AI services. AI regulation updates continue in May 2026.`,
-            })),
+            execute: webFetchExecute,
           },
         ]),
         contextManager,
@@ -3847,11 +3848,120 @@ describe("SimpleAgentLoop", () => {
         .join("");
       expect(streamedText).toContain("今日 AI 简报");
       expect(streamedText).toContain("来源链接");
+      expect(streamedText).toContain("Nvidia data center revenue");
+      expect(streamedText).toContain("White House releases AI policy framework");
       expect(streamedText).not.toContain("<tool_call>");
+      expect(webFetchExecute).not.toHaveBeenCalled();
       expect(memoryStore.addTrace).toHaveBeenCalledWith(
         expect.not.objectContaining({ error: "invalid_tool_markup_final" }),
       );
-      expect(provider.stream).toHaveBeenCalledTimes(2);
+      expect(provider.stream).toHaveBeenCalledTimes(1);
+    });
+
+    it("AI 新闻简报应在搜索结果足够时过滤低质来源并避免撞 web_fetch 限流", async () => {
+      const makeToolCallChunks = (
+        id: string,
+        name: string,
+        input: Record<string, unknown>,
+      ): LLMStreamChunk[] => [
+        { type: "tool_use_start", toolUse: { id, name, input: "" } },
+        {
+          type: "tool_use_delta",
+          toolUse: { id, name: "", input: JSON.stringify(input) },
+        },
+      ];
+      const firstRoundChunks: LLMStreamChunk[] = [
+        ...makeToolCallChunks("tc-search-1", "web_search", {
+          query: "AI artificial intelligence news today 2026-05-23",
+          max_results: 8,
+        }),
+        ...makeToolCallChunks("tc-search-2", "web_search", {
+          query: "AI model release announcement May 2026",
+          max_results: 8,
+        }),
+        ...makeToolCallChunks("tc-search-3", "web_search", {
+          query: "AI industry funding regulation news this week May 2026",
+          max_results: 8,
+        }),
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const overFetchChunks: LLMStreamChunk[] = [
+        ...makeToolCallChunks("tc-fetch-1", "web_fetch", {
+          url: "https://llm-stats.com/llm-updates",
+        }),
+        ...makeToolCallChunks("tc-fetch-2", "web_fetch", {
+          url: "https://blog.mean.ceo/new-ai-model-releases-news-may-2026/",
+        }),
+        ...makeToolCallChunks("tc-fetch-3", "web_fetch", {
+          url: "https://futureoflife.org/",
+        }),
+        ...makeToolCallChunks("tc-fetch-4", "web_fetch", {
+          url: "https://www.transparencycoalition.ai/news/ai-legislative-update-may8-2026",
+        }),
+        ...makeToolCallChunks("tc-search-4", "web_search", {
+          query: "AI news May 23 2026 latest",
+        }),
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const provider = createMockProvider([firstRoundChunks, overFetchChunks]);
+      const webFetchExecute = vi.fn(async () => ({
+        content: "should not be fetched",
+      }));
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry: createMockToolRegistry([
+          {
+            ...createMockTool("web_search"),
+            execute: vi.fn(async (input: Record<string, unknown>) => ({
+              content:
+                `results[5]{title,url}:\n` +
+                `  What can we expect from AI in 2026? | The Current - YouTube — Artificial Intelligence exploded in 2025.\n` +
+                `  https://www.youtube.com/watch?v=3w093nkLqCg\n` +
+                `  White House releases AI policy framework — court rules update ${String(input.query)}\n` +
+                `  https://www.whitehouse.gov/briefing-room/statements-releases/2026/05/23/ai-policy-framework/\n` +
+                `  AI Updates Today (May 2026) – Latest AI Model Releases - LLM Stats — Track recent AI model releases.\n` +
+                `  https://llm-stats.com/llm-updates\n` +
+                `  New AI Model Releases News | May, 2026 (STARTUP EDITION) — startup opinion recap.\n` +
+                `  https://blog.mean.ceo/new-ai-model-releases-news-may-2026/`,
+            })),
+          },
+          {
+            ...createMockTool("web_fetch"),
+            execute: webFetchExecute,
+          },
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5 },
+      });
+
+      const events = await collectEvents(
+        loop.runStream("在外网搜索今日AI界新闻生成简报", "conv-ai-news-search-only"),
+      );
+
+      const streamedText = events
+        .filter((event) => event.type === "response_chunk")
+        .map((event) => (event.data as { text: string }).text)
+        .join("");
+      expect(streamedText).toContain("今日 AI 简报");
+      expect(streamedText).toContain("White House releases AI policy framework");
+      expect(streamedText).not.toContain("LLM Stats");
+      expect(streamedText).not.toContain("YouTube");
+      expect(streamedText).not.toContain("blog.mean.ceo");
+      expect(streamedText).not.toContain("You have called web_fetch");
+      expect(streamedText).not.toContain("limit");
+      expect(webFetchExecute).not.toHaveBeenCalled();
+      expect(provider.stream).toHaveBeenCalledTimes(1);
     });
 
     it("Reddit RSS 定时任务抓取失败但已保存报告时应发送并完成，不进入伪工具 XML 轮次", async () => {
