@@ -90,6 +90,34 @@ function createRestToolContext(): ToolExecutionContext {
   };
 }
 
+function serializeTree(
+  tree: Awaited<ReturnType<AppContext["orchestrator"]["getSessionTree"]>>,
+) {
+  if (!tree) return undefined;
+  return {
+    conversationId: tree.conversationId,
+    activeLeafId: tree.activeLeafId,
+    turns: tree.turns.map(serializeTurn),
+  };
+}
+
+function buildAutoRecoveryPrompt(
+  originalContent: string,
+  failedToolNames: string[],
+): string {
+  const failedTools = failedToolNames.join(", ");
+  return [
+    "[自动恢复分支]",
+    failedTools
+      ? `上一条执行路径失败，失败工具：${failedTools}。本轮禁止再调用这些失败工具。`
+      : "上一条执行路径失败。本轮必须换一种执行路径。",
+    "请基于下面的原始请求继续完成任务；如果被禁用的工具是唯一可行路径，直接说明阻塞原因和下一步需要的人类输入，不要重复失败工具调用。",
+    "",
+    "原始请求：",
+    originalContent,
+  ].join("\n");
+}
+
 export function registerSessionRoutes(
   app: FastifyInstance,
   ctx: AppContext,
@@ -334,13 +362,104 @@ export function registerSessionRoutes(
         );
         return reply.send({
           message: serializeMessage(message),
-          tree: updatedTree
-            ? {
-                conversationId: updatedTree.conversationId,
-                activeLeafId: updatedTree.activeLeafId,
-                turns: updatedTree.turns.map(serializeTurn),
-              }
-            : undefined,
+          tree: serializeTree(updatedTree),
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.status(500).send({ error: message });
+      }
+    },
+  );
+
+  // POST /api/sessions/:id/auto-recover-branch - Retry a failed user turn on a controlled branch
+  app.post<{ Params: { id: string }; Body: { fromTurnId: string } }>(
+    "/api/sessions/:id/auto-recover-branch",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1 } },
+        },
+        body: {
+          type: "object",
+          required: ["fromTurnId"],
+          properties: {
+            fromTurnId: { type: "string", minLength: 1 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        const session = await ctx.orchestrator.getSession(req.params.id);
+        if (!session) {
+          return reply
+            .status(404)
+            .send({ error: `Session not found: ${req.params.id}` });
+        }
+        const tree = await ctx.orchestrator.getSessionTree(req.params.id);
+        if (!tree) {
+          return reply
+            .status(404)
+            .send({ error: `Session not found: ${req.params.id}` });
+        }
+        const sourceTurn = tree.turns.find(
+          (turn) => turn.id === req.body.fromTurnId,
+        );
+        if (!sourceTurn) {
+          return reply.status(400).send({
+            error: `Turn not found in session: ${req.body.fromTurnId}`,
+          });
+        }
+        if (sourceTurn.role !== "user") {
+          return reply.status(400).send({
+            error: "auto-recover-branch requires a user turn as fromTurnId",
+          });
+        }
+        const traces = await ctx.memoryStore.getTraces(
+          50,
+          0,
+          undefined,
+          session.conversationId,
+        );
+        const suggestion = traces.items
+          .map((trace) => trace.branchRecovery)
+          .find(
+            (candidate) =>
+              candidate !== undefined && candidate.fromTurnId === sourceTurn.id,
+          );
+        if (!suggestion) {
+          return reply.status(400).send({
+            error: `No recovery suggestion found for turn: ${sourceTurn.id}`,
+          });
+        }
+
+        const failedToolNames = suggestion.failedToolNames ?? [];
+        const toolContext = createRestToolContext();
+        const message = await ctx.orchestrator.processInput(
+          req.params.id,
+          buildAutoRecoveryPrompt(sourceTurn.content, failedToolNames),
+          {
+            ...toolContext,
+            conversationParentTurnId: sourceTurn.parentId ?? null,
+            conversationBranchId: `auto-recovery:${sourceTurn.id}`,
+            originalUserText: failedToolNames.length
+              ? `[自动恢复分支] 已从失败路径换路恢复；本轮禁用失败工具：${failedToolNames.join(", ")}。`
+              : "[自动恢复分支] 已从失败路径换路恢复。",
+            toolPolicy:
+              failedToolNames.length > 0
+                ? { deny: failedToolNames }
+                : undefined,
+          },
+        );
+        const updatedTree = await ctx.orchestrator.getSessionTree(
+          req.params.id,
+        );
+        return reply.send({
+          message: serializeMessage(message),
+          deniedTools: failedToolNames,
+          tree: serializeTree(updatedTree),
         });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -507,9 +626,17 @@ export function registerSessionRoutes(
           undefined,
           session.conversationId,
         );
+        const activeTurns = await ctx.memoryStore.getHistory(
+          session.conversationId,
+        );
+        const activeTurnIds = new Set(activeTurns.map((turn) => turn.id));
         const suggestions = traces.items
           .map((trace) => trace.branchRecovery)
-          .filter((suggestion) => suggestion !== undefined)
+          .filter(
+            (suggestion): suggestion is NonNullable<typeof suggestion> =>
+              suggestion !== undefined &&
+              activeTurnIds.has(suggestion.fromTurnId),
+          )
           .map((suggestion) => ({
             ...suggestion,
             createdAt: suggestion.createdAt.toISOString(),

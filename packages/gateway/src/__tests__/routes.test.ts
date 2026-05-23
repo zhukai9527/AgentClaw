@@ -368,6 +368,15 @@ describe("Session 路由", () => {
           },
         ],
       });
+      (ctx.memoryStore.getHistory as any).mockResolvedValue([
+        {
+          id: "turn-user-1",
+          conversationId: "conv-1",
+          role: "user",
+          content: "retry",
+          createdAt: new Date("2026-05-23T12:00:00Z"),
+        },
+      ]);
 
       const res = await app.inject({
         method: "GET",
@@ -389,6 +398,56 @@ describe("Session 路由", () => {
         undefined,
         "conv-1",
       );
+    });
+
+    it("不返回已经离开 active branch 的恢复建议", async () => {
+      (ctx.orchestrator.getSession as any).mockResolvedValue({
+        id: "s1",
+        conversationId: "conv-1",
+        createdAt: new Date(),
+        lastActiveAt: new Date(),
+      });
+      (ctx.memoryStore.getTraces as any).mockResolvedValue({
+        total: 1,
+        items: [
+          {
+            id: "trace-1",
+            conversationId: "conv-1",
+            userInput: "failed",
+            steps: [],
+            tokensIn: 1,
+            tokensOut: 1,
+            durationMs: 1,
+            createdAt: new Date("2026-05-23T12:00:01Z"),
+            branchRecovery: {
+              traceId: "trace-1",
+              conversationId: "conv-1",
+              fromTurnId: "old-failed-user",
+              reason: "tool_error",
+              message: "可以从本轮用户输入重新开一个分支。",
+              failedToolNames: ["bash"],
+              createdAt: new Date("2026-05-23T12:00:01Z"),
+            },
+          },
+        ],
+      });
+      (ctx.memoryStore.getHistory as any).mockResolvedValue([
+        {
+          id: "new-recovery-user",
+          conversationId: "conv-1",
+          role: "user",
+          content: "recovered",
+          createdAt: new Date("2026-05-23T12:00:02Z"),
+        },
+      ]);
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/sessions/s1/recovery-suggestions",
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual([]);
     });
   });
 
@@ -454,6 +513,88 @@ describe("Session 路由", () => {
         expect.objectContaining({
           conversationParentTurnId: "parent-user",
           conversationBranchId: "recovery:failed-user",
+        }),
+      );
+    });
+  });
+
+  describe("POST /api/sessions/:id/auto-recover-branch", () => {
+    it("自动恢复时替换失败用户轮次并禁用失败工具", async () => {
+      (ctx.orchestrator.getSession as any).mockResolvedValue({
+        id: "s1",
+        conversationId: "conv-1",
+        createdAt: new Date(),
+        lastActiveAt: new Date(),
+      });
+      (ctx.orchestrator.getSessionTree as any)
+        .mockResolvedValueOnce({
+          conversationId: "conv-1",
+          activeLeafId: "failed-assistant",
+          turns: [
+            {
+              id: "failed-user",
+              conversationId: "conv-1",
+              parentId: null,
+              branchId: "main",
+              role: "user",
+              content: "请列目录",
+              createdAt: new Date("2026-05-23T12:00:00Z"),
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          conversationId: "conv-1",
+          activeLeafId: "new-assistant",
+          turns: [],
+        });
+      (ctx.memoryStore.getTraces as any).mockResolvedValue({
+        total: 1,
+        items: [
+          {
+            id: "trace-1",
+            conversationId: "conv-1",
+            userInput: "请列目录",
+            steps: [],
+            tokensIn: 1,
+            tokensOut: 1,
+            durationMs: 1,
+            createdAt: new Date("2026-05-23T12:00:01Z"),
+            branchRecovery: {
+              traceId: "trace-1",
+              conversationId: "conv-1",
+              fromTurnId: "failed-user",
+              reason: "tool_error",
+              message: "可以从本轮用户输入重新开一个分支。",
+              failedToolNames: ["bash"],
+              createdAt: new Date("2026-05-23T12:00:01Z"),
+            },
+          },
+        ],
+      });
+      (ctx.orchestrator.processInput as any).mockResolvedValue({
+        id: "new-assistant",
+        role: "assistant",
+        content: "已换路径恢复",
+        createdAt: new Date("2026-05-23T12:00:02Z"),
+      });
+
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/sessions/s1/auto-recover-branch",
+        payload: { fromTurnId: "failed-user" },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().deniedTools).toEqual(["bash"]);
+      expect(ctx.orchestrator.processInput).toHaveBeenCalledWith(
+        "s1",
+        expect.stringContaining("本轮禁止再调用这些失败工具"),
+        expect.objectContaining({
+          conversationParentTurnId: null,
+          conversationBranchId: "auto-recovery:failed-user",
+          originalUserText:
+            "[自动恢复分支] 已从失败路径换路恢复；本轮禁用失败工具：bash。",
+          toolPolicy: { deny: ["bash"] },
         }),
       );
     });

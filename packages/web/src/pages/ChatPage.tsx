@@ -19,8 +19,12 @@ import {
   type WSMessage,
   type SkillInfo,
   type AgentInfo,
+  type BranchRecoverySuggestion,
   getHistory,
   deleteTurnsFrom,
+  getRecoverySuggestions,
+  recoverBranch,
+  autoRecoverBranch,
   createSession,
   uploadFile,
   renameSession,
@@ -64,6 +68,7 @@ import {
   IconCode,
   IconEye,
   IconCopy,
+  IconPlay,
 } from "../components/Icons";
 import { formatDuration, formatTimeOnly } from "../utils/format";
 import {
@@ -356,15 +361,45 @@ function PreviewPanel({
   const extMatch = filename.match(/\.(\w+)$/i);
   const ext = extMatch ? extMatch[1].toLowerCase() : "";
   const EXT_TO_LANG: Record<string, string> = {
-    txt: "text", srt: "text", vtt: "text", ass: "text", log: "text",
-    json: "json", xml: "xml", yaml: "yaml", yml: "yaml", toml: "toml",
-    ini: "ini", conf: "ini", env: "bash",
-    py: "python", js: "javascript", ts: "typescript", sh: "bash", bash: "bash",
-    css: "css", sql: "sql", r: "r", go: "go", rs: "rust", java: "java",
-    kt: "kotlin", c: "c", cpp: "cpp", h: "c", hpp: "cpp", rb: "ruby",
-    pl: "perl", lua: "lua", swift: "swift", zig: "zig",
-    ps1: "powershell", bat: "batch", cmd: "batch",
-    dockerfile: "dockerfile", gitignore: "text",
+    txt: "text",
+    srt: "text",
+    vtt: "text",
+    ass: "text",
+    log: "text",
+    json: "json",
+    xml: "xml",
+    yaml: "yaml",
+    yml: "yaml",
+    toml: "toml",
+    ini: "ini",
+    conf: "ini",
+    env: "bash",
+    py: "python",
+    js: "javascript",
+    ts: "typescript",
+    sh: "bash",
+    bash: "bash",
+    css: "css",
+    sql: "sql",
+    r: "r",
+    go: "go",
+    rs: "rust",
+    java: "java",
+    kt: "kotlin",
+    c: "c",
+    cpp: "cpp",
+    h: "c",
+    hpp: "cpp",
+    rb: "ruby",
+    pl: "perl",
+    lua: "lua",
+    swift: "swift",
+    zig: "zig",
+    ps1: "powershell",
+    bat: "batch",
+    cmd: "batch",
+    dockerfile: "dockerfile",
+    gitignore: "text",
   };
   const syntaxLang = EXT_TO_LANG[ext];
   const isTextFile = syntaxLang !== undefined;
@@ -559,7 +594,12 @@ function PreviewPanel({
             <SyntaxHighlighter
               style={theme === "dark" ? oneDark : oneLight}
               language={syntaxLang}
-              customStyle={{ margin: 0, height: "100%", overflow: "auto", fontSize: "13px" }}
+              customStyle={{
+                margin: 0,
+                height: "100%",
+                overflow: "auto",
+                fontSize: "13px",
+              }}
               showLineNumbers
             >
               {sourceContent}
@@ -636,7 +676,9 @@ function tableToMarkdown(table: HTMLTableElement): string {
     return arr;
   };
   const header = `| ${pad(rows[0]).join(" | ")} |`;
-  const sep = `| ${pad(rows[0]).map(() => "---").join(" | ")} |`;
+  const sep = `| ${pad(rows[0])
+    .map(() => "---")
+    .join(" | ")} |`;
   const body = rows
     .slice(1)
     .map((r) => `| ${pad(r).join(" | ")} |`)
@@ -644,7 +686,10 @@ function tableToMarkdown(table: HTMLTableElement): string {
   return `${header}\n${sep}\n${body}`;
 }
 
-function MdTable({ children, ...props }: React.TableHTMLAttributes<HTMLTableElement>) {
+function MdTable({
+  children,
+  ...props
+}: React.TableHTMLAttributes<HTMLTableElement>) {
   const ref = useRef<HTMLTableElement>(null);
   const [copied, setCopied] = useState(false);
   const [tapped, setTapped] = useState(false);
@@ -673,9 +718,25 @@ function MdTable({ children, ...props }: React.TableHTMLAttributes<HTMLTableElem
         title="复制表格 Markdown"
       >
         {copied ? (
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+          </svg>
         ) : (
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" />
+          </svg>
         )}
       </button>
       <table ref={ref} {...props}>
@@ -701,9 +762,25 @@ function MessageCopyBtn({ text }: { text: string }) {
       title="复制消息"
     >
       {copied ? (
-        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+        >
+          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+        </svg>
       ) : (
-        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+        >
+          <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" />
+        </svg>
       )}
     </button>
   );
@@ -785,10 +862,12 @@ const mdComponents = {
         );
       }
       // Text files: preview with syntax highlighting
-      if (/\.(txt|srt|vtt|ass|json|log|xml|yaml|yml|toml|ini|conf|py|js|ts|sh|bash|css|sql|r|go|rs|java|kt|c|cpp|h|hpp|rb|pl|lua|swift|zig|ps1|bat|cmd|env|gitignore|dockerfile)$/i.test(href)) {
-        return (
-          <HtmlPreviewCard href={href} filename={filename} />
-        );
+      if (
+        /\.(txt|srt|vtt|ass|json|log|xml|yaml|yml|toml|ini|conf|py|js|ts|sh|bash|css|sql|r|go|rs|java|kt|c|cpp|h|hpp|rb|pl|lua|swift|zig|ps1|bat|cmd|env|gitignore|dockerfile)$/i.test(
+          href,
+        )
+      ) {
+        return <HtmlPreviewCard href={href} filename={filename} />;
       }
     }
     return (
@@ -835,12 +914,22 @@ function SectionLabel({ label, text }: { label: string; text: string }) {
 
 /* ── ToolCallCard ─────────────────────────────────── */
 
-function toolCallLabel(name: string, input: string): { name: string; summary?: string } {
+function toolCallLabel(
+  name: string,
+  input: string,
+): { name: string; summary?: string } {
   try {
     const obj = JSON.parse(input);
     const val =
-      obj.command ?? obj.query ?? obj.url ?? obj.path ?? obj.pattern ??
-      obj.name ?? obj.filename ?? obj.content ?? obj.skill_name;
+      obj.command ??
+      obj.query ??
+      obj.url ??
+      obj.path ??
+      obj.pattern ??
+      obj.name ??
+      obj.filename ??
+      obj.content ??
+      obj.skill_name;
     if (val !== undefined) {
       const s = String(val);
       return { name, summary: s.length > 80 ? `${s.slice(0, 80)}…` : s };
@@ -917,7 +1006,9 @@ function ToolCallCard({ entry }: { entry: ToolCallEntry }) {
   return (
     <div className="tool-call-card">
       <div className="tool-call-header" onClick={handleToggle}>
-        <span className={`tool-call-icon${entry.toolResult === undefined ? " spinning" : ""}`}>
+        <span
+          className={`tool-call-icon${entry.toolResult === undefined ? " spinning" : ""}`}
+        >
           {entry.toolResult === undefined ? (
             <IconClock size={14} />
           ) : entry.isError ? (
@@ -926,9 +1017,14 @@ function ToolCallCard({ entry }: { entry: ToolCallEntry }) {
             <IconCheck size={14} />
           )}
         </span>
-        <span className="tool-call-name" title={label.summary ? `${label.name}: ${label.summary}` : label.name}>
+        <span
+          className="tool-call-name"
+          title={label.summary ? `${label.name}: ${label.summary}` : label.name}
+        >
           {label.name}
-          {label.summary && <span className="tool-call-summary">: {label.summary}</span>}
+          {label.summary && (
+            <span className="tool-call-summary">: {label.summary}</span>
+          )}
         </span>
         {entry.durationMs !== undefined && (
           <span className="tool-call-duration">
@@ -1001,7 +1097,8 @@ function parseSubAgentTasks(entry: ToolCallEntry): SubAgentTask[] | null {
   // Only for subagent spawn_and_wait
   try {
     const input = JSON.parse(entry.toolInput);
-    if (input.action !== "spawn_and_wait" || !Array.isArray(input.goals)) return null;
+    if (input.action !== "spawn_and_wait" || !Array.isArray(input.goals))
+      return null;
 
     const goals: string[] = input.goals;
     const tasks: SubAgentTask[] = goals.map((g) => ({
@@ -1058,7 +1155,10 @@ function SubAgentCard({ entry }: { entry: ToolCallEntry }) {
 
   return (
     <div className="subagent-card">
-      <div className="subagent-card-header" onClick={() => setExpanded(!expanded)}>
+      <div
+        className="subagent-card-header"
+        onClick={() => setExpanded(!expanded)}
+      >
         <span className="subagent-card-icon">
           {allDone ? <IconCheck size={14} /> : <IconClock size={14} />}
         </span>
@@ -1067,7 +1167,9 @@ function SubAgentCard({ entry }: { entry: ToolCallEntry }) {
           {done} / {tasks.length}
         </span>
         {entry.durationMs !== undefined && (
-          <span className="tool-call-duration">{formatDuration(entry.durationMs)}</span>
+          <span className="tool-call-duration">
+            {formatDuration(entry.durationMs)}
+          </span>
         )}
         <span className="tool-call-chevron">
           <IconChevronRight size={14} />
@@ -1276,6 +1378,13 @@ export function ChatPage() {
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const agentMenuRef = useRef<HTMLDivElement>(null);
   const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
+  const [recoverySuggestions, setRecoverySuggestions] = useState<
+    BranchRecoverySuggestion[]
+  >([]);
+  const [recoveryDrafts, setRecoveryDrafts] = useState<Record<string, string>>(
+    {},
+  );
+  const [recoveringTurnId, setRecoveringTurnId] = useState<string | null>(null);
   const [todoItems, setTodoItems] = useState<
     Array<{ text: string; done: boolean }>
   >([]);
@@ -1351,6 +1460,28 @@ export function ChatPage() {
     });
   }, []);
 
+  const loadRecoverySuggestions = useCallback(async () => {
+    if (!activeSessionId) {
+      setRecoverySuggestions([]);
+      setRecoveryDrafts({});
+      return;
+    }
+    const suggestions = await getRecoverySuggestions(activeSessionId);
+    setRecoverySuggestions(suggestions);
+    setRecoveryDrafts((prev) => {
+      const next: Record<string, string> = {};
+      for (const suggestion of suggestions) {
+        next[suggestion.fromTurnId] =
+          prev[suggestion.fromTurnId] ??
+          t("chat.recoveryDraft", {
+            tools:
+              suggestion.failedToolNames?.join(", ") || t("chat.unknownTool"),
+          });
+      }
+      return next;
+    });
+  }, [activeSessionId, t]);
+
   useEffect(() => {
     scrollToBottom();
   }, [scrollToBottom]);
@@ -1363,6 +1494,8 @@ export function ChatPage() {
       setLoadingHistory(false);
       // 新建会话时清空 todo
       setTodoItems([]);
+      setRecoverySuggestions([]);
+      setRecoveryDrafts({});
       return;
     }
     // Skip loading empty history for sessions just created by ensureSession
@@ -1378,7 +1511,9 @@ export function ChatPage() {
         if (cancelled) return;
         const historyMessages = historyToDisplayMessages(history);
         // Attach session's agentId to assistant messages for agent tag display
-        const sessionAgentId = sessions.find((s) => s.id === activeSessionId)?.agentId;
+        const sessionAgentId = sessions.find(
+          (s) => s.id === activeSessionId,
+        )?.agentId;
         if (sessionAgentId && sessionAgentId !== "default") {
           for (const msg of historyMessages) {
             if (msg.role === "assistant" && !msg.agentId) {
@@ -1403,6 +1538,7 @@ export function ChatPage() {
         } else {
           setMessages(historyMessages);
         }
+        loadRecoverySuggestions().catch(() => {});
       } catch (err) {
         console.error("Failed to load history:", err);
         if (!cancelled) setMessages([]);
@@ -1425,7 +1561,7 @@ export function ChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeSessionId]);
+  }, [activeSessionId, loadRecoverySuggestions]);
 
   useEffect(() => {
     return () => {
@@ -1436,336 +1572,361 @@ export function ChatPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* WS message handler */
-  const handleWsMessage = useCallback((msg: WSMessage) => {
-    // After stop is requested, ignore streaming events until "done" arrives
-    if (stoppedRef.current && msg.type !== "done" && msg.type !== "error") {
-      return;
-    }
-    switch (msg.type) {
-      case "resuming": {
-        // 服务端重连回放：标记回放中，防止 history 加载覆盖 streaming 状态
-        resumingRef.current = true;
-        startStreaming(sessionIdRef.current);
-        // Remove trailing assistant message regardless of streaming flag —
-        // history may have loaded first (streaming: false), buffer replay will rebuild it
-        setMessages((prev) => {
-          let end = prev.length;
-          while (end > 0 && prev[end - 1].role === "assistant") end--;
-          return end < prev.length ? prev.slice(0, end) : prev;
-        });
-        break;
+  const handleWsMessage = useCallback(
+    (msg: WSMessage) => {
+      // After stop is requested, ignore streaming events until "done" arrives
+      if (stoppedRef.current && msg.type !== "done" && msg.type !== "error") {
+        return;
       }
-      case "handoff": {
-        // Agent handoff notification
-        const handoffNotice = `\u{1F504} **Handoff** \u2192 **${msg.toAgentName || msg.toAgent}**`;
-        setMessages((prev) => {
-          const cleaned = prev.map((m) =>
-            m.streaming ? { ...m, streaming: false } : m,
-          );
-          return [
-            ...cleaned,
-            {
+      switch (msg.type) {
+        case "resuming": {
+          // 服务端重连回放：标记回放中，防止 history 加载覆盖 streaming 状态
+          resumingRef.current = true;
+          startStreaming(sessionIdRef.current);
+          // Remove trailing assistant message regardless of streaming flag —
+          // history may have loaded first (streaming: false), buffer replay will rebuild it
+          setMessages((prev) => {
+            let end = prev.length;
+            while (end > 0 && prev[end - 1].role === "assistant") end--;
+            return end < prev.length ? prev.slice(0, end) : prev;
+          });
+          break;
+        }
+        case "handoff": {
+          // Agent handoff notification
+          const handoffNotice = `\u{1F504} **Handoff** \u2192 **${msg.toAgentName || msg.toAgent}**`;
+          setMessages((prev) => {
+            const cleaned = prev.map((m) =>
+              m.streaming ? { ...m, streaming: false } : m,
+            );
+            return [
+              ...cleaned,
+              {
+                key: nextKey(),
+                role: "system" as const,
+                content: handoffNotice,
+                createdAt: new Date().toISOString(),
+                streaming: false,
+                toolCalls: [],
+              },
+            ];
+          });
+          break;
+        }
+        case "text": {
+          setActiveToolName(null);
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last && last.role === "assistant" && last.streaming) {
+              return [
+                ...prev.slice(0, -1),
+                {
+                  ...last,
+                  thinking: false,
+                  content: last.content + (msg.text ?? ""),
+                },
+              ];
+            }
+            return [
+              ...prev,
+              {
+                key: nextKey(),
+                role: "assistant",
+                content: msg.text ?? "",
+                streaming: true,
+                toolCalls: [],
+              },
+            ];
+          });
+          break;
+        }
+        case "tool_call": {
+          const tcId = ++toolCallIdRef.current;
+          const entry: ToolCallEntry = {
+            id: tcId,
+            toolName: msg.toolName ?? "unknown",
+            toolInput: msg.toolInput ?? "",
+            collapsed: true,
+            intent: msg.intent,
+          };
+          setActiveToolName(msg.toolName ?? null);
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last && last.role === "assistant" && last.streaming) {
+              return [
+                ...prev.slice(0, -1),
+                { ...last, toolCalls: [...last.toolCalls, entry] },
+              ];
+            }
+            return [
+              ...prev,
+              {
+                key: nextKey(),
+                role: "assistant",
+                content: "",
+                streaming: true,
+                toolCalls: [entry],
+              },
+            ];
+          });
+          break;
+        }
+        case "tool_result": {
+          setActiveToolName(null);
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (
+              last &&
+              last.role === "assistant" &&
+              last.toolCalls.length > 0
+            ) {
+              const toolCalls = [...last.toolCalls];
+              for (let i = toolCalls.length - 1; i >= 0; i--) {
+                if (toolCalls[i].toolResult === undefined) {
+                  toolCalls[i] = {
+                    ...toolCalls[i],
+                    toolResult: msg.toolResult ?? "",
+                    isError: msg.isError ?? false,
+                    durationMs: msg.durationMs ?? undefined,
+                  };
+                  break;
+                }
+              }
+              // After tool completes, LLM will think again — show thinking animation
+              return [
+                ...prev.slice(0, -1),
+                { ...last, thinking: true, toolCalls },
+              ];
+            }
+            return prev;
+          });
+          break;
+        }
+        case "tool_progress": {
+          const progressText = msg.text ?? "";
+          if (!progressText) break;
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (
+              last &&
+              last.role === "assistant" &&
+              last.toolCalls.length > 0
+            ) {
+              const toolCalls = [...last.toolCalls];
+              // Append to the last unfinished tool call
+              for (let i = toolCalls.length - 1; i >= 0; i--) {
+                if (toolCalls[i].toolResult === undefined) {
+                  const lines = [
+                    ...(toolCalls[i].progressLines ?? []),
+                    progressText,
+                  ];
+                  // Keep last 20 lines to avoid memory bloat
+                  toolCalls[i] = {
+                    ...toolCalls[i],
+                    progressLines: lines.slice(-20),
+                  };
+                  break;
+                }
+              }
+              return [...prev.slice(0, -1), { ...last, toolCalls }];
+            }
+            return prev;
+          });
+          break;
+        }
+        case "file": {
+          const fileUrl = msg.url ?? "";
+          const fileName = msg.filename ?? "file";
+          const isImage = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(fileName);
+          const fileContent = isImage
+            ? `![${fileName}](${fileUrl})`
+            : `[${fileName}](${fileUrl})`;
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            // Deduplicate: skip if this URL is already in the current assistant message
+            if (
+              last &&
+              last.role === "assistant" &&
+              last.content?.includes(fileUrl)
+            ) {
+              return prev;
+            }
+            if (last && last.role === "assistant" && last.streaming) {
+              return [
+                ...prev.slice(0, -1),
+                {
+                  ...last,
+                  content: last.content
+                    ? `${last.content}\n${fileContent}`
+                    : fileContent,
+                },
+              ];
+            }
+            return [
+              ...prev,
+              {
+                key: nextKey(),
+                role: "assistant",
+                content: fileContent,
+                streaming: true,
+                toolCalls: [],
+              },
+            ];
+          });
+          break;
+        }
+        case "todo_update": {
+          const items = (
+            msg as unknown as { items: Array<{ text: string; done: boolean }> }
+          ).items;
+          if (Array.isArray(items)) {
+            setTodoItems(items);
+            // 持久化到 localStorage，切换会话时可恢复
+            const sid = sessionIdRef.current;
+            if (sid) {
+              localStorage.setItem(`todo:${sid}`, JSON.stringify(items));
+            }
+          }
+          break;
+        }
+        case "done": {
+          stoppedRef.current = false;
+          resumingRef.current = false;
+          setActiveToolName(null);
+          const elapsed = sendTimestampRef.current
+            ? Date.now() - sendTimestampRef.current
+            : undefined;
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last && last.role === "assistant") {
+              let content = last.content;
+              const seen = new Set<string>();
+              content = content.replace(
+                /!?\[([^\]]*)\]\(([^)]*)\)/g,
+                (match, _alt: string, url: string) => {
+                  if (seen.has(url)) return "";
+                  seen.add(url);
+                  return match;
+                },
+              );
+              content = content.replace(/\n{3,}/g, "\n\n").trim();
+              if (content) notifyIfHidden("AgentClaw", content);
+              return [
+                ...prev.slice(0, -1),
+                {
+                  ...last,
+                  content,
+                  thinking: false,
+                  streaming: false,
+                  model: msg.model ?? last.model,
+                  tokensIn: msg.tokensIn ?? last.tokensIn,
+                  tokensOut: msg.tokensOut ?? last.tokensOut,
+                  durationMs: elapsed ?? msg.durationMs ?? last.durationMs,
+                  toolCallCount: msg.toolCallCount ?? last.toolCallCount,
+                  agentId: msg.agentId ?? last.agentId,
+                },
+              ];
+            }
+            return prev;
+          });
+          stopStreaming();
+          refreshSessions();
+          loadRecoverySuggestions().catch(() => {});
+          break;
+        }
+        case "prompt": {
+          const q = msg.question ?? "";
+          setPendingPrompt(q);
+          setActiveToolName(null);
+          // Clear thinking on previous assistant message + show question as new message
+          setMessages((prev) => {
+            const updated = [...prev];
+            // Clear thinking dots on the last assistant message
+            for (let i = updated.length - 1; i >= 0; i--) {
+              if (updated[i].role === "assistant" && updated[i].thinking) {
+                updated[i] = { ...updated[i], thinking: false };
+                break;
+              }
+            }
+            updated.push({
               key: nextKey(),
-              role: "system" as const,
-              content: handoffNotice,
+              role: "assistant",
+              content: q,
               createdAt: new Date().toISOString(),
               streaming: false,
               toolCalls: [],
-            },
-          ];
-        });
-        break;
-      }
-      case "text": {
-        setActiveToolName(null);
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.role === "assistant" && last.streaming) {
-            return [
-              ...prev.slice(0, -1),
-              { ...last, thinking: false, content: last.content + (msg.text ?? "") },
-            ];
-          }
-          return [
-            ...prev,
-            {
-              key: nextKey(),
-              role: "assistant",
-              content: msg.text ?? "",
-              streaming: true,
-              toolCalls: [],
-            },
-          ];
-        });
-        break;
-      }
-      case "tool_call": {
-        const tcId = ++toolCallIdRef.current;
-        const entry: ToolCallEntry = {
-          id: tcId,
-          toolName: msg.toolName ?? "unknown",
-          toolInput: msg.toolInput ?? "",
-          collapsed: true,
-          intent: msg.intent,
-        };
-        setActiveToolName(msg.toolName ?? null);
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.role === "assistant" && last.streaming) {
-            return [
-              ...prev.slice(0, -1),
-              { ...last, toolCalls: [...last.toolCalls, entry] },
-            ];
-          }
-          return [
-            ...prev,
-            {
-              key: nextKey(),
-              role: "assistant",
-              content: "",
-              streaming: true,
-              toolCalls: [entry],
-            },
-          ];
-        });
-        break;
-      }
-      case "tool_result": {
-        setActiveToolName(null);
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.role === "assistant" && last.toolCalls.length > 0) {
-            const toolCalls = [...last.toolCalls];
-            for (let i = toolCalls.length - 1; i >= 0; i--) {
-              if (toolCalls[i].toolResult === undefined) {
-                toolCalls[i] = {
-                  ...toolCalls[i],
-                  toolResult: msg.toolResult ?? "",
-                  isError: msg.isError ?? false,
-                  durationMs: msg.durationMs ?? undefined,
-                };
-                break;
-              }
-            }
-            // After tool completes, LLM will think again — show thinking animation
-            return [...prev.slice(0, -1), { ...last, thinking: true, toolCalls }];
-          }
-          return prev;
-        });
-        break;
-      }
-      case "tool_progress": {
-        const progressText = msg.text ?? "";
-        if (!progressText) break;
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.role === "assistant" && last.toolCalls.length > 0) {
-            const toolCalls = [...last.toolCalls];
-            // Append to the last unfinished tool call
-            for (let i = toolCalls.length - 1; i >= 0; i--) {
-              if (toolCalls[i].toolResult === undefined) {
-                const lines = [
-                  ...(toolCalls[i].progressLines ?? []),
-                  progressText,
-                ];
-                // Keep last 20 lines to avoid memory bloat
-                toolCalls[i] = {
-                  ...toolCalls[i],
-                  progressLines: lines.slice(-20),
-                };
-                break;
-              }
-            }
-            return [...prev.slice(0, -1), { ...last, toolCalls }];
-          }
-          return prev;
-        });
-        break;
-      }
-      case "file": {
-        const fileUrl = msg.url ?? "";
-        const fileName = msg.filename ?? "file";
-        const isImage = /\.(png|jpe?g|gif|webp|svg|bmp)$/i.test(fileName);
-        const fileContent = isImage
-          ? `![${fileName}](${fileUrl})`
-          : `[${fileName}](${fileUrl})`;
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          // Deduplicate: skip if this URL is already in the current assistant message
-          if (
-            last &&
-            last.role === "assistant" &&
-            last.content?.includes(fileUrl)
-          ) {
-            return prev;
-          }
-          if (last && last.role === "assistant" && last.streaming) {
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...last,
-                content: last.content
-                  ? `${last.content}\n${fileContent}`
-                  : fileContent,
-              },
-            ];
-          }
-          return [
-            ...prev,
-            {
-              key: nextKey(),
-              role: "assistant",
-              content: fileContent,
-              streaming: true,
-              toolCalls: [],
-            },
-          ];
-        });
-        break;
-      }
-      case "todo_update": {
-        const items = (
-          msg as unknown as { items: Array<{ text: string; done: boolean }> }
-        ).items;
-        if (Array.isArray(items)) {
-          setTodoItems(items);
-          // 持久化到 localStorage，切换会话时可恢复
-          const sid = sessionIdRef.current;
-          if (sid) {
-            localStorage.setItem(`todo:${sid}`, JSON.stringify(items));
-          }
+            });
+            return updated;
+          });
+          break;
         }
-        break;
-      }
-      case "done": {
-        stoppedRef.current = false;
-        resumingRef.current = false;
-        setActiveToolName(null);
-        const elapsed = sendTimestampRef.current
-          ? Date.now() - sendTimestampRef.current
-          : undefined;
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.role === "assistant") {
-            let content = last.content;
-            const seen = new Set<string>();
-            content = content.replace(
-              /!?\[([^\]]*)\]\(([^)]*)\)/g,
-              (match, _alt: string, url: string) => {
-                if (seen.has(url)) return "";
-                seen.add(url);
-                return match;
-              },
-            );
-            content = content.replace(/\n{3,}/g, "\n\n").trim();
-            if (content) notifyIfHidden("AgentClaw", content);
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...last,
-                content,
-                thinking: false,
-                streaming: false,
-                model: msg.model ?? last.model,
-                tokensIn: msg.tokensIn ?? last.tokensIn,
-                tokensOut: msg.tokensOut ?? last.tokensOut,
-                durationMs: elapsed ?? msg.durationMs ?? last.durationMs,
-                toolCallCount: msg.toolCallCount ?? last.toolCallCount,
-                agentId: msg.agentId ?? last.agentId,
-              },
-            ];
+        case "broadcast": {
+          const broadcastText = msg.text ?? "";
+          if (!broadcastText) break;
+          // Toast notification (visible on any page)
+          const w = window as unknown as {
+            toast?: { info: (title: string, desc?: string) => void };
+          };
+          if (w.toast) {
+            w.toast.info("AgentClaw", broadcastText);
           }
-          return prev;
-        });
-        stopStreaming();
-        refreshSessions();
-        break;
-      }
-      case "prompt": {
-        const q = msg.question ?? "";
-        setPendingPrompt(q);
-        setActiveToolName(null);
-        // Clear thinking on previous assistant message + show question as new message
-        setMessages((prev) => {
-          const updated = [...prev];
-          // Clear thinking dots on the last assistant message
-          for (let i = updated.length - 1; i >= 0; i--) {
-            if (updated[i].role === "assistant" && updated[i].thinking) {
-              updated[i] = { ...updated[i], thinking: false };
-              break;
-            }
+          new Audio("/tada.wav").play().catch(() => {});
+          // Browser notification (always, even if page is visible)
+          if (Notification.permission === "granted") {
+            new Notification("AgentClaw", {
+              body: broadcastText.slice(0, 100),
+              icon: "/favicon.ico",
+              tag: "agentclaw-broadcast",
+            });
           }
-          updated.push({
+          break;
+        }
+        case "session_activity": {
+          // Another channel (Telegram/WhatsApp) updated a session — refresh list
+          refreshSessions();
+          break;
+        }
+        case "error": {
+          if (msg.error?.includes("Session not found")) {
+            createSession()
+              .then((_ns) => {
+                // session will be refreshed via context
+              })
+              .catch(() => {});
+            return;
+          }
+          const errMsg: DisplayMessage = {
             key: nextKey(),
-            role: "assistant",
-            content: q,
-            createdAt: new Date().toISOString(),
+            role: "system",
+            content: msg.error ?? "An unknown error occurred.",
             streaming: false,
             toolCalls: [],
+          };
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last && last.role === "assistant" && last.streaming) {
+              return [
+                ...prev.slice(0, -1),
+                { ...last, thinking: false, streaming: false },
+                errMsg,
+              ];
+            }
+            return [...prev, errMsg];
           });
-          return updated;
-        });
-        break;
-      }
-      case "broadcast": {
-        const broadcastText = msg.text ?? "";
-        if (!broadcastText) break;
-        // Toast notification (visible on any page)
-        const w = window as unknown as {
-          toast?: { info: (title: string, desc?: string) => void };
-        };
-        if (w.toast) {
-          w.toast.info("AgentClaw", broadcastText);
+          resetStreamingLocal();
+          break;
         }
-        new Audio("/tada.wav").play().catch(() => {});
-        // Browser notification (always, even if page is visible)
-        if (Notification.permission === "granted") {
-          new Notification("AgentClaw", {
-            body: broadcastText.slice(0, 100),
-            icon: "/favicon.ico",
-            tag: "agentclaw-broadcast",
-          });
-        }
-        break;
       }
-      case "session_activity": {
-        // Another channel (Telegram/WhatsApp) updated a session — refresh list
-        refreshSessions();
-        break;
-      }
-      case "error": {
-        if (msg.error?.includes("Session not found")) {
-          createSession()
-            .then((_ns) => {
-              // session will be refreshed via context
-            })
-            .catch(() => {});
-          return;
-        }
-        const errMsg: DisplayMessage = {
-          key: nextKey(),
-          role: "system",
-          content: msg.error ?? "An unknown error occurred.",
-          streaming: false,
-          toolCalls: [],
-        };
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.role === "assistant" && last.streaming) {
-            return [
-              ...prev.slice(0, -1),
-              { ...last, thinking: false, streaming: false },
-              errMsg,
-            ];
-          }
-          return [...prev, errMsg];
-        });
-        resetStreamingLocal();
-        break;
-      }
-    }
-  }, [// Another channel (Telegram/WhatsApp) updated a session — refresh list
-        refreshSessions, resetStreamingLocal, setActiveToolName, startStreaming, stopStreaming]);
+    },
+    [
+      loadRecoverySuggestions,
+      refreshSessions,
+      resetStreamingLocal,
+      setActiveToolName,
+      startStreaming,
+      stopStreaming,
+    ],
+  );
 
   /* WS connection lifecycle (extracted hook) */
   const {
@@ -1832,10 +1993,17 @@ export function ChatPage() {
     if (!configCheckedRef.current) {
       try {
         const cfg = await getConfig();
-        const hasLegacyKey = !!(cfg.anthropicApiKey || cfg.openaiApiKey || cfg.geminiApiKey);
+        const hasLegacyKey = !!(
+          cfg.anthropicApiKey ||
+          cfg.openaiApiKey ||
+          cfg.geminiApiKey
+        );
         const configRecord = cfg as unknown as Record<string, unknown>;
-        const hasProvider = Array.isArray(configRecord.providers) &&
-          (configRecord.providers as Array<{ apiKey?: string }>).some((p) => p.apiKey);
+        const hasProvider =
+          Array.isArray(configRecord.providers) &&
+          (configRecord.providers as Array<{ apiKey?: string }>).some(
+            (p) => p.apiKey,
+          );
         const hasKey = hasLegacyKey || hasProvider;
         configCheckedRef.current = hasKey;
         if (!hasKey) {
@@ -1913,15 +2081,16 @@ export function ChatPage() {
       }
     }
   }, [
-    inputValue, 
-    isSending, 
-    pendingFiles, 
-    selectedSkill, 
-    ensureSession, 
-    activeSessionId, 
-    connectWs, 
-    setPendingSend, 
-    startStreaming, pendingPrompt,
+    inputValue,
+    isSending,
+    pendingFiles,
+    selectedSkill,
+    ensureSession,
+    activeSessionId,
+    connectWs,
+    setPendingSend,
+    startStreaming,
+    pendingPrompt,
   ]);
 
   const handleStop = useCallback(() => {
@@ -1958,6 +2127,84 @@ export function ChatPage() {
     startStreaming(activeSessionId);
     wsRef.current.send(lastUserText);
   }, [isSending, lastUserText, activeSessionId, startStreaming]);
+
+  const refreshHistoryAfterRecovery = useCallback(async () => {
+    if (!activeSessionId) return;
+    const history = await getHistory(activeSessionId);
+    setMessages(historyToDisplayMessages(history));
+    await loadRecoverySuggestions();
+    refreshSessions();
+  }, [activeSessionId, loadRecoverySuggestions, refreshSessions]);
+
+  const handleAutoRecover = useCallback(
+    async (suggestion: BranchRecoverySuggestion) => {
+      if (!activeSessionId || isSending) return;
+      setRecoveringTurnId(suggestion.fromTurnId);
+      startStreaming(activeSessionId);
+      try {
+        await autoRecoverBranch(activeSessionId, suggestion.fromTurnId);
+        await refreshHistoryAfterRecovery();
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            key: nextKey(),
+            role: "system",
+            content: err instanceof Error ? err.message : String(err),
+            streaming: false,
+            toolCalls: [],
+          },
+        ]);
+      } finally {
+        setRecoveringTurnId(null);
+        stopStreaming();
+      }
+    },
+    [
+      activeSessionId,
+      isSending,
+      refreshHistoryAfterRecovery,
+      startStreaming,
+      stopStreaming,
+    ],
+  );
+
+  const handleManualRecover = useCallback(
+    async (suggestion: BranchRecoverySuggestion) => {
+      if (!activeSessionId || isSending) return;
+      const content = recoveryDrafts[suggestion.fromTurnId]?.trim();
+      if (!content) return;
+      setRecoveringTurnId(suggestion.fromTurnId);
+      startStreaming(activeSessionId);
+      try {
+        await recoverBranch(activeSessionId, suggestion.fromTurnId, content);
+        setLastUserText(content);
+        await refreshHistoryAfterRecovery();
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            key: nextKey(),
+            role: "system",
+            content: err instanceof Error ? err.message : String(err),
+            streaming: false,
+            toolCalls: [],
+          },
+        ]);
+      } finally {
+        setRecoveringTurnId(null);
+        stopStreaming();
+      }
+    },
+    [
+      activeSessionId,
+      isSending,
+      recoveryDrafts,
+      refreshHistoryAfterRecovery,
+      startStreaming,
+      stopStreaming,
+    ],
+  );
 
   const handleEditSubmit = useCallback(
     async (msgKey: string) => {
@@ -2021,7 +2268,14 @@ export function ChatPage() {
       startStreaming(activeSessionId);
       wsRef.current!.send(text);
     },
-    [editMsgValue, isSending, activeSessionId, messages, refreshSessions, startStreaming],
+    [
+      editMsgValue,
+      isSending,
+      activeSessionId,
+      messages,
+      refreshSessions,
+      startStreaming,
+    ],
   );
 
   const handleFiles = useCallback((files: File[]) => {
@@ -2069,7 +2323,9 @@ export function ChatPage() {
       };
 
       recorder.onstop = () => {
-        stream.getTracks().forEach((t) => { t.stop(); });
+        stream.getTracks().forEach((t) => {
+          t.stop();
+        });
         if (recordingTimerRef.current) {
           clearInterval(recordingTimerRef.current);
           recordingTimerRef.current = null;
@@ -2091,7 +2347,9 @@ export function ChatPage() {
       };
 
       recorder.onerror = () => {
-        stream.getTracks().forEach((t) => { t.stop(); });
+        stream.getTracks().forEach((t) => {
+          t.stop();
+        });
         setIsRecording(false);
         setRecordingTime(0);
       };
@@ -2327,9 +2585,7 @@ export function ChatPage() {
             <span className="slash-menu-text">
               <span className="slash-menu-label">{item.name}</span>
               {item.description && (
-                <span className="slash-menu-desc">
-                  {item.description}
-                </span>
+                <span className="slash-menu-desc">{item.description}</span>
               )}
             </span>
           </button>
@@ -2338,7 +2594,10 @@ export function ChatPage() {
     );
   };
 
-  const chatAgents = useMemo(() => agents.filter((a) => a.showInChat !== false), [agents]);
+  const chatAgents = useMemo(
+    () => agents.filter((a) => a.showInChat !== false),
+    [agents],
+  );
 
   const renderAgentMenu = () => {
     if (!agentMenuOpen || chatAgents.length <= 1) return null;
@@ -2371,7 +2630,8 @@ export function ChatPage() {
 
   // Close header menu, skill menu, slash menu, and agent menu on outside click
   useEffect(() => {
-    if (!headerMenuOpen && !skillMenuOpen && !slashMenuOpen && !agentMenuOpen) return;
+    if (!headerMenuOpen && !skillMenuOpen && !slashMenuOpen && !agentMenuOpen)
+      return;
     const handler = (e: MouseEvent) => {
       const target = e.target as Node;
       if (
@@ -2468,6 +2728,7 @@ export function ChatPage() {
     messages.length > 0 &&
     messages[messages.length - 1].role === "assistant" &&
     !messages[messages.length - 1].streaming;
+  const activeRecoverySuggestion = recoverySuggestions[0];
 
   return (
     <PreviewContext.Provider value={setPreviewFile}>
@@ -2598,13 +2859,16 @@ export function ChatPage() {
 
           {/* Agent indicator bar — shown for non-default agents */}
           {(() => {
-            const agentId = activeSession?.agentId || (isNewChat ? pendingAgentId : null);
+            const agentId =
+              activeSession?.agentId || (isNewChat ? pendingAgentId : null);
             if (!agentId || agentId === "default") return null;
             const ag = agents.find((a) => a.id === agentId);
             if (!ag) return null;
             return (
               <div className="agent-indicator-bar">
-                <span className="agent-indicator-avatar">{ag.avatar || "🤖"}</span>
+                <span className="agent-indicator-avatar">
+                  {ag.avatar || "🤖"}
+                </span>
                 <span className="agent-indicator-name">{ag.name}</span>
                 {isNewChat && (
                   <button
@@ -2624,6 +2888,67 @@ export function ChatPage() {
             <div className="tool-status-bar">
               <span className="tool-status-spinner" />
               <span>{t("chat.runningTool", { tool: activeToolName })}</span>
+            </div>
+          )}
+
+          {activeRecoverySuggestion && (
+            <div className="recovery-panel">
+              <div className="recovery-panel-main">
+                <div className="recovery-panel-heading">
+                  <span className="recovery-panel-icon">
+                    <IconRefresh size={15} />
+                  </span>
+                  <span>{t("chat.recoveryTitle")}</span>
+                  {activeRecoverySuggestion.failedToolNames?.length ? (
+                    <span className="recovery-panel-tools">
+                      {activeRecoverySuggestion.failedToolNames.join(", ")}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="recovery-panel-message">
+                  {activeRecoverySuggestion.message}
+                </div>
+                <textarea
+                  className="recovery-panel-input"
+                  value={
+                    recoveryDrafts[activeRecoverySuggestion.fromTurnId] ?? ""
+                  }
+                  onChange={(e) =>
+                    setRecoveryDrafts((prev) => ({
+                      ...prev,
+                      [activeRecoverySuggestion.fromTurnId]: e.target.value,
+                    }))
+                  }
+                  disabled={isSending}
+                  rows={2}
+                  aria-label={t("chat.recoveryInput")}
+                />
+              </div>
+              <div className="recovery-panel-actions">
+                <button
+                  className="recovery-panel-primary"
+                  onClick={() => handleAutoRecover(activeRecoverySuggestion)}
+                  disabled={isSending || !!recoveringTurnId}
+                  title={t("chat.recoveryAutoHint")}
+                >
+                  <IconPlay size={14} />
+                  {recoveringTurnId === activeRecoverySuggestion.fromTurnId
+                    ? t("chat.recovering")
+                    : t("chat.autoRecover")}
+                </button>
+                <button
+                  className="recovery-panel-secondary"
+                  onClick={() => handleManualRecover(activeRecoverySuggestion)}
+                  disabled={
+                    isSending ||
+                    !!recoveringTurnId ||
+                    !recoveryDrafts[activeRecoverySuggestion.fromTurnId]?.trim()
+                  }
+                >
+                  <IconEdit size={14} />
+                  {t("chat.recoverWithDraft")}
+                </button>
+              </div>
             </div>
           )}
 
@@ -2665,12 +2990,17 @@ export function ChatPage() {
                             <IconPaperclip size={18} />
                           </button>
                           {chatAgents.length > 1 && (
-                            <div className="agent-selector-wrap" ref={agentMenuRef}>
+                            <div
+                              className="agent-selector-wrap"
+                              ref={agentMenuRef}
+                            >
                               <button
                                 className="btn-agent-selector"
                                 onClick={() => setAgentMenuOpen((v) => !v)}
                               >
-                                <span className="agent-selector-name">{currentAgent?.name || "Agent"}</span>
+                                <span className="agent-selector-name">
+                                  {currentAgent?.name || "Agent"}
+                                </span>
                                 <IconChevronRight size={12} />
                               </button>
                               {renderAgentMenu()}
@@ -2848,7 +3178,8 @@ export function ChatPage() {
                                         />
                                       ))}
                                       {/* 没有工具调用时，文本直接放在气泡里 */}
-                                      {(m.role === "user" || m.toolCalls.length === 0) && (
+                                      {(m.role === "user" ||
+                                        m.toolCalls.length === 0) && (
                                         <>
                                           <div className="message-content-md">
                                             <ReactMarkdown
@@ -2866,10 +3197,19 @@ export function ChatPage() {
                                             (m.role === "assistant" &&
                                               !m.streaming)) && (
                                             <div className="message-meta">
-                                              {m.role === "assistant" && m.agentId && m.agentId !== "default" && (() => {
-                                                const ag = agents.find((a) => a.id === m.agentId);
-                                                return ag ? <span className="message-agent-name">{ag.name} · </span> : null;
-                                              })()}
+                                              {m.role === "assistant" &&
+                                                m.agentId &&
+                                                m.agentId !== "default" &&
+                                                (() => {
+                                                  const ag = agents.find(
+                                                    (a) => a.id === m.agentId,
+                                                  );
+                                                  return ag ? (
+                                                    <span className="message-agent-name">
+                                                      {ag.name} ·{" "}
+                                                    </span>
+                                                  ) : null;
+                                                })()}
                                               {formatTimeOnly(m.createdAt)}
                                               {(() => {
                                                 const usage =
@@ -2882,7 +3222,12 @@ export function ChatPage() {
                                                   return ` \u00b7 ${m.model}`;
                                                 return "";
                                               })()}
-                                              {m.role === "assistant" && !m.streaming && <MessageCopyBtn text={parsed.text} />}
+                                              {m.role === "assistant" &&
+                                                !m.streaming && (
+                                                  <MessageCopyBtn
+                                                    text={parsed.text}
+                                                  />
+                                                )}
                                             </div>
                                           )}
                                         </>
@@ -2914,49 +3259,58 @@ export function ChatPage() {
                               ) : null;
                             })()}
                             {/* 有工具调用但无文本时（停止/纯工具），单独渲染 usage stats */}
-                            {m.role === "assistant" && m.toolCalls.length > 0 && !parseMessageContent(m.content).text && !m.streaming && (
-                              <div className="message-meta" style={{ padding: "4px 0 0" }}>
-                                {formatTimeOnly(m.createdAt)}
-                                {(() => {
-                                  const usage = formatUsageStats(m);
-                                  if (usage) return ` \u00b7 ${usage}`;
-                                  if (m.model) return ` \u00b7 ${m.model}`;
-                                  return "";
-                                })()}
-                              </div>
-                            )}
-                            {/* 有工具调用时，文本放在工具卡片下面 */}
-                            {m.role === "assistant" && m.toolCalls.length > 0 && m.content && (() => {
-                              const parsed = parseMessageContent(m.content);
-                              return parsed.text ? (
-                              <div className="message-row assistant">
-                                <div className="message-bubble">
-                                  <div className="message-content-md">
-                                    <ReactMarkdown
-                                      remarkPlugins={[remarkGfm]}
-                                      components={mdComponents}
-                                    >
-                                      {parsed.text}
-                                    </ReactMarkdown>
-                                  </div>
-                                  {(m.createdAt || !m.streaming) && (
-                                    <div className="message-meta">
-                                      {formatTimeOnly(m.createdAt)}
-                                      {(() => {
-                                        const usage = formatUsageStats(m);
-                                        if (usage)
-                                          return ` \u00b7 ${usage}`;
-                                        if (m.model)
-                                          return ` \u00b7 ${m.model}`;
-                                        return "";
-                                      })()}
-                                      <MessageCopyBtn text={parsed.text} />
-                                    </div>
-                                  )}
+                            {m.role === "assistant" &&
+                              m.toolCalls.length > 0 &&
+                              !parseMessageContent(m.content).text &&
+                              !m.streaming && (
+                                <div
+                                  className="message-meta"
+                                  style={{ padding: "4px 0 0" }}
+                                >
+                                  {formatTimeOnly(m.createdAt)}
+                                  {(() => {
+                                    const usage = formatUsageStats(m);
+                                    if (usage) return ` \u00b7 ${usage}`;
+                                    if (m.model) return ` \u00b7 ${m.model}`;
+                                    return "";
+                                  })()}
                                 </div>
-                              </div>
-                              ) : null;
-                            })()}
+                              )}
+                            {/* 有工具调用时，文本放在工具卡片下面 */}
+                            {m.role === "assistant" &&
+                              m.toolCalls.length > 0 &&
+                              m.content &&
+                              (() => {
+                                const parsed = parseMessageContent(m.content);
+                                return parsed.text ? (
+                                  <div className="message-row assistant">
+                                    <div className="message-bubble">
+                                      <div className="message-content-md">
+                                        <ReactMarkdown
+                                          remarkPlugins={[remarkGfm]}
+                                          components={mdComponents}
+                                        >
+                                          {parsed.text}
+                                        </ReactMarkdown>
+                                      </div>
+                                      {(m.createdAt || !m.streaming) && (
+                                        <div className="message-meta">
+                                          {formatTimeOnly(m.createdAt)}
+                                          {(() => {
+                                            const usage = formatUsageStats(m);
+                                            if (usage)
+                                              return ` \u00b7 ${usage}`;
+                                            if (m.model)
+                                              return ` \u00b7 ${m.model}`;
+                                            return "";
+                                          })()}
+                                          <MessageCopyBtn text={parsed.text} />
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ) : null;
+                              })()}
                             {m.thinking && <ThinkingIndicator />}
                             {showRegenerate &&
                               idx === messages.length - 1 &&
@@ -2983,7 +3337,8 @@ export function ChatPage() {
                             {t("chat.progress")}
                           </span>
                           <span className="todo-progress-count">
-                            {todoItems.filter((i) => i.done).length}/{todoItems.length}
+                            {todoItems.filter((i) => i.done).length}/
+                            {todoItems.length}
                           </span>
                         </div>
                         <div className="todo-progress-bar">
@@ -3059,12 +3414,17 @@ export function ChatPage() {
                           <IconPaperclip size={18} />
                         </button>
                         {agents.length > 1 && (
-                          <div className="agent-selector-wrap" ref={agentMenuRef}>
+                          <div
+                            className="agent-selector-wrap"
+                            ref={agentMenuRef}
+                          >
                             <button
                               className="btn-agent-selector"
                               onClick={() => setAgentMenuOpen((v) => !v)}
                             >
-                              <span className="agent-selector-name">{currentAgent?.name || "Agent"}</span>
+                              <span className="agent-selector-name">
+                                {currentAgent?.name || "Agent"}
+                              </span>
                               <IconChevronRight size={12} />
                             </button>
                             {renderAgentMenu()}
@@ -3137,7 +3497,6 @@ export function ChatPage() {
           {/* end chat-body */}
         </div>
       </FileDropZone>
-
     </PreviewContext.Provider>
   );
 }
