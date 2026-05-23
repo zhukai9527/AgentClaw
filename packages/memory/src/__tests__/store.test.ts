@@ -3,6 +3,9 @@ import { initDatabase } from "../database.js";
 import type { DbAdapter } from "../db-adapter.js";
 import { SQLiteMemoryStore } from "../store.js";
 import type { SessionData, ConversationTurn } from "@agentclaw/types";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ── 辅助函数 ──
 
@@ -78,6 +81,48 @@ describe("initDatabase — 数据库初始化", () => {
     // 模拟重复执行 schema — 由于 IF NOT EXISTS 不应出错
     expect(() => initDatabase(":memory:")).not.toThrow();
     db.close();
+  });
+
+  it("旧 turns 表缺少会话树列时初始化应先迁移再建索引", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agentclaw-old-turns-"));
+    const dbPath = join(dir, "memory.db");
+    const db = initDatabase(dbPath);
+    db.exec(`
+      DROP TABLE turns_fts;
+      DROP TABLE turns;
+      CREATE TABLE turns (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES conversations(id),
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
+        content TEXT NOT NULL,
+        tool_calls TEXT,
+        tool_results TEXT,
+        reasoning_content TEXT,
+        model TEXT,
+        tokens_in INTEGER,
+        tokens_out INTEGER,
+        duration_ms INTEGER,
+        tool_call_count INTEGER,
+        trace_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `);
+    db.close();
+
+    const migrated = initDatabase(dbPath);
+
+    const turnColumns = migrated
+      .prepare("PRAGMA table_info(turns)")
+      .all() as Array<{ name: string }>;
+    const indexes = migrated
+      .prepare("PRAGMA index_list(turns)")
+      .all() as Array<{
+      name: string;
+    }>;
+    expect(turnColumns.map((col) => col.name)).toContain("parent_id");
+    expect(indexes.map((idx) => idx.name)).toContain("idx_turns_parent");
+    migrated.close();
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 

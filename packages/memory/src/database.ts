@@ -29,7 +29,6 @@ CREATE TABLE IF NOT EXISTS turns (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_turns_conversation ON turns(conversation_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_turns_parent ON turns(conversation_id, parent_id);
 
 CREATE TABLE IF NOT EXISTS memories (
   id TEXT PRIMARY KEY,

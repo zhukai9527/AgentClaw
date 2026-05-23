@@ -5,6 +5,9 @@
 ### Added
 - **会话树第一阶段原语**：对话轮次新增 `parentId`、`branchId` 和 conversation active leaf 持久化，`getHistory()` 在树形会话中只回放当前 active branch，同时保留旧线性会话兼容读取；新增 session tree 读取和 active leaf 切换 API，为后续“回到某一步重新走另一条路径”的智能分支能力打底。
 
+### Fixed
+- **旧库会话树迁移启动顺序**：会话树索引延后到 `parent_id` 列迁移之后创建，避免已有 SQLite 数据库启动 gateway 时因旧 `turns` 表缺列失败。
+
 ## [1.5.38] - 2026-05-19
 
 ### Fixed
