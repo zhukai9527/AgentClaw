@@ -1,5 +1,10 @@
 # 更新日志
 
+## [1.5.40] - 2026-05-25
+
+### Added
+- **Agent memory arXiv 论文草稿**：新增 `docs/papers/` 论文区和 `Memory as a Control System for Production AI Agents` arXiv 源包，包含 LaTeX 主稿、BibTeX、投稿 metadata 草稿和公开站点入口，把 Active Memory、分层记忆、telemetry、治理和 trace replay 整理成可投稿的工程论文。
+
 ## [1.5.39] - 2026-05-23
 
 ### Added

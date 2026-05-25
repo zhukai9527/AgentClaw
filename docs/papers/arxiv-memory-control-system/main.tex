@@ -1,0 +1,338 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\title{Memory as a Control System for Production AI Agents}
+
+\author{
+  Vorojar\\
+  AgentClaw Project\\
+  \url{https://github.com/vorojar/AgentClaw}
+}
+
+\date{May 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Long-term memory is often added to language-agent systems as a retrieval problem:
+extract facts, store them, retrieve the top-ranked entries, and inject them into
+the prompt. This framing is insufficient for production agents because retrieved
+memory is not passive evidence once it enters the model context. It becomes part
+of the policy that steers the next action. A memory can be true, textually
+relevant, and still harmful for the current task. This paper presents a control
+system view of agent memory based on an open-source case study, AgentClaw. The
+design separates atomic evidence, scene-level memory, and stable profile memory;
+selects an Active Memory set before prompt injection; records memory-use
+telemetry; provides edit, deprecate, and merge governance primitives; and turns
+memory failures into replayable regression scenarios. We describe the
+architecture, failure modes, and a deterministic replay suite that covers stale
+preferences, conflicting memories, underspecified follow-up turns, layered
+aggregation, telemetry, and safe fallback behavior. The contribution is not a
+new benchmark result, but an engineering pattern: production agent memory should
+be measured by governed influence, not merely by retrieval recall.
+\end{abstract}
+
+\section{Introduction}
+
+Language agents are increasingly expected to perform long-running work across
+tools, files, browser sessions, calendars, communication channels, and user
+preferences. Memory is a natural requirement for such systems. A useful agent
+should remember stable user preferences, prior decisions, long-lived project
+facts, and task-specific delivery rules.
+
+The common implementation is retrieval-augmented generation (RAG): store memory
+entries, retrieve entries relevant to the current query, and inject them into the
+prompt. RAG is useful for grounding language models in external knowledge
+\cite{lewis2020rag}. However, agent memory differs from document retrieval in a
+critical way. A retrieved memory does not only answer a question. It can change
+the agent's behavior.
+
+Consider a real production-style failure pattern. A user previously asked for
+dark, technical presentation decks. Later, the user asks for a business
+sponsorship deck where a bright, commercial style is more appropriate. If the old
+preference is retrieved and placed into the prompt, the model is likely to obey
+it. The memory was true, but it should not have influenced this task.
+
+Now consider an underspecified follow-up. The user first asks for a presentation
+file. One turn later, the user asks, ``what should be delivered in the end?'' A
+memory selector that only sees the latest sentence may miss that the task is
+still a presentation task. If the trace contains shared phrases, an unrelated
+profile memory can be retrieved by lexical overlap. This is not simply a bad
+embedding. It is a control failure: the system allowed the wrong memory to
+influence the next action.
+
+This paper argues that production agent memory should be treated as a control
+surface. A memory should influence an agent only when the runtime can explain why
+it was recalled, record that it was used, test whether it helped, and remove or
+supersede it when it causes harm.
+
+We make four contributions:
+\begin{enumerate}[leftmargin=*]
+  \item We define memory-induced policy failures for production language agents,
+  including stale preference injection, conflicting memories, missing turn
+  context, stale embeddings after edit, and unsafe selector fallback.
+  \item We present a layered memory architecture with Active Memory selection,
+  deterministic fallback, telemetry, and governance primitives.
+  \item We describe a trace-replay method for converting memory failures into
+  deterministic regression tests.
+  \item We report a case study from AgentClaw, an open-source multi-channel agent
+  workbench, with replay scenarios and source-level artifacts.
+\end{enumerate}
+
+\section{Background and Related Work}
+
+RAG combines parametric model knowledge with non-parametric retrieval
+\cite{lewis2020rag}. This pattern has become a default way to attach external
+knowledge to language models. Tool-using and interactive agents, such as ReAct,
+interleave reasoning with actions in external environments \cite{yao2023react}.
+Systems such as Reflexion use verbal feedback to improve later attempts
+\cite{shinn2023reflexion}, while Generative Agents use memory retrieval,
+reflection, and planning to simulate persistent behavior \cite{park2023generative}.
+MemGPT frames memory management as an operating-system-like problem over limited
+context \cite{packer2023memgpt}. Long-context work also shows that merely placing
+information in a large context does not guarantee reliable use
+\cite{liu2023lost}.
+
+These lines of work motivate persistent agent state, but production systems need
+an additional operational layer. The question is not only which memory is
+similar to the current query. The question is whether a memory should be allowed
+to influence a concrete decision under current task constraints. That requires
+provenance, selection, telemetry, replay, and cleanup.
+
+\section{Failure Model}
+
+We distinguish document relevance from decision relevance. A memory entry is
+document-relevant when its text is semantically close to the current request. It
+is decision-relevant when it should influence the next agent action. Production
+failures occur when document relevance is mistaken for decision relevance.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+Failure & Example & Root cause \\
+\midrule
+Stale preference & Old dark-slide preference affects a business deck & No scope or lifecycle model \\
+Conflict & Dark style and white-blue style both enter prompt & Superseded memories remain active \\
+Missing context & Follow-up omits ``PPTX'' & Selector sees only current turn \\
+Stale embedding & Edited memory still retrieves as old content & Edit does not refresh vector state \\
+Unsafe fallback & Selector fails, all candidates are injected & Fallback expands rather than reduces risk \\
+No replay & Prompt patch fixes one wording only & Failure is not made executable \\
+\bottomrule
+\end{tabular}
+\caption{Memory-induced policy failures in production agents.}
+\label{tab:failures}
+\end{table}
+
+The central observation is that prompt-injected memory becomes policy-like
+material. It changes the model's action distribution. Therefore, memory runtime
+design should resemble a feedback control system more than a passive key-value
+store.
+
+\section{System Design}
+
+\subsection{Layered Memory}
+
+AgentClaw separates long-term memory into three layers:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+Layer & Meaning & Example & Runtime role \\
+\midrule
+L1 & Atomic evidence & User said previews come before final files & Auditable source fact \\
+L2 & Scene memory & In PPTX delivery, preview first, then send .pptx & Task-specific rule \\
+L3 & Stable profile & User values validation before delivery & Cross-task preference \\
+\bottomrule
+\end{tabular}
+\caption{Layered memory separates evidence from reusable behavioral summaries.}
+\label{tab:layers}
+\end{table}
+
+L1 memories preserve traceable evidence. L2 and L3 memories compact repeated
+evidence into higher-level behavior with provenance links back to source memory
+identifiers. A typical L2 memory records a scene name, confidence, source memory
+IDs, and status. This lets the agent consume compact behavioral guidance while
+maintaining an audit trail.
+
+\subsection{Active Memory Selection}
+
+The Active Memory stage runs before prompt injection. It searches broadly, ranks
+candidates deterministically, then chooses a small set of entries that are
+directly useful for the current task.
+
+\begin{figure}[h]
+\centering
+\fbox{\begin{minipage}{0.92\linewidth}
+\small
+\textbf{Control loop.}
+Write memory with provenance $\rightarrow$ aggregate into L1/L2/L3 layers
+$\rightarrow$ rank candidates using current and recent user turns
+$\rightarrow$ select Active Memory
+$\rightarrow$ inject only selected memories
+$\rightarrow$ record \texttt{memory\_usage}
+$\rightarrow$ replay outcomes
+$\rightarrow$ edit, deprecate, merge, or retire harmful memories.
+\end{minipage}}
+\caption{A governed memory loop treats recall as measurable influence.}
+\label{fig:control}
+\end{figure}
+
+The query is built from the current user input and recent user turns. This
+protects continuity when a follow-up omits the original task noun. The selector
+is allowed to return no entries. If the provider-backed selector fails, the
+system uses a deterministic fallback over the top-ranked candidates; it never
+injects all candidates. The fallback invariant is:
+
+\begin{quote}
+When selection confidence is low, reduce prompt influence rather than widen it.
+\end{quote}
+
+\subsection{Governance Primitives}
+
+Memory governance is part of the runtime, not only an admin interface.
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Edit}: when memory content changes, retrieval state such as
+  embeddings must be regenerated.
+  \item \textbf{Deprecate}: stale or harmful memories are excluded from recall
+  without deleting their audit trail.
+  \item \textbf{Merge}: fragmented memories are superseded by a canonical memory
+  with provenance links.
+  \item \textbf{Janitor}: repeated polluting behavior can trigger review or
+  retirement.
+\end{itemize}
+
+\subsection{Telemetry}
+
+Every prompt-injected memory should be observable. AgentClaw records memory-use
+rows with conversation ID, memory ID, source, and selection path. This supports
+three questions: which memories influenced a response, whether the relevant
+memory was selected, and whether an irrelevant memory polluted the prompt.
+
+\section{Trace Replay}
+
+Component tests are insufficient for memory failures because the bad behavior
+emerges from the interaction of conversation state, memory state, selector
+behavior, prompt assembly, and tool execution. Trace replay captures the minimum
+state needed to recreate the decision boundary.
+
+A replay fixture should include:
+\begin{enumerate}[leftmargin=*]
+  \item the current user utterance;
+  \item recent user turns that define the task;
+  \item memory rows that could influence selection;
+  \item model or provider behavior relevant to the selector;
+  \item the expected user-visible outcome or prompt-injection invariant.
+\end{enumerate}
+
+For memory selection, the assertion should not be ``some memory was returned.''
+It should verify that the right memory was injected and that a plausible
+polluting memory was not injected.
+
+\section{Case Study: AgentClaw}
+
+AgentClaw is an open-source TypeScript monorepo for a multi-channel personal
+agent and agent-hosting platform. It includes persistent conversation storage,
+long-term memory, tools, skills, traces, telemetry, and multiple user channels.
+The memory system is implemented primarily in the \texttt{@agentclaw/memory} and
+\texttt{@agentclaw/core} packages.
+
+The case-study scenario comes from presentation delivery. The system seeds an old
+preference stating that the user prefers dark PPTX backgrounds. A later turn says
+the user now wants white backgrounds with blue emphasis, and requires preview
+acceptance before final delivery. The expected behavior is that the old
+preference is deprecated, the new preference supersedes it, L2/L3 layered memory
+is created, active recall injects useful memory, and telemetry records the use.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+Scenario & Expected invariant \\
+\midrule
+Conflict deprecates old memory & Old memory status becomes deprecated \\
+Deprecated hidden from search & Search excludes deprecated memory \\
+New memory supersedes old & New memory metadata references old memory \\
+L2 scene aggregate & Scene memory is created or updated \\
+L2 evidence chain & Scene memory has source memory IDs \\
+L3 profile aggregate & Stable profile is created or updated \\
+L3 evidence chain & Profile memory has source memory IDs \\
+Layered prompt injection & Prompt includes L2 or L3 memory \\
+Memory-use telemetry & \texttt{memory\_usage} receives rows \\
+Safe offload canvas & Large tool output is externalized safely \\
+\bottomrule
+\end{tabular}
+\caption{Deterministic replay checks in \texttt{scripts/memory-10-case-eval.mts}.}
+\label{tab:replay}
+\end{table}
+
+A separate scenario replay seeds two memories that share a trace phrase: a
+relevant PPTX delivery memory and an irrelevant food preference. The current user
+turn asks what final file should be delivered but does not repeat ``PPTX.'' The
+test passes only if the active prompt contains the PPTX delivery rule and omits
+the unrelated preference.
+
+\section{Discussion}
+
+\subsection{Why This Is Not Just Better Retrieval}
+
+Better retrieval can reduce false positives, but it does not solve memory
+lifecycle. A stale preference can be highly retrievable. A conflicting memory can
+be semantically relevant. A current-turn query can be under-specified. A selector
+can fail. Production memory needs a policy for each of these cases.
+
+\subsection{Evaluation Limits}
+
+This paper reports deterministic engineering evidence rather than a broad
+benchmark across unrelated agents. The scenarios are intentionally small and
+causal. They are designed to fail when a specific runtime invariant regresses.
+The next step is to publish a larger benchmark of memory pollution, conflict
+resolution, and follow-up continuity across tasks and models.
+
+\subsection{Operational Risks}
+
+Memory governance introduces product decisions. Deprecation can hide useful old
+context. Aggressive selection can omit subtle user preferences. Telemetry can
+store sensitive references if not designed carefully. Production systems should
+combine selection with user-visible memory management, namespace isolation,
+sensitive-content scanning, and retention policies.
+
+\section{Submission and Artifact Availability}
+
+The implementation and replay scripts are available in the AgentClaw repository:
+\url{https://github.com/vorojar/AgentClaw}. The technical essay that motivated
+this paper is available at
+\url{https://agentengineering.bibidu.com/blog/memory-control-system}.
+
+\section{Conclusion}
+
+Agent memory is not only a storage or retrieval problem. It is a control problem
+over what information is allowed to influence the next decision. Production
+agents need layered memory, Active Memory selection, deterministic fallback,
+telemetry, governance, and trace replay. The practical standard is simple: a
+memory should not enter the prompt unless the system can justify, observe, test,
+and retire its influence.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

@@ -37,6 +37,7 @@ export default defineConfig({
       { text: "Series", link: "/blog/building-ai-agents/" },
       { text: "Field Guides", link: "/guide/" },
       { text: "Systems", link: "/compare/" },
+      { text: "Papers", link: "/papers/" },
       { text: "Book", link: "/book/" },
     ],
     sidebar: {
@@ -89,6 +90,15 @@ export default defineConfig({
           items: [
             { text: "Systems Home", link: "/compare/" },
             { text: "Assistant Presence vs Control Planes", link: "/compare/agentclaw-vs-openclaw" },
+          ],
+        },
+      ],
+      "/papers/": [
+        {
+          text: "Papers",
+          items: [
+            { text: "Papers Home", link: "/papers/" },
+            { text: "Memory as a Control System", link: "/papers/memory-control-system" },
           ],
         },
       ],
