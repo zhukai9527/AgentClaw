@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluateCompletionPolicies } from "../completion-policies/index.js";
+import { ensureNewsBriefFinalQuality } from "../completion-policies/news-brief.js";
 
 const now = new Date("2026-05-21T08:00:00+08:00");
 
@@ -28,11 +29,15 @@ describe("completion policies", () => {
       successfulWebSearchCalls: 3,
       successfulWebFetchCalls: 2,
       fallbackSnippets: [
-        "OpenAI releases a new agent feature — source summary",
+        "OpenAI releases a new agent feature — May 21, 2026",
         "https://openai.com/news/example",
+        "Anthropic publishes safety update — May 21, 2026",
+        "https://www.anthropic.com/news/example",
+        "Google DeepMind announces research update — May 21, 2026",
+        "https://deepmind.google/discover/blog/example",
       ],
       currentResultContents: [
-        "Title: AI News Source\nURL Source: https://example.com/ai\nAnthropic announces AI safety update.",
+        "Title: AI News Source\nURL Source: https://www.theverge.com/ai-artificial-intelligence\nThe Verge reports fresh AI industry updates.",
       ],
     });
 
@@ -40,6 +45,66 @@ describe("completion policies", () => {
     expect(decision?.text).toContain("今日 AI 简报（2026-05-21）");
     expect(decision?.text).toContain("来源链接");
     expect(decision?.artifacts).toEqual([]);
+  });
+
+  it("AI 新闻搜索结果只有单一高置信来源时不应由策略过早收工", () => {
+    const decision = evaluateCompletionPolicies({
+      ...baseInput(),
+      taskKind: "news_brief",
+      inputText: "在外网搜索今日AI界新闻生成简报",
+      successfulWebSearchCalls: 3,
+      successfulWebFetchCalls: 0,
+      fallbackSnippets: [
+        "Microsoft Research shares what's next in AI — May 21, 2026",
+        "https://www.microsoft.com/en-us/research/articles/whats-next-in-ai/",
+      ],
+    });
+
+    expect(decision).toBeNull();
+  });
+
+  it("AI 新闻候选 URL 日期早于 7 天时不应被当作今日简报证据", () => {
+    const decision = evaluateCompletionPolicies({
+      ...baseInput(),
+      taskKind: "news_brief",
+      inputText: "在外网搜索今日AI界新闻生成简报",
+      successfulWebSearchCalls: 3,
+      successfulWebFetchCalls: 2,
+      fallbackSnippets: [
+        "White House Considers Vetting A.I. Models Before They Are Released",
+        "https://www.nytimes.com/2026/05/04/technology/trump-ai-models.html",
+        "AI Foundation Model Transparency Act of 2026",
+        "https://www.congress.gov/119/bills/hr8094/BILLS-119hr8094ih.htm",
+        "Old AI policy explainer",
+        "https://www.theverge.com/2026/05/01/ai-policy-old",
+      ],
+      now: new Date("2026-05-24T08:00:00+08:00"),
+    });
+
+    expect(decision).toBeNull();
+  });
+
+  it("AI 新闻最终答复只有聚合站来源时应改为可信来源不足", () => {
+    const checked = ensureNewsBriefFinalQuality(
+      [
+        "今日 AI 简报",
+        "### 1. Anthropic 传闻完成巨额融资",
+        "来源：https://www.buildfastwithai.com/blogs/ai-news-today-may-21-2026",
+        "### 2. 白宫撤销 AI 行政令",
+        "来源：https://www.buildfastwithai.com/blogs/ai-news-today-may-21-2026",
+        "### 3. OpenAI IPO 传闻",
+        "来源：https://www.buildfastwithai.com/blogs/ai-news-today-may-21-2026",
+      ].join("\n"),
+      [
+        "results[1]{title,url}: AI News Today — https://www.buildfastwithai.com/blogs/ai-news-today-may-21-2026",
+      ],
+      now,
+    );
+
+    expect(checked).toContain("可信来源不足");
+    expect(checked).toContain("不硬凑 3 条");
+    expect(checked).not.toContain("Anthropic 传闻完成巨额融资");
+    expect(checked).not.toContain("buildfastwithai.com");
   });
 
   it("Reddit RSS 失败且没有 save_as 时返回写入并发送 Markdown 的交付意图", () => {

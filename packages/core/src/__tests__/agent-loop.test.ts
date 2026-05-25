@@ -806,6 +806,66 @@ describe("SimpleAgentLoop", () => {
       expect(captured[0]).not.toContain("bash");
     });
 
+    it("新闻任务最终答复不得用单一聚合源硬凑简报", async () => {
+      const lowQualitySearchResult =
+        "results[1]{title,url}: AI News Today (May 21, 2026): Top AI Stories — https://www.buildfastwithai.com/blogs/ai-news-today-may-21-2026";
+      const newsProvider = createMockProvider([
+        createToolCallChunks("tc-search", "web_search", {
+          q: "AI news today May 21 2026",
+        }),
+        [
+          {
+            type: "text",
+            text: [
+              "今日 AI 简报",
+              "### 1. Anthropic 传闻完成巨额融资",
+              "来源：https://www.buildfastwithai.com/blogs/ai-news-today-may-21-2026",
+              "### 2. 白宫撤销 AI 行政令",
+              "来源：https://www.buildfastwithai.com/blogs/ai-news-today-may-21-2026",
+              "### 3. OpenAI IPO 传闻",
+              "来源：https://www.buildfastwithai.com/blogs/ai-news-today-may-21-2026",
+            ].join("\n"),
+          },
+          {
+            type: "done",
+            usage: { tokensIn: 20, tokensOut: 10 },
+            model: "mock-model",
+          },
+        ],
+      ]);
+      const testToolRegistry = createMockToolRegistry([
+        createMockTool("web_search", { content: lowQualitySearchResult }),
+        createMockTool("web_fetch"),
+        createMockTool("file_write"),
+        createMockTool("send_file"),
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider: newsProvider,
+        toolRegistry: testToolRegistry,
+        contextManager,
+        memoryStore,
+      });
+
+      const events = await collectEvents(
+        loop.runStream(
+          "在外网搜索今日AI界新闻生成简报",
+          "conv-news-low-quality",
+        ),
+      );
+      const completeEvent = events.find((e) => e.type === "response_complete");
+      const message = (completeEvent!.data as { message: Message }).message;
+
+      expect(message.content).toContain("可信来源不足");
+      expect(message.content).toContain("不硬凑 3 条");
+      expect(message.content).not.toContain("Anthropic 传闻完成巨额融资");
+      expect(message.content).not.toContain("buildfastwithai.com");
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          response: expect.stringContaining("可信来源不足"),
+        }),
+      );
+    });
+
     it("新闻类 PPTX 任务研究后仍可使用 PPTX 生成工具", async () => {
       const captured: string[][] = [];
       const newsProvider = createToolCaptureProvider(captured);
@@ -3825,7 +3885,7 @@ describe("SimpleAgentLoop", () => {
           {
             ...createMockTool("web_search"),
             execute: vi.fn(async (input: Record<string, unknown>) => ({
-              content: `results[2]{title,url}:\n  Nvidia data center revenue jumps on AI demand — ${String(input.query)}\n  https://www.theverge.com/ai-artificial-intelligence\n  White House releases AI policy framework — regulation update\n  https://www.whitehouse.gov/ai-policy`,
+              content: `results[3]{title,url}:\n  Nvidia data center revenue jumps on AI demand — ${String(input.query)}\n  https://www.theverge.com/ai-artificial-intelligence\n  White House releases AI policy framework — regulation update\n  https://www.whitehouse.gov/ai-policy\n  Anthropic publishes AI safety update — research update\n  https://www.anthropic.com/news/ai-safety-update`,
             })),
           },
           {
@@ -3849,7 +3909,9 @@ describe("SimpleAgentLoop", () => {
       expect(streamedText).toContain("今日 AI 简报");
       expect(streamedText).toContain("来源链接");
       expect(streamedText).toContain("Nvidia data center revenue");
-      expect(streamedText).toContain("White House releases AI policy framework");
+      expect(streamedText).toContain(
+        "White House releases AI policy framework",
+      );
       expect(streamedText).not.toContain("<tool_call>");
       expect(webFetchExecute).not.toHaveBeenCalled();
       expect(memoryStore.addTrace).toHaveBeenCalledWith(
@@ -3891,7 +3953,8 @@ describe("SimpleAgentLoop", () => {
       const writeChunks: LLMStreamChunk[] = [
         ...makeToolCallChunks("tc-write", "file_write", {
           path: briefPath,
-          content: "# AI 简报\n\n- OpenAI prepares IPO\n- Google launches Gemini update",
+          content:
+            "# AI 简报\n\n- OpenAI prepares IPO\n- Google launches Gemini update",
         }),
         {
           type: "done",
@@ -3965,7 +4028,10 @@ describe("SimpleAgentLoop", () => {
       });
 
       const events = await collectEvents(
-        loop.runStream("在外网搜索今日AI界新闻生成简报", "conv-news-written-file"),
+        loop.runStream(
+          "在外网搜索今日AI界新闻生成简报",
+          "conv-news-written-file",
+        ),
       );
 
       const streamedText = events
@@ -4088,7 +4154,10 @@ describe("SimpleAgentLoop", () => {
       });
 
       const events = await collectEvents(
-        loop.runStream("在外网搜索今日AI界新闻生成简报", "conv-news-force-synthesis"),
+        loop.runStream(
+          "在外网搜索今日AI界新闻生成简报",
+          "conv-news-force-synthesis",
+        ),
       );
 
       const streamedText = events
@@ -4197,9 +4266,13 @@ describe("SimpleAgentLoop", () => {
       });
 
       const events = await collectEvents(
-        loop.runStream("在外网搜索今日AI界新闻生成简报", "conv-news-sent-file", {
-          sentFiles: [],
-        }),
+        loop.runStream(
+          "在外网搜索今日AI界新闻生成简报",
+          "conv-news-sent-file",
+          {
+            sentFiles: [],
+          },
+        ),
       );
 
       const streamedText = events
@@ -4207,7 +4280,9 @@ describe("SimpleAgentLoop", () => {
         .map((event) => (event.data as { text: string }).text)
         .join("");
       expect(streamedText).toContain("AI 新闻简报已生成");
-      expect(streamedText).toContain("[brief.md](/files/conv-news-sent-file/brief.md)");
+      expect(streamedText).toContain(
+        "[brief.md](/files/conv-news-sent-file/brief.md)",
+      );
       expect(streamedText).not.toContain("<tool_call>");
       expect(streamedText).not.toContain("阶段性总结");
       expect(memoryStore.addTrace).toHaveBeenCalledWith(
@@ -4286,6 +4361,10 @@ describe("SimpleAgentLoop", () => {
                 `  https://www.youtube.com/watch?v=3w093nkLqCg\n` +
                 `  White House releases AI policy framework — court rules update ${String(input.query)}\n` +
                 `  https://www.whitehouse.gov/briefing-room/statements-releases/2026/05/23/ai-policy-framework/\n` +
+                `  OpenAI releases agent update — product announcement ${String(input.query)}\n` +
+                `  https://openai.com/news/agent-update\n` +
+                `  Anthropic publishes AI safety update — research note ${String(input.query)}\n` +
+                `  https://www.anthropic.com/news/ai-safety-update\n` +
                 `  AI Updates Today (May 2026) – Latest AI Model Releases - LLM Stats — Track recent AI model releases.\n` +
                 `  https://llm-stats.com/llm-updates\n` +
                 `  New AI Model Releases News | May, 2026 (STARTUP EDITION) — startup opinion recap.\n` +
@@ -4303,7 +4382,10 @@ describe("SimpleAgentLoop", () => {
       });
 
       const events = await collectEvents(
-        loop.runStream("在外网搜索今日AI界新闻生成简报", "conv-ai-news-search-only"),
+        loop.runStream(
+          "在外网搜索今日AI界新闻生成简报",
+          "conv-ai-news-search-only",
+        ),
       );
 
       const streamedText = events
@@ -4311,7 +4393,9 @@ describe("SimpleAgentLoop", () => {
         .map((event) => (event.data as { text: string }).text)
         .join("");
       expect(streamedText).toContain("今日 AI 简报");
-      expect(streamedText).toContain("White House releases AI policy framework");
+      expect(streamedText).toContain(
+        "White House releases AI policy framework",
+      );
       expect(streamedText).not.toContain("LLM Stats");
       expect(streamedText).not.toContain("YouTube");
       expect(streamedText).not.toContain("blog.mean.ceo");
@@ -4497,6 +4581,75 @@ describe("SimpleAgentLoop", () => {
         expect.not.objectContaining({ error: "invalid_tool_markup_final" }),
       );
       expect(provider.stream).toHaveBeenCalledTimes(1);
+    });
+
+    it("最终已成功交付时中途工具限流错误不应生成分支恢复建议", async () => {
+      const makeToolCallChunks = (
+        id: string,
+        name: string,
+        input: Record<string, unknown>,
+      ): LLMStreamChunk[] => [
+        { type: "tool_use_start", toolUse: { id, name, input: "" } },
+        {
+          type: "tool_use_delta",
+          toolUse: { id, name: "", input: JSON.stringify(input) },
+        },
+        {
+          type: "done",
+          usage: { tokensIn: 100, tokensOut: 40 },
+          model: "mock-model",
+          stopReason: "tool_use",
+        },
+      ];
+      const sentPaths: string[] = [];
+      const sendFile = vi.fn(async (filePath: string) => {
+        sentPaths.push(filePath);
+      });
+      const provider = createMockProvider([
+        makeToolCallChunks("tc-rss-1", "rss_top", {
+          feeds: ["r/technology"],
+          topN: 5,
+        }),
+        makeToolCallChunks("tc-rss-2", "rss_top", {
+          feeds: ["r/technology"],
+          topN: 5,
+        }),
+      ]);
+      const loop = new SimpleAgentLoop({
+        provider,
+        toolRegistry: createMockToolRegistry([
+          createMockTool("rss_top", {
+            content:
+              "## r/technology\n1. Google CEO Sundar Pichai says AI will shape graduates' future (2026-05-24)\n   https://www.reddit.com/r/technology/comments/example",
+          }),
+          createMockTool("file_write"),
+          createMockTool("send_file"),
+        ]),
+        contextManager,
+        memoryStore,
+        config: { maxIterations: 5 },
+      });
+
+      await collectEvents(
+        loop.runStream(
+          "执行以下任务，生成一份中文科技/AI日报推送给主人：Reddit RSS 日报，最后用 send_file 发送",
+          "conv-rss-limit-success",
+          { sendFile },
+        ),
+      );
+
+      expect(sendFile).toHaveBeenCalledTimes(1);
+      expect(sentPaths[0].replace(/\\/g, "/")).toContain(
+        "data/tmp/conv-rss-limit-success/reddit-tech-ai-daily-",
+      );
+      expect(readFileSync(sentPaths[0], "utf-8")).not.toContain(
+        "You have called rss_top",
+      );
+      expect(memoryStore.addTrace).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          branchRecovery: expect.anything(),
+        }),
+      );
     });
 
     it("SEO 表格任务获取足够事实后应直接合成表格，不进入伪工具 XML 轮次", async () => {

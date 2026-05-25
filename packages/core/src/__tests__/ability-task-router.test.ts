@@ -66,6 +66,29 @@ describe("ability task router", () => {
     expect(securityProfile.hint).toContain("表格化检查");
   });
 
+  it("竞品和产品表格调研不应落入网站技术检查模板", () => {
+    const profile = buildTaskToolProfile(
+      "用表格分析 OpenAI 和 Anthropic 的产品定位、价格和生态差异。",
+      false,
+      false,
+    );
+
+    expect(profile.kind).toBe("default");
+    expect(profile.allowedTools).toBeUndefined();
+  });
+
+  it("继续生成文件类产物不应被误判成纯文本追问", () => {
+    const profile = buildTaskToolProfile(
+      "继续生成剩下几页 PPTX，并把文件发给我。",
+      false,
+      false,
+      true,
+    );
+
+    expect(profile.kind).toBe("pptx_generation");
+    expect(profile.allowedTools?.size).toBeGreaterThan(0);
+  });
+
   it("按任务 profile 过滤工具定义", () => {
     const profile = buildTaskToolProfile("继续第 3 项。", false, false);
     const filtered = filterToolDefinitionsForTask(

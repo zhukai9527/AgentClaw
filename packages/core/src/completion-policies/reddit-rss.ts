@@ -65,7 +65,7 @@ function buildRedditRssCompletionResponse(
   reason: string,
   now?: Date,
 ): string | null {
-  const combined = [...currentResultContents, ...fallbackSnippets].join("\n");
+  const combined = [...fallbackSnippets, ...currentResultContents].join("\n");
   if (!/reddit|rss|subreddit|r\//i.test(combined)) return null;
 
   const lines = combined
@@ -73,6 +73,7 @@ function buildRedditRssCompletionResponse(
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => !/^Saved to:/i.test(line))
+    .filter((line) => !isInternalToolLimitLine(line))
     .slice(0, 80);
   if (lines.length === 0) return null;
 
@@ -95,6 +96,12 @@ function buildRedditRssCompletionResponse(
     "",
     `说明：${reason}；系统已停止继续调用工具以避免空转。`,
   ].join("\n");
+}
+
+function isInternalToolLimitLine(line: string): boolean {
+  return /^You have called \w+ \d+ times in this session \(limit: \d+\)/i.test(
+    line,
+  );
 }
 
 function shouldCompleteRedditRssDeterministically(

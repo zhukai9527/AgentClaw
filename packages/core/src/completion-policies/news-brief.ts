@@ -5,17 +5,24 @@ import type {
   CompletionPolicyInput,
 } from "./types.js";
 
+const MIN_SEARCH_ONLY_CANDIDATES = 3;
+
 export const newsBriefCompletionPolicy: CompletionPolicy = {
   name: "news_brief_ready",
   evaluate(input: CompletionPolicyInput): CompletionPolicyDecision | null {
+    const candidates = extractNewsCandidates(
+      [
+        ...input.fallbackSnippets,
+        ...input.currentResultContents.flatMap(extractFallbackLines),
+      ],
+      input.now,
+    );
     if (
       input.taskKind !== "news_brief" ||
       input.successfulWebSearchCalls < 3 ||
       (input.successfulWebFetchCalls < 2 &&
-        extractNewsCandidates([
-          ...input.fallbackSnippets,
-          ...input.currentResultContents.flatMap(extractFallbackLines),
-        ], input.now).length === 0)
+        candidates.length < MIN_SEARCH_ONLY_CANDIDATES) ||
+      candidates.length < MIN_SEARCH_ONLY_CANDIDATES
     ) {
       return null;
     }
@@ -35,6 +42,45 @@ export const newsBriefCompletionPolicy: CompletionPolicy = {
       : null;
   },
 };
+
+export function ensureNewsBriefFinalQuality(
+  response: string,
+  evidenceContents: string[],
+  now?: Date,
+): string {
+  if (!/https?:\/\//i.test(response)) return response;
+
+  const responseUrls = extractTrustedRecentUrls(response, now);
+  const responseCandidates = extractNewsCandidates(
+    response.split(/\r?\n/),
+    now,
+  );
+  if (
+    responseUrls.length >= MIN_SEARCH_ONLY_CANDIDATES ||
+    responseCandidates.length >= MIN_SEARCH_ONLY_CANDIDATES
+  ) {
+    return response;
+  }
+
+  const evidenceLines = evidenceContents.flatMap(extractFallbackLines);
+  const evidenceCandidates = extractNewsCandidates(
+    [...response.split(/\r?\n/), ...evidenceLines],
+    now,
+  );
+  if (evidenceCandidates.length >= MIN_SEARCH_ONLY_CANDIDATES) {
+    const rebuilt = buildNewsBriefCompletionResponse(
+      response.split(/\r?\n/),
+      evidenceContents,
+      "最终回答未满足可信来源门槛，已改用工具证据重建简报",
+      now,
+    );
+    return (
+      rebuilt ?? buildInsufficientTrustedNewsResponse(evidenceCandidates, now)
+    );
+  }
+
+  return buildInsufficientTrustedNewsResponse(evidenceCandidates, now);
+}
 
 function buildNewsBriefCompletionResponse(
   fallbackSnippets: string[],
@@ -64,7 +110,10 @@ function buildNewsBriefCompletionResponse(
       : "- 已获取到来源链接，但可抽取标题不足；建议后续改用更高质量新闻源。";
   const sourceList =
     sources.length > 0
-      ? sources.slice(0, 6).map((url) => `- ${url}`).join("\n")
+      ? sources
+          .slice(0, 6)
+          .map((url) => `- ${url}`)
+          .join("\n")
       : "- 已获取的工具结果中未提取到明确 URL。";
   const confidenceNote =
     candidates.length < 3
@@ -82,6 +131,33 @@ function buildNewsBriefCompletionResponse(
     sourceList,
     "",
     `说明：${reason}；系统已停止继续调用工具以避免空转。`,
+  ].join("\n");
+}
+
+function buildInsufficientTrustedNewsResponse(
+  candidates: NewsCandidate[],
+  now?: Date,
+): string {
+  const candidateLines =
+    candidates.length > 0
+      ? candidates
+          .slice(0, MIN_SEARCH_ONLY_CANDIDATES)
+          .map((item) => {
+            const detail = item.summary ? `：${item.summary}` : "";
+            return `- ${item.title}${detail}\n  来源：${item.url}`;
+          })
+          .join("\n")
+      : "- 本轮搜索结果未留下可确认的近期可信来源候选。";
+
+  return [
+    `今日 AI 简报（${currentLocalDateString(now)}）`,
+    "",
+    "可信来源不足，本轮不硬凑 3 条。",
+    "",
+    "已保留的可信候选：",
+    candidateLines,
+    "",
+    "说明：系统已过滤聚合站、社交媒体、低质量 SEO 站、过期链接或无法确认的来源；请稍后重试，或指定 Reuters/AP/Bloomberg/FT/官方博客等来源后再查。",
   ].join("\n");
 }
 
@@ -111,11 +187,12 @@ function extractNewsCandidates(lines: string[], now?: Date): NewsCandidate[] {
     const line = cleanLines[i];
     if (BOILERPLATE_RE.test(line)) continue;
     const urlInLine = line.match(/https?:\/\/[^\s)>\]]+/)?.[0];
-    const url =
-      urlInLine ??
-      cleanLines
+    let url = urlInLine;
+    if (!url) {
+      url = cleanLines
         .slice(i + 1, i + 3)
         .find((candidate) => /^https?:\/\//i.test(candidate));
+    }
     if (!url || LOW_QUALITY_SOURCE_RE.test(url)) continue;
     if (!isTrustedNewsSource(url)) continue;
 
@@ -123,9 +200,8 @@ function extractNewsCandidates(lines: string[], now?: Date): NewsCandidate[] {
     const parsed = splitTitleAndSummary(withoutUrl);
     if (!parsed.title) continue;
     if (LOW_QUALITY_TITLE_RE.test(parsed.title)) continue;
-    if (!isRecentEnoughForNews(line, now)) continue;
-
     const normalizedUrl = url.replace(/[.,;:]+$/g, "");
+    if (!isRecentEnoughForNews(line, normalizedUrl, now)) continue;
     if (seen.has(normalizedUrl)) continue;
     seen.add(normalizedUrl);
     candidates.push({
@@ -138,8 +214,26 @@ function extractNewsCandidates(lines: string[], now?: Date): NewsCandidate[] {
   return candidates.slice(0, 6);
 }
 
-function splitTitleAndSummary(line: string): { title: string; summary: string } {
-  const cleaned = line.replace(/\s+/g, " ").replace(/^#+\s*/, "").trim();
+function extractTrustedRecentUrls(text: string, now?: Date): string[] {
+  const urls: string[] = [];
+  for (const match of text.matchAll(/https?:\/\/[^\s)>\]]+/g)) {
+    const url = match[0].replace(/[.,;:]+$/g, "");
+    if (LOW_QUALITY_SOURCE_RE.test(url)) continue;
+    if (!isTrustedNewsSource(url)) continue;
+    if (!isRecentEnoughForNews(text, url, now)) continue;
+    if (!urls.includes(url)) urls.push(url);
+  }
+  return urls;
+}
+
+function splitTitleAndSummary(line: string): {
+  title: string;
+  summary: string;
+} {
+  const cleaned = line
+    .replace(/\s+/g, " ")
+    .replace(/^#+\s*/, "")
+    .trim();
   const [rawTitle, ...rest] = cleaned.split(/\s+—\s+/);
   const title = rawTitle.trim().slice(0, 120);
   const summary = rest.join(" — ").trim().slice(0, 180);
@@ -203,24 +297,58 @@ const MONTH_INDEX: Record<string, number> = {
   december: 11,
 };
 
-function isRecentEnoughForNews(line: string, now = new Date()): boolean {
-  const parsed = parseNewsDate(line, now);
+function isRecentEnoughForNews(
+  line: string,
+  url: string,
+  now = new Date(),
+): boolean {
+  const parsedFromText = parseNewsDate(line, now);
+  const parsed = parsedFromText ? parsedFromText : parseNewsDateFromUrl(url);
   if (!parsed) return true;
-  const nowDate = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  );
+  const nowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const ageDays = Math.floor(
     (nowDate.getTime() - parsed.getTime()) / (24 * 60 * 60 * 1000),
   );
   return ageDays >= 0 && ageDays <= 7;
 }
 
+function parseNewsDateFromUrl(url: string): Date | null {
+  let pathname = "";
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return null;
+  }
+
+  const slashDate = pathname.match(/\/(20\d{2})\/(\d{1,2})\/(\d{1,2})(?:\/|$)/);
+  if (slashDate) {
+    return new Date(
+      Number(slashDate[1]),
+      Number(slashDate[2]) - 1,
+      Number(slashDate[3]),
+    );
+  }
+
+  const dashDate = pathname.match(/\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/);
+  if (dashDate) {
+    return new Date(
+      Number(dashDate[1]),
+      Number(dashDate[2]) - 1,
+      Number(dashDate[3]),
+    );
+  }
+
+  return null;
+}
+
 function parseNewsDate(line: string, now: Date): Date | null {
   const numeric = line.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
   if (numeric) {
-    return new Date(Number(numeric[3]), Number(numeric[1]) - 1, Number(numeric[2]));
+    return new Date(
+      Number(numeric[3]),
+      Number(numeric[1]) - 1,
+      Number(numeric[2]),
+    );
   }
 
   const named = line.match(

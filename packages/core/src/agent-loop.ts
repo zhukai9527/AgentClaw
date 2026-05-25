@@ -62,6 +62,7 @@ import {
   evaluateCompletionPolicies,
   extractFallbackLines,
 } from "./completion-policies/index.js";
+import { ensureNewsBriefFinalQuality } from "./completion-policies/news-brief.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -901,6 +902,23 @@ function attachBranchRecovery(trace: Trace, userTurn: ConversationTurn): void {
   const hasToolError = uniqueFailedToolNames.length > 0;
   if (!trace.error && !hasToolError) return;
   if (trace.branchRecovery) return;
+  if (
+    !trace.error &&
+    typeof trace.response === "string" &&
+    trace.response.trim()
+  ) {
+    const hasDeliverableSuccess = trace.steps.some((step) => {
+      const effect = step.effect as ToolEffect | undefined;
+      return (
+        effect?.kind === "send" &&
+        effect.verified === true &&
+        effect.deliverable === true
+      );
+    });
+    if (hasDeliverableSuccess || !isFailureLikeResponse(trace.response)) {
+      return;
+    }
+  }
 
   const reason =
     trace.error === "llm_stream_error"
@@ -921,6 +939,12 @@ function attachBranchRecovery(trace: Trace, userTurn: ConversationTurn): void {
       uniqueFailedToolNames.length > 0 ? uniqueFailedToolNames : undefined,
     createdAt: new Date(),
   };
+}
+
+function isFailureLikeResponse(response: string): boolean {
+  return /失败|出错|错误|无法完成|不能完成|阻塞|failed|failure|error|blocked|unable to complete/i.test(
+    response,
+  );
 }
 
 /**
@@ -2014,11 +2038,37 @@ export class SimpleAgentLoop implements AgentLoop {
             "模型输出达到 max_tokens 上限且没有产生可执行工具调用，任务已停止。请缩小任务范围，或改用外部委托/文件写入工具完成。";
         }
 
-        if (toolCalls.length === 0 && taskToolProfile.kind === "news_brief") {
+        if (
+          toolCalls.length === 0 &&
+          taskToolProfile.kind === "news_brief" &&
+          !INVALID_TOOL_MARKUP_RE.test(fullText)
+        ) {
           fullText = appendSourceLinksIfMissing(
             fullText,
             trace.steps as TraceStep[],
           );
+          const hasVerifiedWrittenArtifact = (trace.steps as TraceStep[]).some(
+            (step) => {
+              const effect = step.effect as ToolEffect | undefined;
+              return (
+                step.type === "tool_result" &&
+                effect?.kind === "write" &&
+                effect.verified
+              );
+            },
+          );
+          if (allSentFiles.length === 0 && !hasVerifiedWrittenArtifact) {
+            fullText = ensureNewsBriefFinalQuality(
+              fullText,
+              (trace.steps as TraceStep[])
+                .filter(
+                  (step) =>
+                    step.type === "tool_result" &&
+                    typeof step.content === "string",
+                )
+                .map((step) => String(step.content)),
+            );
+          }
         }
 
         // When this is the final response (no tool calls), append file markdown

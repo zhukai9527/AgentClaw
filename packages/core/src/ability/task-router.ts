@@ -37,7 +37,7 @@ export function buildTaskToolProfile(
       allowedTools: new Set(["schedule"]),
       toolTotalLimits: { schedule: 2 },
       webResearchToolLimit: 0,
-      hint: "[任务工具边界]当前是自动化/提醒任务：必须使用 schedule 工具创建或查询；禁止 bash、crontab、Windows Task Scheduler，也不要只说明方案。创建每天 9 点任务用 cron=\"0 9 * * *\"；提醒任务也优先用 schedule 工具。",
+      hint: '[任务工具边界]当前是自动化/提醒任务：必须使用 schedule 工具创建或查询；禁止 bash、crontab、Windows Task Scheduler，也不要只说明方案。创建每天 9 点任务用 cron="0 9 * * *"；提醒任务也优先用 schedule 工具。',
     };
   }
 
@@ -169,13 +169,23 @@ export function filterToolDefinitionsForTask<T extends { name: string }>(
 }
 
 function isTextOnlyFollowupTask(inputText: string): boolean {
+  const hasArtifactContinuationIntent =
+    /生成|制作|做完|补完|完善|创建|导出|build|make|generate|finish|complete/i.test(
+      inputText,
+    ) &&
+    /文件|PPT|pptx|ppt|幻灯片|deck|页面|文档|表格|报告|图片|视频|artifact|file|slide|document|spreadsheet|report|image|video/i.test(
+      inputText,
+    );
+  const hasExplicitToolIntent =
+    /保存|发送|写入|创建文件|下载|抓取|搜索|读取文件|运行|执行(?!验收)|修改|删除|send|save|write|download|search|fetch|run|execute/i.test(
+      inputText,
+    );
   return (
     /^(继续|基于刚才|展开|再说|说明|回答|只回答|只编号|给两个|给 2 个)/i.test(
       inputText.trim(),
     ) &&
-    !/保存|发送|写入|创建文件|下载|抓取|搜索|读取文件|运行|执行(?!验收)|修改|删除|send|save|write|download|search|fetch|run|execute/i.test(
-      inputText,
-    )
+    !hasExplicitToolIntent &&
+    !hasArtifactContinuationIntent
   );
 }
 
@@ -192,7 +202,7 @@ function isEvidenceTableAnalysisTask(inputText: string): boolean {
       inputText,
     );
   const hasResearchableTarget =
-    /https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}|官网|网站|网页|站点|公司|产品|竞品|品牌|安全|性能|转化|\bseo\b|搜索引擎优化|收录|sitemap|robots/i.test(
+    /https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}|官网|网站|网页|站点|安全|性能|转化|\bseo\b|搜索引擎优化|收录|sitemap|robots|响应头|headers?/i.test(
       inputText,
     );
 
