@@ -86,9 +86,22 @@ export function computeLayout(
     if (!rankGroups.has(rank)) rankGroups.set(rank, []);
     rankGroups.get(rank)!.push(id);
   }
-  const H_SPACING = 320, V_SPACING = 100, PHASE_GAP = 120;
+  const NODE_W = 280, RANK_GAP = 40, V_SPACING = 100, PHASE_GAP = 120;
   const positions = new Map<string, LayoutPos>();
   const sortedRanks = Array.from(rankGroups.keys()).sort((a, b) => a - b);
+
+  // Compute cumulative x offset for each rank: sum of max widths of all previous ranks + gaps
+  const rankXOffsets = new Map<number, number>();
+  {
+    let cx = 0;
+    for (const rank of sortedRanks) {
+      rankXOffsets.set(rank, cx);
+      // Use estimated max node width per rank; currently all nodes share the same estimate
+      // This can be replaced with per-rank max width measurement if node widths are known
+      cx += NODE_W + RANK_GAP;
+    }
+  }
+
   const phaseYOffsets = new Map<string, number>();
   const visitedPhaseOrder: string[] = [];
   if (phaseMap) {
@@ -115,16 +128,17 @@ export function computeLayout(
         noPhase.push(id);
       }
     }
+    const baseX = rankXOffsets.get(rank) ?? rank * (NODE_W + RANK_GAP);
     let yCursor = -((ids.length - 1) * V_SPACING) / 2;
     if (noPhase.length > 0) {
       const blockH = (noPhase.length - 1) * V_SPACING;
-      noPhase.forEach((id, i) => { positions.set(id, { x: rank * H_SPACING, y: yCursor + i * V_SPACING }); });
+      noPhase.forEach((id, i) => { positions.set(id, { x: baseX, y: yCursor + i * V_SPACING }); });
       yCursor += blockH + V_SPACING;
     }
     for (const [ph, pids] of phaseGroups) {
       const yOff = phaseYOffsets.get(ph) || 0;
       const blockH = (pids.length - 1) * V_SPACING;
-      pids.forEach((id, i) => { positions.set(id, { x: rank * H_SPACING, y: yCursor + yOff + i * V_SPACING }); });
+      pids.forEach((id, i) => { positions.set(id, { x: baseX, y: yCursor + yOff + i * V_SPACING }); });
       yCursor += blockH + V_SPACING;
     }
   }
