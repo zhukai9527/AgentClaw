@@ -178,7 +178,7 @@ export function WorkspacePage() {
       to: e.to || null,
       label: e.label || e.condition,
     }));
-    setWorkflowDef({ name: wf.name, steps, edges });
+    setWorkflowDef({ name: wf.name, steps, edges, phases: wf.phases });
   }, []);
 
   const fetchImportedWorkspaces = useCallback(async () => {
@@ -455,6 +455,7 @@ export function WorkspacePage() {
   const hasWorkspace = !!workspace?.activeWorkspacePath;
   const canvasSteps: CanvasStep[] = workflowDef.steps;
   const canvasEdges: CanvasEdge[] = workflowDef.edges;
+  const canvasPhases: any[] | undefined = workflowDef.phases;
 
   const filteredWorkflows = workflows.filter((wf) =>
     !searchQuery || wf.name.toLowerCase().includes(searchQuery.toLowerCase()),
@@ -677,7 +678,7 @@ export function WorkspacePage() {
 
                   <div className="ws-canvas-area">
                     {viewMode === "execute" ? (
-                      <WorkflowCanvas steps={canvasSteps} edges={canvasEdges} />
+                      <WorkflowCanvas steps={canvasSteps} edges={canvasEdges} phases={canvasPhases} />
                     ) : (
                       <WorkflowEditor
                         initial={workflowDef}

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, Fragment } from "react";
 import {
   ReactFlow,
   Background,
@@ -26,7 +26,6 @@ export interface CanvasStep {
   status?: "pending" | "running" | "done" | "failed" | "waiting";
   skillSource?: "workspace" | "system";
   skill?: string;
-  /** Phase grouping (Codex-style) */
   phaseId?: string;
   phaseName?: string;
   runMode?: "serial" | "parallel" | "join";
@@ -47,11 +46,10 @@ export interface LayoutPos {
   y: number;
 }
 
-/**
- * Compute a ranked DAG layout (left-to-right hierarchy) with phase awareness.
- * Nodes connected by edges are assigned ranks based on longest path from root.
- * Within each phase, nodes are grouped; extra spacing separates different phases.
- */
+/* ────────────────────────────────────────────── */
+/*  computeLayout — ranked DAG (kept for flat mode) */
+/* ────────────────────────────────────────────── */
+
 export function computeLayout(
   stepIds: string[],
   edges: CanvasEdge[],
@@ -59,54 +57,38 @@ export function computeLayout(
 ): Map<string, LayoutPos> {
   const predecessors = new Map<string, string[]>();
   const allNodes = new Set(stepIds);
-
   for (const e of edges) {
     if (e.from) allNodes.add(e.from);
     if (e.to) allNodes.add(e.to);
   }
-
   const nodeList = Array.from(allNodes);
   for (const id of nodeList) predecessors.set(id, []);
-
   for (const e of edges) {
     if (e.from && e.to) {
       const preds = predecessors.get(e.to);
       if (preds) preds.push(e.from);
     }
   }
-
   const ranks = new Map<string, number>();
-
   function getRank(id: string): number {
     const cached = ranks.get(id);
     if (cached !== undefined) return cached;
     const preds = predecessors.get(id) || [];
-    if (preds.length === 0) {
-      ranks.set(id, 0);
-      return 0;
-    }
+    if (preds.length === 0) { ranks.set(id, 0); return 0; }
     let maxRank = -1;
     for (const p of preds) maxRank = Math.max(maxRank, getRank(p));
     ranks.set(id, maxRank + 1);
     return maxRank + 1;
   }
-
   for (const id of nodeList) getRank(id);
-
   const rankGroups = new Map<number, string[]>();
   for (const [id, rank] of ranks) {
     if (!rankGroups.has(rank)) rankGroups.set(rank, []);
     rankGroups.get(rank)!.push(id);
   }
-
-  const H_SPACING = 180;
-  const V_SPACING = 70;
-  const PHASE_GAP = 120;
-
+  const H_SPACING = 180, V_SPACING = 70, PHASE_GAP = 120;
   const positions = new Map<string, LayoutPos>();
   const sortedRanks = Array.from(rankGroups.keys()).sort((a, b) => a - b);
-
-  // Compute phase y-offsets: track phase transitions across ranks
   const phaseYOffsets = new Map<string, number>();
   const visitedPhaseOrder: string[] = [];
   if (phaseMap) {
@@ -120,10 +102,8 @@ export function computeLayout(
       }
     }
   }
-
   for (const rank of sortedRanks) {
     const ids = rankGroups.get(rank)!;
-    // Group nodes in this rank by phase to compute per-phase y centers
     const phaseGroups = new Map<string, string[]>();
     const noPhase: string[] = [];
     for (const id of ids) {
@@ -135,40 +115,227 @@ export function computeLayout(
         noPhase.push(id);
       }
     }
-
     let yCursor = -((ids.length - 1) * V_SPACING) / 2;
-
-    // Place non-phase nodes first
     if (noPhase.length > 0) {
       const blockH = (noPhase.length - 1) * V_SPACING;
-      const startY = yCursor + (noPhase.length > 1 ? 0 : 0);
-      noPhase.forEach((id, i) => {
-        positions.set(id, { x: rank * H_SPACING, y: startY + i * V_SPACING });
-      });
+      noPhase.forEach((id, i) => { positions.set(id, { x: rank * H_SPACING, y: yCursor + i * V_SPACING }); });
       yCursor += blockH + V_SPACING;
     }
-
-    // Place phase-grouped nodes with phase offset
-    let firstInRank = true;
     for (const [ph, pids] of phaseGroups) {
       const yOff = phaseYOffsets.get(ph) || 0;
       const blockH = (pids.length - 1) * V_SPACING;
-      const startY = yCursor + yOff;
-      pids.forEach((id, i) => {
-        positions.set(id, { x: rank * H_SPACING, y: startY + i * V_SPACING });
-      });
+      pids.forEach((id, i) => { positions.set(id, { x: rank * H_SPACING, y: yCursor + yOff + i * V_SPACING }); });
       yCursor += blockH + V_SPACING;
     }
   }
-
   return positions;
 }
 
-interface WorkflowCanvasProps {
-  steps: CanvasStep[];
-  edges: CanvasEdge[];
-  fitView?: boolean;
+/* ────────────────────────────────────────────── */
+/*  Inner step card (used inside PhaseNode)       */
+/* ────────────────────────────────────────────── */
+
+const STEP_CARD_H = 56;
+const STEP_CARD_W = 160;
+const STEP_GAP = 24;
+
+function InnerStepCard({
+  name,
+  skill,
+  type,
+  exitGate,
+  phaseColor,
+}: {
+  name: string;
+  skill: string | string[] | undefined;
+  type: string;
+  exitGate?: string;
+  phaseColor: string;
+}) {
+  const skills = skill ? (Array.isArray(skill) ? skill : [skill]) : [];
+  return (
+    <div
+      style={{
+        minWidth: STEP_CARD_W,
+        background: "var(--bg-tertiary, #1e293b)",
+        border: `1px solid ${phaseColor}40`,
+        borderRadius: 6,
+        padding: "6px 10px",
+        fontSize: 11,
+        lineHeight: 1.3,
+      }}
+    >
+      <div style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: 2, fontSize: 12 }}>
+        {name}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 2 }}>
+        {skills.map((s, i) => (
+          <span
+            key={i}
+            style={{
+              fontSize: 10,
+              padding: "1px 6px",
+              borderRadius: 3,
+              background: `${phaseColor}18`,
+              color: phaseColor,
+              border: `1px solid ${phaseColor}30`,
+            }}
+          >
+            {s}
+          </span>
+        ))}
+      </div>
+      {type === "condition" && (
+        <div style={{ fontSize: 10, color: "var(--warning)", marginTop: 2 }}>Condition</div>
+      )}
+      {exitGate && (
+        <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 2, lineHeight: 1.2 }}>
+          🚪 {exitGate.length > 30 ? exitGate.slice(0, 30) + "…" : exitGate}
+        </div>
+      )}
+    </div>
+  );
 }
+
+/* ────────────────────────────────────────────── */
+/*  PhaseNode — big container with embedded steps */
+/* ────────────────────────────────────────────── */
+
+function PhaseNode({ data }: NodeProps) {
+  const phaseColor = PHASE_COLORS[(data.phaseIdx as number) % PHASE_COLORS.length];
+  const innerSteps = data.innerSteps as any[];
+  const entryGate = data.entryGate as string | undefined;
+  const exitGate = data.exitGate as string | undefined;
+
+  // Linearize: place steps in depends_on order (topological)
+  // For serial chains, just use array order; render arrows between connected steps
+  const stepIds = new Set(innerSteps.map((s) => s.id));
+  const dependsOn = new Map<string, string[]>();
+  for (const s of innerSteps) {
+    dependsOn.set(s.id, (s.dependsOn as string[] || []).filter((d: string) => stepIds.has(d)));
+  }
+
+  // Determine chain connections: for each step, find which step depends on it
+  const nextStep = new Map<string, string>();
+  for (const s of innerSteps) {
+    for (const dep of (s.dependsOn as string[] || [])) {
+      if (stepIds.has(dep)) nextStep.set(dep, s.id);
+    }
+  }
+
+  const contentW = innerSteps.length * (STEP_CARD_W + STEP_GAP) - STEP_GAP + 24;
+  const contentH = STEP_CARD_H + 40;
+
+  return (
+    <div
+      style={{
+        border: `2px solid ${phaseColor}`,
+        borderRadius: "var(--radius)",
+        background: "var(--bg-secondary)",
+        minWidth: 320,
+        minHeight: 120,
+        position: "relative",
+        overflow: "hidden",
+        fontSize: 13,
+      }}
+    >
+      <Handle type="target" position={Position.Left} />
+
+      {/* Phase color bar */}
+      <div style={{ height: 5, background: phaseColor }} />
+
+      {/* ── Phase header ── */}
+      <div style={{ padding: "10px 14px 6px" }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            color: phaseColor,
+            letterSpacing: "0.3px",
+            marginBottom: 4,
+          }}
+        >
+          {data.phaseName as string}
+        </div>
+        {entryGate && (
+          <div style={{ fontSize: 10, color: "var(--warning)", marginBottom: 2, lineHeight: 1.3 }}>
+            ⛩ {entryGate.length > 80 ? entryGate.slice(0, 80) + "…" : entryGate}
+          </div>
+        )}
+      </div>
+
+      {/* ── Inner step mini-flow ── */}
+      <div
+        style={{
+          padding: "8px 12px 12px",
+          display: "flex",
+          alignItems: "center",
+          gap: 0,
+          minWidth: contentW,
+          minHeight: contentH,
+          overflowX: "auto" as const,
+        }}
+      >
+        {innerSteps.map((step, i) => (
+          <Fragment key={step.id}>
+            {i > 0 && nextStep.get(innerSteps[i - 1].id) === step.id && (
+              <div
+                style={{
+                  flexShrink: 0,
+                  width: STEP_GAP,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24">
+                  <path
+                    d="M5 12h14M14 5l7 7-7 7"
+                    stroke={phaseColor}
+                    strokeWidth="2"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+            )}
+            {i > 0 && nextStep.get(innerSteps[i - 1].id) !== step.id && (
+              <div style={{ flexShrink: 0, width: STEP_GAP }} />
+            )}
+            <InnerStepCard
+              name={step.name}
+              skill={step.skill}
+              type={step.type}
+              exitGate={step.exitGate}
+              phaseColor={phaseColor}
+            />
+          </Fragment>
+        ))}
+      </div>
+
+      {/* ── Phase footer: exit gate ── */}
+      {exitGate && (
+        <div
+          style={{
+            padding: "2px 14px 8px",
+            fontSize: 10,
+            color: "var(--text-muted)",
+            lineHeight: 1.3,
+          }}
+        >
+          🚪 {exitGate.length > 100 ? exitGate.slice(0, 100) + "…" : exitGate}
+        </div>
+      )}
+
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────── */
+/*  StepNode — flat DAG node (kept for flat mode) */
+/* ────────────────────────────────────────────── */
 
 export function StepNode({ data }: NodeProps) {
   const statusColors: Record<string, string> = {
@@ -178,14 +345,10 @@ export function StepNode({ data }: NodeProps) {
     failed: "var(--danger, #ef4444)",
     waiting: "var(--text-secondary)",
   };
-
   const borderColor = statusColors[data.status ?? "pending"];
   const isCondition = data.type === "condition";
-  const hasPhase = !!data.phaseId;
   const phaseIdx = data.phaseIdx as number | undefined;
   const phaseColor = phaseIdx !== undefined ? PHASE_COLORS[phaseIdx % PHASE_COLORS.length] : undefined;
-
-  // Normalize skill(s) to array
   const rawSkill = data.skill;
   const skillList: string[] = rawSkill
     ? Array.isArray(rawSkill) ? rawSkill : [rawSkill]
@@ -197,7 +360,6 @@ export function StepNode({ data }: NodeProps) {
 
   return (
     <div
-      className="wf-node"
       style={{
         border: `2px solid ${borderColor}`,
         borderRadius: "var(--radius)",
@@ -209,111 +371,36 @@ export function StepNode({ data }: NodeProps) {
       }}
     >
       <Handle type="target" position={Position.Left} />
-
-      {/* ── Phase accent bar ── */}
-      {phaseColor && (
-        <div style={{ height: 4, background: phaseColor }} />
-      )}
-
-      {/* ── HEADER ZONE: step metadata ── */}
+      {phaseColor && <div style={{ height: 4, background: phaseColor }} />}
       <div style={{ padding: "8px 12px 4px" }}>
         {data.phaseName && phaseColor && (
-          <div
-            style={{
-              fontSize: 10,
-              color: phaseColor,
-              marginBottom: 4,
-              fontWeight: 600,
-              letterSpacing: "0.5px",
-              textTransform: "uppercase" as const,
-            }}
-          >
-            {data.phaseName}
+          <div style={{ fontSize: 10, color: phaseColor, marginBottom: 4, fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase" as const }}>
+            {data.phaseName as string}
             {data.runMode && data.runMode !== "serial" && (
-              <span
-                style={{
-                  marginLeft: 6,
-                  padding: "1px 5px",
-                  borderRadius: 3,
-                  background: `${phaseColor}20`,
-                  color: phaseColor,
-                  fontSize: 9,
-                  textTransform: "none" as const,
-                }}
-              >
-                {data.runMode}
+              <span style={{ marginLeft: 6, padding: "1px 5px", borderRadius: 3, background: `${phaseColor}20`, color: phaseColor, fontSize: 9, textTransform: "none" as const }}>
+                {data.runMode as string}
               </span>
             )}
           </div>
         )}
         <div style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: 2, lineHeight: 1.3 }}>
-          {data.name}
+          {data.name as string}
         </div>
-        {isCondition && (
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Condition</div>
-        )}
-        {data.entryGate && (
-          <div style={{ fontSize: 10, color: "var(--warning)", marginTop: 2 }}>⛩ {data.entryGate}</div>
-        )}
+        {isCondition && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Condition</div>}
+        {data.entryGate && <div style={{ fontSize: 10, color: "var(--warning)", marginTop: 2 }}>⛩ {data.entryGate as string}</div>}
       </div>
 
-      {/* ── CONTENT ZONE: skill chain ── */}
       {skillList.length > 0 && (
-        <div
-          style={{
-            borderTop: "1px solid var(--border)",
-            margin: "4px 0 0",
-            padding: "6px 12px 8px",
-            display: "flex",
-            flexDirection: "column" as const,
-            gap: 2,
-          }}
-        >
+        <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0 0", padding: "6px 12px 8px", display: "flex", flexDirection: "column" as const, gap: 2 }}>
           {skillList.map((name, i) => (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              {/* Arrow connector for chained skills */}
-              {i > 0 && (
-                <span style={{ color: "var(--text-muted)", fontSize: 10, width: 10, flexShrink: 0, textAlign: "center" }}>
-                  ↓
-                </span>
-              )}
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {i > 0 && <span style={{ color: "var(--text-muted)", fontSize: 10, width: 10, flexShrink: 0, textAlign: "center" }}>↓</span>}
               {i === 0 && <span style={{ width: 10, flexShrink: 0 }} />}
-
-              {/* Skill card */}
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 500,
-                  color: phaseColor || "var(--text-muted)",
-                  background: phaseColor ? `${phaseColor}12` : "transparent",
-                  padding: "2px 8px",
-                  borderRadius: 4,
-                  border: `1px solid ${phaseColor ? phaseColor + "30" : "var(--border)"}`,
-                  whiteSpace: "nowrap" as const,
-                }}
-              >
+              <span style={{ fontSize: 11, fontWeight: 500, color: phaseColor || "var(--text-muted)", background: phaseColor ? `${phaseColor}12` : "transparent", padding: "2px 8px", borderRadius: 4, border: `1px solid ${phaseColor ? phaseColor + "30" : "var(--border)"}`, whiteSpace: "nowrap" as const }}>
                 {name}
               </span>
-
-              {/* Source badge (only on first or when differs) */}
               {sourceList[i] && (
-                <span
-                  style={{
-                    fontSize: 9,
-                    padding: "0 4px",
-                    borderRadius: 3,
-                    background: sourceList[i] === "workspace" ? "var(--accent)" : "var(--text-muted)",
-                    color: "#fff",
-                    lineHeight: "16px",
-                  }}
-                >
+                <span style={{ fontSize: 9, padding: "0 4px", borderRadius: 3, background: sourceList[i] === "workspace" ? "var(--accent)" : "var(--text-muted)", color: "#fff", lineHeight: "16px" }}>
                   {sourceList[i]}
                 </span>
               )}
@@ -322,19 +409,8 @@ export function StepNode({ data }: NodeProps) {
         </div>
       )}
 
-      {/* ── FOOTER: dependency hints ── */}
       {data.dependencySteps && (data.dependencySteps as string[]).length > 0 && (
-        <div
-          style={{
-            fontSize: 10,
-            color: "var(--text-muted)",
-            padding: "2px 12px 6px",
-            display: "flex",
-            gap: 2,
-            flexWrap: "wrap" as const,
-            borderTop: skillList.length > 0 ? "1px solid var(--border)" : undefined,
-          }}
-        >
+        <div style={{ fontSize: 10, color: "var(--text-muted)", padding: "2px 12px 6px", display: "flex", gap: 2, flexWrap: "wrap" as const, borderTop: skillList.length > 0 ? "1px solid var(--border)" : undefined }}>
           <span style={{ opacity: 0.6 }}>←</span>
           {(data.dependencySteps as string[]).slice(0, 3).join(", ")}
           {(data.dependencySteps as string[]).length > 3 && "…"}
@@ -346,30 +422,104 @@ export function StepNode({ data }: NodeProps) {
   );
 }
 
-export const nodeTypes = { stepNode: StepNode };
+export const nodeTypes = { stepNode: StepNode, phaseNode: PhaseNode };
 
-export function WorkflowCanvas({ steps, edges, fitView }: WorkflowCanvasProps) {
+/* ────────────────────────────────────────────── */
+/*  WorkflowCanvas — dual mode                    */
+/* ────────────────────────────────────────────── */
+
+interface WorkflowCanvasProps {
+  steps: CanvasStep[];
+  edges: CanvasEdge[];
+  /** When provided, renders phase-level nodes instead of flat steps */
+  phases?: any[];
+  fitView?: boolean;
+}
+
+export function WorkflowCanvas({ steps, edges, phases, fitView }: WorkflowCanvasProps) {
   const { nodes, flowEdges } = useMemo(() => {
-    // Build phase map for layout
+    // ── Phase mode ──
+    if (phases && phases.length > 0) {
+      // Group steps by phaseId
+      const stepMap = new Map(steps.map((s) => [s.id, s]));
+      const phaseStepGroups = new Map<string, any[]>();
+      for (const ph of phases) {
+        phaseStepGroups.set(ph.id, []);
+      }
+      for (const s of steps) {
+        const group = phaseStepGroups.get(s.phaseId || "");
+        if (group) group.push(s);
+      }
+
+      // Build edge lookup for depends_on
+      const incomingEdges = new Map<string, string[]>();
+      for (const e of edges) {
+        if (e.to) {
+          if (!incomingEdges.has(e.to)) incomingEdges.set(e.to, []);
+          incomingEdges.get(e.to)!.push(e.from);
+        }
+      }
+      const stepNameMap = new Map(steps.map((s) => [s.id, s.name]));
+
+      const phaseNodes: Node[] = phases.map((ph, idx) => {
+        const phaseSteps = phaseStepGroups.get(ph.id) || [];
+        const innerSteps = phaseSteps.map((s: CanvasStep) => {
+          const deps = incomingEdges.get(s.id) || [];
+          return {
+            id: s.id,
+            name: s.name,
+            skill: s.skill,
+            type: s.type,
+            runMode: s.runMode,
+            exitGate: s.exitGate,
+            dependsOn: deps,
+            dependsOnNames: deps.map((d) => stepNameMap.get(d) || d),
+          };
+        });
+
+        return {
+          id: `phase-${ph.id}`,
+          type: "phaseNode" as const,
+          position: { x: idx * 480, y: 0 },
+          data: {
+            phaseId: ph.id,
+            phaseName: ph.name,
+            phaseIdx: idx,
+            entryGate: ph.entry_gate,
+            exitGate: ph.exit_gate,
+            innerSteps,
+          },
+        };
+      });
+
+      const phaseEdges: Edge[] = [];
+      for (let i = 0; i < phases.length - 1; i++) {
+        const fromId = `phase-${phases[i].id}`;
+        const toId = `phase-${phases[i + 1].id}`;
+        const c = PHASE_COLORS[i % PHASE_COLORS.length];
+        phaseEdges.push({
+          id: `${fromId}->${toId}`,
+          source: fromId,
+          target: toId,
+          animated: true,
+          style: { stroke: c, strokeWidth: 2 },
+        });
+      }
+
+      return { nodes: phaseNodes, flowEdges: phaseEdges };
+    }
+
+    // ── Flat mode (original) ──
     const phaseMap: Record<string, string> = {};
     const phaseIndex = new Map<string, number>();
     let nextPhaseIdx = 0;
     for (const s of steps) {
       if (s.phaseId) {
         phaseMap[s.id] = s.phaseId;
-        if (!phaseIndex.has(s.phaseId)) {
-          phaseIndex.set(s.phaseId, nextPhaseIdx++);
-        }
+        if (!phaseIndex.has(s.phaseId)) phaseIndex.set(s.phaseId, nextPhaseIdx++);
       }
     }
-
-    const positions = computeLayout(
-      steps.map((s) => s.id),
-      edges,
-      phaseMap,
-    );
-
-    // Compute dependency steps from edges for each node
+    const positions = computeLayout(steps.map((s) => s.id), edges, phaseMap);
     const stepNameMap = new Map(steps.map((s) => [s.id, s.name]));
     const dependencyMap = new Map<string, string[]>();
     for (const e of edges) {
@@ -379,7 +529,6 @@ export function WorkflowCanvas({ steps, edges, fitView }: WorkflowCanvasProps) {
         if (!deps.includes(e.from)) deps.push(e.from);
       }
     }
-
     const nodes: Node[] = steps.map((step) => {
       const pos = positions.get(step.id) || { x: 0, y: 0 };
       return {
@@ -398,13 +547,10 @@ export function WorkflowCanvas({ steps, edges, fitView }: WorkflowCanvasProps) {
           runMode: step.runMode,
           entryGate: step.entryGate,
           exitGate: step.exitGate,
-          dependencySteps: (dependencyMap.get(step.id) || [])
-            .map((id) => stepNameMap.get(id) || id),
+          dependencySteps: (dependencyMap.get(step.id) || []).map((id) => stepNameMap.get(id) || id),
         },
       };
     });
-
-    // Deduplicate edges (same from→to may appear from serial + depends_on)
     const seenEdges = new Set<string>();
     const uniqueEdges = edges.filter((e) => {
       if (!e.to) return false;
@@ -413,31 +559,29 @@ export function WorkflowCanvas({ steps, edges, fitView }: WorkflowCanvasProps) {
       seenEdges.add(key);
       return true;
     });
-
     const flowEdges: Edge[] = uniqueEdges.map((e) => {
-        const srcPhase = phaseMap[e.from];
-        const tgtPhase = phaseMap[e.to!];
-        const samePhase = srcPhase && tgtPhase && srcPhase === tgtPhase;
-        const idx = srcPhase ? phaseIndex.get(srcPhase) ?? 0 : 0;
-        const phaseColor = PHASE_COLORS[idx % PHASE_COLORS.length];
-
-        return {
-          id: `${e.from}->${e.to}`,
-          source: e.from,
-          target: e.to!,
-          label: e.label,
-          animated: samePhase,
-          style: {
-            stroke: samePhase ? phaseColor : "var(--border)",
-            strokeWidth: samePhase ? 2 : 1.5,
-            strokeDasharray: samePhase ? undefined : "4 3",
-          },
-          labelStyle: { fontSize: 11, fill: "var(--text-muted)" },
-        };
-      });
+      const srcPhase = phaseMap[e.from];
+      const tgtPhase = phaseMap[e.to!];
+      const samePhase = srcPhase && tgtPhase && srcPhase === tgtPhase;
+      const idx = srcPhase ? phaseIndex.get(srcPhase) ?? 0 : 0;
+      const phaseColor = PHASE_COLORS[idx % PHASE_COLORS.length];
+      return {
+        id: `${e.from}->${e.to}`,
+        source: e.from,
+        target: e.to!,
+        label: e.label,
+        animated: samePhase,
+        style: {
+          stroke: samePhase ? phaseColor : "var(--border)",
+          strokeWidth: samePhase ? 2 : 1.5,
+          strokeDasharray: samePhase ? undefined : "4 3",
+        },
+        labelStyle: { fontSize: 11, fill: "var(--text-muted)" },
+      };
+    });
 
     return { nodes, flowEdges };
-  }, [steps, edges]);
+  }, [steps, edges, phases]);
 
   return (
     <div style={{ width: "100%", height: "100%", minHeight: 300 }}>
