@@ -4,17 +4,43 @@ import { PageHeader } from "../components/PageHeader";
 import { WorkflowCanvas } from "../components/WorkflowCanvas";
 import { WorkflowEditor } from "../components/WorkflowEditor";
 import type { WorkflowDef } from "../components/WorkflowEditor";
-import { listManagedTasks, updateManagedTask, type TaskItem } from "../api/client";
+import { listManagedTasks, type TaskItem } from "../api/client";
 import type { CanvasStep, CanvasEdge } from "../components/WorkflowCanvas";
 import { connectWebSocket } from "../api/client";
+import {
+  Folder,
+  FileText,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  Plus,
+  Trash2,
+  Save,
+  Play,
+  Search,
+  Layout,
+  ChevronLeft,
+  List,
+  Workflow,
+  Terminal,
+  X,
+  File,
+} from "lucide-react";
 import "./WorkspacePage.css";
 
 type ViewMode = "execute" | "edit";
+type SidebarTab = "tasks" | "workflows";
 
 interface WorkspaceState {
   activeWorkspacePath?: string;
   targetProjects: { name: string; path: string }[];
   lastActiveTaskId?: string;
+}
+
+interface Toast {
+  id: number;
+  type: "success" | "error" | "info";
+  message: string;
 }
 
 const STATUS_ORDER: Record<string, number> = {
@@ -34,6 +60,8 @@ const STATUS_LABELS: Record<string, string> = {
   done: "Done",
   failed: "Failed",
 };
+
+let toastId = 0;
 
 export function WorkspacePage() {
   const { t } = useTranslation();
@@ -60,7 +88,28 @@ export function WorkspacePage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<{ role: string; text: string }[]>([]);
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("tasks");
+  const [workflows, setWorkflows] = useState<any[]>([]);
+  const [workflowsLoading, setWorkflowsLoading] = useState(false);
+  const [activeWorkflow, setActiveWorkflow] = useState<any | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [showNewTask, setShowNewTask] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskDesc, setNewTaskDesc] = useState("");
+  const [newTaskPriority, setNewTaskPriority] = useState("medium");
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
   const wsRef = useRef<ReturnType<typeof connectWebSocket> | null>(null);
+
+  const addToast = useCallback((type: Toast["type"], message: string) => {
+    const id = ++toastId;
+    setToasts((prev) => [...prev, { id, type, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -90,6 +139,40 @@ export function WorkspacePage() {
         setProjects(data.projects || []);
       }
     } catch {}
+  }, []);
+
+  const fetchWorkflows = useCallback(async () => {
+    setWorkflowsLoading(true);
+    try {
+      const res = await fetch("/api/workspace/workflows");
+      if (res.ok) {
+        const data = await res.json();
+        setWorkflows(data.workflows || []);
+      }
+    } catch {} finally {
+      setWorkflowsLoading(false);
+    }
+  }, []);
+
+  const selectWorkflow = useCallback((wf: any) => {
+    setActiveWorkflow(wf);
+    setActiveTask(null);
+    setViewMode("execute");
+    const steps = (wf.steps || []).map((s: any, i: number) => ({
+      id: s.name || `step-${i}`,
+      label: s.name || `Step ${i + 1}`,
+      type: s.type || "task",
+      status: undefined as string | undefined,
+      skill: s.skill,
+      skillSource: s.skillSource,
+    }));
+    const edges = (wf.edges || []).map((e: any, i: number) => ({
+      id: e.id || `edge-${i}`,
+      source: e.source,
+      target: e.target,
+      label: e.label || e.condition,
+    }));
+    setWorkflowDef({ name: wf.name, steps, edges });
   }, []);
 
   const fetchImportedWorkspaces = useCallback(async () => {
@@ -125,13 +208,15 @@ export function WorkspacePage() {
     if (workspace?.activeWorkspacePath) {
       fetchTasks();
       fetchProjects();
+      fetchWorkflows();
     } else {
       fetchImportedWorkspaces();
     }
-  }, [workspace?.activeWorkspacePath, fetchTasks, fetchProjects, fetchImportedWorkspaces]);
+  }, [workspace?.activeWorkspacePath, fetchTasks, fetchProjects, fetchWorkflows, fetchImportedWorkspaces]);
 
   const selectTask = (task: TaskItem) => {
     setActiveTask(task);
+    setActiveWorkflow(null);
     setViewMode("execute");
     setChatMessages([]);
     setPreviewUrl(null);
@@ -164,11 +249,99 @@ export function WorkspacePage() {
       setWorkspace({ activeWorkspacePath: data.path, targetProjects: [] });
       setShowImport(false);
       setGitUrl("");
+      addToast("success", "Workspace imported successfully");
       fetchProjects();
     } catch (e: any) {
       setImportError(e.message || "Unknown error");
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleSaveWorkflow = async () => {
+    if (!workflowDef.name || saving) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/workspace/workflows/${encodeURIComponent(workflowDef.name)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ definition: workflowDef }),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      addToast("success", "Workflow saved");
+      fetchWorkflows();
+    } catch {
+      addToast("error", "Failed to save workflow");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteWorkflow = async () => {
+    if (!activeWorkflow) return;
+    try {
+      const res = await fetch(`/api/workspace/workflows/${encodeURIComponent(activeWorkflow.name)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Delete failed");
+      addToast("success", "Workflow deleted");
+      setActiveWorkflow(null);
+      setShowConfirmDelete(false);
+      fetchWorkflows();
+    } catch {
+      addToast("error", "Failed to delete workflow");
+    }
+  };
+
+  const handleRunWorkflow = async () => {
+    if (!activeWorkflow || running) return;
+    setRunning(true);
+    try {
+      const task = {
+        title: `Run: ${activeWorkflow.name}`,
+        description: `Executing workflow: ${activeWorkflow.name}`,
+        priority: "medium",
+      };
+      const res = await fetch("/api/workspace/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(task),
+      });
+      if (!res.ok) throw new Error("Task creation failed");
+      const data = await res.json();
+      setActiveTask(data);
+      addToast("success", `Workflow "${activeWorkflow.name}" started`);
+      fetchTasks();
+    } catch {
+      addToast("error", "Failed to start workflow");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const handleCreateTask = async () => {
+    if (!newTaskTitle.trim()) return;
+    try {
+      const res = await fetch("/api/workspace/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newTaskTitle.trim(),
+          description: newTaskDesc.trim(),
+          priority: newTaskPriority,
+        }),
+      });
+      if (!res.ok) throw new Error("Task creation failed");
+      const data = await res.json();
+      setActiveTask(data);
+      setShowNewTask(false);
+      setNewTaskTitle("");
+      setNewTaskDesc("");
+      setNewTaskPriority("medium");
+      addToast("success", "Task created");
+      fetchTasks();
+    } catch {
+      addToast("error", "Failed to create task");
     }
   };
 
@@ -238,16 +411,21 @@ export function WorkspacePage() {
   }, []);
 
   const handleSendChat = async () => {
-    if (!chatInput.trim() || !activeTask) return;
+    if (!chatInput.trim()) return;
     const text = chatInput.trim();
     setChatInput("");
+    let task = activeTask;
+    if (!task) {
+      task = { id: "new-" + Date.now(), title: text.slice(0, 40), status: "todo", priority: "medium" };
+      setActiveTask(task);
+    }
     setChatMessages((m) => [...m, { role: "user", text }]);
     setChatMessages((m) => [...m, { role: "assistant", text: "Thinking..." }]);
     try {
       const res = await fetch("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: activeTask.title }),
+        body: JSON.stringify({ title: task.title }),
       });
       if (!res.ok) throw new Error("Session creation failed");
       const session = await res.json();
@@ -260,7 +438,9 @@ export function WorkspacePage() {
       const chatData = await chatRes.json();
       setChatMessages((m) => m.slice(0, -1));
       setChatMessages((m) => [...m, { role: "assistant", text: chatData.response || "Done" }]);
-    } catch {}
+    } catch {
+      addToast("error", "Chat failed. Check server connection.");
+    }
   };
 
   const sortedTasks = [...tasks].sort(
@@ -270,16 +450,35 @@ export function WorkspacePage() {
   const canvasSteps: CanvasStep[] = workflowDef.steps;
   const canvasEdges: CanvasEdge[] = workflowDef.edges;
 
+  const filteredWorkflows = workflows.filter((wf) =>
+    !searchQuery || wf.name.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
+  const filteredTasks = sortedTasks.filter((task) =>
+    !searchQuery || task.title.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
+
   return (
     <>
       <PageHeader>
         {t("nav.workspace")}
         {activeTask && (
-          <span className="ws-header-task">
-            — {activeTask.title}
-          </span>
+          <span className="ws-header-task">— {activeTask.title}</span>
         )}
       </PageHeader>
+
+      <div className="ws-toast-container">
+        {toasts.map((toast) => (
+          <div key={toast.id} className={`ws-toast ws-toast-${toast.type}`}>
+            <span className="ws-toast-icon">
+              {toast.type === "success" ? <CheckCircle size={16} color="var(--success)" /> :
+               toast.type === "error" ? <XCircle size={16} color="var(--error)" /> :
+               <AlertCircle size={16} color="var(--accent)" />}
+            </span>
+            <span className="ws-toast-message">{toast.message}</span>
+          </div>
+        ))}
+      </div>
+
       <div className="ws-layout">
         {hasWorkspace ? (
           <>
@@ -296,65 +495,133 @@ export function WorkspacePage() {
                 <div className="ws-project-list">
                   {projects.map((p) => (
                     <div key={p.path} className="ws-project-item" title={p.path}>
-                      &#x1f4c1; {p.name}
+                      <Folder size={14} style={{ marginRight: 4, verticalAlign: "middle", flexShrink: 0 }} />
+                      {p.name}
                     </div>
                   ))}
                 </div>
               )}
-              <div className="ws-sidebar-header">
-                <span className="ws-sidebar-title">{t("tasks.title")}</span>
+              <div className="ws-sidebar-tabs">
                 <button
-                  className="btn-icon"
-                  title={t("common.refresh")}
-                  onClick={fetchTasks}
+                  className={`ws-sidebar-tab${sidebarTab === "tasks" ? " active" : ""}`}
+                  onClick={() => { setSidebarTab("tasks"); setSearchQuery(""); }}
                 >
-                  &#x21bb;
+                  <List size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                  Tasks
+                </button>
+                <button
+                  className={`ws-sidebar-tab${sidebarTab === "workflows" ? " active" : ""}`}
+                  onClick={() => { setSidebarTab("workflows"); setSearchQuery(""); fetchWorkflows(); }}
+                >
+                  <Workflow size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
+                  Workflows
                 </button>
               </div>
-              <div className="ws-task-list">
-                {tasksLoading ? (
-                  <div className="ws-task-empty">{t("common.loading")}</div>
-                ) : sortedTasks.length === 0 ? (
-                  <div className="ws-task-empty">{t("workspace.noTasks")}</div>
-                ) : (
-                  sortedTasks.map((task) => (
-                    <button
-                      key={task.id}
-                      className={`ws-task-item${activeTask?.id === task.id ? " active" : ""}`}
-                      onClick={() => selectTask(task)}
-                    >
-                      <div className="ws-task-item-top">
-                        <span className="ws-task-item-title">{task.title}</span>
-                        <span className={`ws-task-status ws-task-status-${task.status}`}>
-                          {task.status === "running" && <span className="ws-task-spinner" />}
-                          {STATUS_LABELS[task.status] ?? task.status}
-                        </span>
-                      </div>
-                      {task.description && (
-                        <div className="ws-task-item-desc">{task.description}</div>
-                      )}
-                      <div className="ws-task-item-meta">
-                        {task.priority && (
-                          <span className={`ws-task-priority ws-priority-${task.priority}`}>
-                            {task.priority}
-                          </span>
-                        )}
-                        {task.source && (
-                          <span className="ws-task-source">{task.source}</span>
-                        )}
-                      </div>
-                    </button>
-                  ))
-                )}
+
+              <div className="ws-sidebar-search">
+                <input
+                  type="text"
+                  placeholder={`Search ${sidebarTab}...`}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
               </div>
+
+              {sidebarTab === "tasks" ? (
+                <div className="ws-task-list">
+                  <button className="ws-new-task-btn" onClick={() => setShowNewTask(true)}>
+                    <Plus size={14} /> New Task
+                  </button>
+                  {tasksLoading ? (
+                    <>
+                      <div className="ws-skeleton ws-skeleton-item" />
+                      <div className="ws-skeleton ws-skeleton-item" />
+                      <div className="ws-skeleton ws-skeleton-item" />
+                    </>
+                  ) : filteredTasks.length === 0 ? (
+                    <div className="ws-task-empty">
+                      {searchQuery ? "No tasks match your search" : t("workspace.noTasks")}
+                    </div>
+                  ) : (
+                    filteredTasks.map((task) => (
+                      <button
+                        key={task.id}
+                        className={`ws-task-item${activeTask?.id === task.id ? " active" : ""}`}
+                        onClick={() => { selectTask(task); setSidebarTab("tasks"); }}
+                      >
+                        <div className="ws-task-item-top">
+                          <span className="ws-task-item-title">{task.title}</span>
+                          <span className={`ws-task-status ws-task-status-${task.status}`}>
+                            {task.status === "running" && <span className="ws-task-spinner" />}
+                            {STATUS_LABELS[task.status] ?? task.status}
+                          </span>
+                        </div>
+                        {task.description && (
+                          <div className="ws-task-item-desc">{task.description}</div>
+                        )}
+                        <div className="ws-task-item-meta">
+                          {task.priority && (
+                            <span className={`ws-task-priority ws-priority-${task.priority}`}>
+                              {task.priority}
+                            </span>
+                          )}
+                          {task.source && (
+                            <span className="ws-task-source">{task.source}</span>
+                          )}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : (
+                <div className="ws-task-list">
+                  {workflowsLoading ? (
+                    <>
+                      <div className="ws-skeleton ws-skeleton-item" />
+                      <div className="ws-skeleton ws-skeleton-item" />
+                      <div className="ws-skeleton ws-skeleton-item" />
+                    </>
+                  ) : filteredWorkflows.length === 0 ? (
+                    <div className="ws-task-empty">
+                      {searchQuery ? "No workflows match your search" : "No workflows found. Create one in the editor."}
+                    </div>
+                  ) : (
+                    filteredWorkflows.map((wf) => (
+                      <button
+                        key={wf.name}
+                        className={`ws-task-item${activeWorkflow?.name === wf.name ? " active" : ""}`}
+                        onClick={() => selectWorkflow(wf)}
+                      >
+                        <div className="ws-task-item-top">
+                          <span className="ws-task-item-title">
+                            <FileText size={14} style={{ marginRight: 4, verticalAlign: "middle", flexShrink: 0 }} />
+                            {wf.name}
+                          </span>
+                        </div>
+                        <div className="ws-task-item-desc">
+                          {wf.steps?.length || 0} steps
+                          {wf.edges?.length ? `, ${wf.edges.length} edges` : ""}
+                        </div>
+                        {wf.steps && (
+                          <div className="ws-task-item-meta">
+                            {[...new Set(wf.steps.map((s: any) => s.type).filter(Boolean))].map((t: any) => (
+                              <span key={t} className="ws-task-source">{t}</span>
+                            ))}
+                          </div>
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
             </aside>
 
             <main className="ws-main">
-              {!activeTask ? (
+              {!activeTask && !activeWorkflow ? (
                 <div className="ws-welcome">
-                  <div className="ws-welcome-icon">&#x2699;</div>
+                  <Terminal size={48} className="ws-welcome-icon" />
                   <h2>{t("nav.workspace")}</h2>
-                  <p>{t("workspace.selectTask")}</p>
+                  <p>Select a task or workflow from the sidebar, or type a message below to get started.</p>
                 </div>
               ) : (
                 <>
@@ -363,14 +630,43 @@ export function WorkspacePage() {
                       className={`ws-mode-btn${viewMode === "execute" ? " active" : ""}`}
                       onClick={() => setViewMode("execute")}
                     >
+                      <Play size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
                       Execute
                     </button>
                     <button
                       className={`ws-mode-btn${viewMode === "edit" ? " active" : ""}`}
                       onClick={() => setViewMode("edit")}
                     >
+                      <Layout size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
                       Edit
                     </button>
+                    <span className="ws-mode-label">
+                      {activeWorkflow ? `Workflow: ${activeWorkflow.name}` : activeTask ? activeTask.title : ""}
+                    </span>
+                    {activeWorkflow && (
+                      <div className="ws-mode-actions">
+                        <button
+                          className="ws-action-btn run"
+                          onClick={handleRunWorkflow}
+                          disabled={running}
+                        >
+                          <Play size={12} /> {running ? "Running..." : "Run"}
+                        </button>
+                        <button
+                          className="ws-action-btn save"
+                          onClick={handleSaveWorkflow}
+                          disabled={saving}
+                        >
+                          <Save size={12} /> {saving ? "Saving..." : "Save"}
+                        </button>
+                        <button
+                          className="ws-action-btn delete"
+                          onClick={() => setShowConfirmDelete(true)}
+                        >
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="ws-canvas-area">
@@ -383,71 +679,108 @@ export function WorkspacePage() {
                       />
                     )}
                   </div>
-
-                  <div className="ws-chat">
-                    <div className="ws-chat-messages">
-                      {chatMessages.length === 0 ? (
-                        <div className="ws-chat-placeholder">
-                          Describe the workflow you want to create, or ask the agent to modify it.
-                        </div>
-                      ) : (
-                        chatMessages.map((msg, i) => (
-                          <div key={i} className={`ws-chat-msg ws-chat-msg-${msg.role}`}>
-                            <div className="ws-chat-msg-role">{msg.role === "user" ? "You" : "Agent"}</div>
-                            <div className="ws-chat-msg-text">{msg.text}</div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                    <div className="ws-chat-input-row">
-                      <input
-                        className="ws-chat-input"
-                        value={chatInput}
-                        onChange={(e) => setChatInput(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
-                        placeholder={t("chat.askPlaceholder") || "Ask the agent to create or modify a workflow..."}
-                      />
-                      <button
-                        className="btn-primary ws-chat-send"
-                        onClick={handleSendChat}
-                        disabled={!chatInput.trim()}
-                      >
-                        Send
-                      </button>
-                    </div>
-                  </div>
                 </>
               )}
+
+              <div className="ws-chat">
+                <div className="ws-chat-messages">
+                  {chatMessages.length === 0 ? (
+                    <div className="ws-chat-placeholder">
+                      {activeWorkflow
+                        ? `Ask the agent to modify "${activeWorkflow.name}" or describe changes.`
+                        : activeTask
+                          ? "Describe the workflow you want to create, or ask the agent to modify it."
+                          : "Ask the agent to create a workflow for you. Type a description and press Enter."}
+                    </div>
+                  ) : (
+                    chatMessages.map((msg, i) => (
+                      <div key={i} className={`ws-chat-msg ws-chat-msg-${msg.role}`}>
+                        <div className="ws-chat-msg-role">{msg.role === "user" ? "You" : "Agent"}</div>
+                        <div className="ws-chat-msg-text">{msg.text}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="ws-chat-input-row">
+                  <input
+                    className="ws-chat-input"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
+                    placeholder={t("chat.askPlaceholder") || "Ask the agent to create or modify a workflow..."}
+                  />
+                  <button
+                    className="btn-primary ws-chat-send"
+                    onClick={handleSendChat}
+                    disabled={!chatInput.trim()}
+                  >
+                    {activeTask ? "Send" : "Create"}
+                  </button>
+                </div>
+              </div>
             </main>
 
-            {activeTask && (
+            {(activeTask || activeWorkflow) && (
               <aside className="ws-preview">
                 <div className="ws-preview-header">
-                  <span className="ws-preview-title">{t("chat.preview") || "Preview"}</span>
+                  <span className="ws-preview-title">{t("chat.preview") || "Inspect"}</span>
+                  {activeTask && (
+                    <div className="ws-preview-header-actions">
+                      <button className="ws-preview-close" onClick={() => setActiveTask(null)}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="ws-preview-body">
-                  {previewUrl ? (
+                  {activeTask ? (
+                    <>
+                      <div className="ws-preview-section">
+                        <div className="ws-preview-section-title">Details</div>
+                        <div className="ws-preview-detail-row">
+                          <span className="ws-preview-detail-label">Status</span>
+                          <span className={`ws-task-status ws-task-status-${activeTask.status}`}>
+                            {STATUS_LABELS[activeTask.status] ?? activeTask.status}
+                          </span>
+                        </div>
+                        <div className="ws-preview-detail-row">
+                          <span className="ws-preview-detail-label">Priority</span>
+                          <span className={`ws-task-priority ws-priority-${activeTask.priority}`}>
+                            {activeTask.priority}
+                          </span>
+                        </div>
+                        {activeTask.description && (
+                          <div className="ws-preview-detail-row">
+                            <span className="ws-preview-detail-label">Description</span>
+                            <span className="ws-preview-detail-value">{activeTask.description}</span>
+                          </div>
+                        )}
+                      </div>
+                      {activeTask.result && (
+                        <div className="ws-preview-artifact-list">
+                          <div className="ws-preview-section-title">Artifacts</div>
+                          <button
+                            className="ws-preview-artifact-item"
+                            onClick={() => setPreviewUrl(`/preview/${encodeURIComponent(activeTask.result!)}`)}
+                          >
+                            <File size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+                            {activeTask.result}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="ws-preview-empty">
+                      {activeWorkflow ? `Workflow: ${activeWorkflow.name}` : "Select a file or artifact"}
+                    </div>
+                  )}
+                  {previewUrl && (
                     <iframe
                       className="ws-preview-iframe"
                       src={previewUrl}
                       title="Preview"
                       sandbox="allow-scripts"
                     />
-                  ) : (
-                    <div className="ws-preview-empty">
-                      Select a file or artifact below
-                    </div>
-                  )}
-                  {activeTask.result && (
-                    <div className="ws-preview-artifact-list">
-                      <div className="ws-preview-artifact-title">Artifacts</div>
-                      <button
-                        className="ws-preview-artifact-item"
-                        onClick={() => setPreviewUrl(`/preview/${encodeURIComponent(activeTask.result!)}`)}
-                      >
-                        {activeTask.result}
-                      </button>
-                    </div>
                   )}
                 </div>
               </aside>
@@ -455,7 +788,7 @@ export function WorkspacePage() {
           </>
         ) : (
           <div className="ws-no-workspace">
-            <div className="ws-no-workspace-icon">&#x1f4e6;</div>
+            <Folder size={64} className="ws-no-workspace-icon" />
             <h2>{t("workspace.noWorkspace")}</h2>
             <p>{t("workspace.noWorkspaceDesc")}</p>
             <button className="btn-primary" onClick={() => setShowImport(true)}>
@@ -468,7 +801,10 @@ export function WorkspacePage() {
                 <div className="ws-existing-list">
                   {importedWorkspaces.map((ws) => (
                     <div key={ws.path} className="ws-existing-item">
-                      <span className="ws-existing-name">&#x1f4c1; {ws.name}</span>
+                      <span className="ws-existing-name">
+                        <Folder size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+                        {ws.name}
+                      </span>
                       <button className="btn-secondary ws-existing-switch" onClick={() => switchWorkspace(ws.path)}>
                         Switch
                       </button>
@@ -481,11 +817,12 @@ export function WorkspacePage() {
         )}
       </div>
 
+      {/* Import modal */}
       {showImport && (
         <div className="ws-modal-overlay" onClick={() => setShowImport(false)}>
           <div className="ws-modal" onClick={(e) => e.stopPropagation()}>
             <button className="ws-modal-close" onClick={() => setShowImport(false)}>
-              &times;
+              <X size={18} />
             </button>
             <h3>{t("workspace.import")}</h3>
             <p className="ws-modal-desc">{t("workspace.importDesc")}</p>
@@ -520,7 +857,7 @@ export function WorkspacePage() {
                 <label className="ws-modal-label">Select Directory</label>
                 <div className="ws-browse-bar">
                   <button className="ws-browse-back" onClick={browseGoBack} disabled={!browsePath && browseHistory.length === 0}>
-                    &larr;
+                    <ChevronLeft size={14} />
                   </button>
                   <span className="ws-browse-current">{browsePath || "Click a directory to browse"}</span>
                   {browsePath && (
@@ -538,7 +875,8 @@ export function WorkspacePage() {
                       {roots.map((root) => (
                         <div key={root} className="ws-browse-entry">
                           <button className="ws-browse-btn" onClick={() => selectRoot(root)}>
-                            &#x1f4c1; {root}
+                            <Folder size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+                            {root}
                           </button>
                         </div>
                       ))}
@@ -562,14 +900,18 @@ export function WorkspacePage() {
                             {entry.isDirectory ? (
                               <>
                                 <button className="ws-browse-btn" onClick={() => browseEnterDir(entry.path)}>
-                                  &#x1f4c1; {entry.name}
+                                  <Folder size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+                                  {entry.name}
                                 </button>
                                 <button className="ws-browse-select" onClick={() => browseSelectDir(entry.path)}>
                                   {isSelected ? "Selected" : "Select"}
                                 </button>
                               </>
                             ) : (
-                              <span className="ws-browse-file">&#x1f4c4; {entry.name}</span>
+                              <span className="ws-browse-file">
+                                <File size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
+                                {entry.name}
+                              </span>
                             )}
                           </div>
                         );
@@ -592,6 +934,65 @@ export function WorkspacePage() {
               >
                 {importing ? t("workspace.importing") : t("workspace.import")}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New task modal */}
+      {showNewTask && (
+        <div className="ws-modal-overlay" onClick={() => setShowNewTask(false)}>
+          <div className="ws-modal ws-new-task-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="ws-modal-close" onClick={() => setShowNewTask(false)}>
+              <X size={18} />
+            </button>
+            <h3>New Task</h3>
+            <div className="ws-new-task-form">
+              <label>Title</label>
+              <input
+                type="text"
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                placeholder="Task title"
+                onKeyDown={(e) => e.key === "Enter" && handleCreateTask()}
+                autoFocus
+              />
+              <label>Description (optional)</label>
+              <textarea
+                value={newTaskDesc}
+                onChange={(e) => setNewTaskDesc(e.target.value)}
+                placeholder="Describe what this task should accomplish..."
+              />
+              <label>Priority</label>
+              <select value={newTaskPriority} onChange={(e) => setNewTaskPriority(e.target.value)}>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+            <div className="ws-modal-actions">
+              <button className="btn-secondary" onClick={() => setShowNewTask(false)}>Cancel</button>
+              <button className="btn-primary" onClick={handleCreateTask} disabled={!newTaskTitle.trim()}>Create Task</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm delete dialog */}
+      {showConfirmDelete && (
+        <div className="ws-modal-overlay" onClick={() => setShowConfirmDelete(false)}>
+          <div className="ws-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="ws-modal-close" onClick={() => setShowConfirmDelete(false)}>
+              <X size={18} />
+            </button>
+            <h3>Delete Workflow</h3>
+            <p className="ws-confirm-text">
+              Are you sure you want to delete <strong>{activeWorkflow?.name}</strong>? This action cannot be undone.
+            </p>
+            <div className="ws-modal-actions">
+              <button className="btn-secondary" onClick={() => setShowConfirmDelete(false)}>Cancel</button>
+              <button className="btn-danger" onClick={handleDeleteWorkflow}>Delete</button>
             </div>
           </div>
         </div>

@@ -1,9 +1,9 @@
-import { mkdirSync, existsSync, cpSync } from "node:fs";
-import { join, basename } from "node:path";
-import { resolve } from "node:path";
+import { mkdirSync, existsSync, cpSync, writeFileSync, rmSync } from "node:fs";
+import { join, basename, resolve, dirname } from "node:path";
 import { execSync } from "node:child_process";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../bootstrap.js";
+import { WorkflowRegistryImpl } from "@agentclaw/core";
 import {
   loadWorkspaceState,
   saveWorkspaceState,
@@ -79,6 +79,88 @@ export function registerWorkspaceRoutes(
     }
     return reply.send({ projects });
   });
+
+  // GET /api/workspace/workflows — list workflow YAML files in active workspace
+  app.get("/api/workspace/workflows", async (_req, reply) => {
+    const state = loadWorkspaceState();
+    if (!state.activeWorkspacePath) {
+      return reply.send({ workflows: [] });
+    }
+    const workflowsDir = join(state.activeWorkspacePath, "workflows");
+    const registry = new WorkflowRegistryImpl();
+    await registry.scanDirectory(workflowsDir);
+    return reply.send({ workflows: registry.list() });
+  });
+
+  // PUT /api/workspace/workflows/:name — save/update workflow YAML
+  app.put<{ Params: { name: string }; Body: { definition: any } }>(
+    "/api/workspace/workflows/:name",
+    async (req, reply) => {
+      const state = loadWorkspaceState();
+      if (!state.activeWorkspacePath) {
+        return reply.status(400).send({ error: "No active workspace" });
+      }
+      const { name } = req.params;
+      const { definition } = req.body;
+      if (!definition || !definition.name || !Array.isArray(definition.steps)) {
+        return reply.status(400).send({ error: "Invalid workflow definition" });
+      }
+      const workflowsDir = join(state.activeWorkspacePath, "workflows");
+      mkdirSync(workflowsDir, { recursive: true });
+      const { stringify } = await import("yaml");
+      const yamlContent = stringify(definition);
+      const filePath = join(workflowsDir, name.endsWith(".yaml") ? name : `${name}.yaml`);
+      writeFileSync(filePath, yamlContent, "utf8");
+      return reply.send({ ok: true, path: filePath });
+    },
+  );
+
+  // DELETE /api/workspace/workflows/:name — delete workflow YAML
+  app.delete<{ Params: { name: string } }>(
+    "/api/workspace/workflows/:name",
+    async (req, reply) => {
+      const state = loadWorkspaceState();
+      if (!state.activeWorkspacePath) {
+        return reply.status(400).send({ error: "No active workspace" });
+      }
+      const { name } = req.params;
+      const filePath = join(
+        state.activeWorkspacePath,
+        "workflows",
+        name.endsWith(".yaml") ? name : `${name}.yaml`,
+      );
+      if (!existsSync(filePath)) {
+        return reply.status(404).send({ error: `Workflow not found: ${name}` });
+      }
+      rmSync(filePath);
+      return reply.send({ ok: true });
+    },
+  );
+
+  // POST /api/workspace/tasks — create a new task
+  app.post<{ Body: { title: string; description?: string; priority?: string } }>(
+    "/api/workspace/tasks",
+    async (req, reply) => {
+      const { title, description, priority } = req.body ?? {};
+      if (!title) {
+        return reply.status(400).send({ error: "title is required" });
+      }
+      const state = loadWorkspaceState();
+      const task = {
+        id: `task-${Date.now()}`,
+        title,
+        description: description || "",
+        status: "todo",
+        priority: priority || "medium",
+        workspacePath: state.activeWorkspacePath,
+        createdAt: new Date().toISOString(),
+      };
+      const tasksDir = resolve(process.cwd(), "data", "workspace-tasks");
+      mkdirSync(tasksDir, { recursive: true });
+      writeFileSync(join(tasksDir, `${task.id}.json`), JSON.stringify(task, null, 2), "utf8");
+      return reply.send(task);
+    },
+  );
 
   // POST /api/workspace/import — clone git repo or copy local directory as workspace
   app.post<{

@@ -1,5 +1,21 @@
 # 更新日志
 
+## [1.5.41] - 2026-05-31
+
+### Added
+- **ワークフロー CRUD API**: 新增 `PUT /api/workspace/workflows/:name` 保存、`DELETE /api/workspace/workflows/:name` 删除、`POST /api/workspace/tasks` 创建任务三个后端端点。
+- **ワークフロー操作按钮**: Execute/Edit 模式下显示 Run/Save/Delete 按钮，支持确认删除弹窗。
+- **新任务弹窗**: 点击 New Task 打开表单弹窗，支持标题、描述、优先级设置。
+- **Toast 通知系统**: 右上角统一错误/成功/信息提示，自动 4 秒消失。
+- **Lucide 图标替换**: 全页面 emoji 替换为 Lucide SVG 图标（Folder、FileText、Play、Save、Trash2 等），侧边栏选项卡增加图标。
+- **搜索过滤**: 侧边栏 Tasks/Workflows 均支持搜索过滤。
+- **加载骨架屏**: 替换 text 加载状态为 CSS shimmer 动画骨架屏。
+- **Inspect 面板增强**: 显示任务状态、优先级、描述详情，增加关闭按钮。
+
+### Changed
+- **WorkspacePage.tsx**: 全面重构，移除 emoji 依赖，新增 5 个状态管理（toasts/showNewTask/showConfirmDelete/searchQuery/saving/running）。
+- **WorkspacePage.css**: 新增 skeleton、toast、modal、action button、confirm dialog、search、preview detail 样式。
+
 ## [1.5.40] - 2026-05-25
 
 ### Added
