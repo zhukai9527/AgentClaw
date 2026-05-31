@@ -24,8 +24,8 @@ export type PhaseStepRunMode = "serial" | "parallel" | "join";
 export interface WorkflowPhaseStep {
   id: string;
   name: string;
-  /** Skill responsible for executing this step */
-  owner_skill?: string;
+  /** Skill(s) responsible for executing this step — single or chain */
+  owner_skill?: string | string[];
   /** Execution mode relative to sibling steps */
   run_mode?: PhaseStepRunMode;
   /** Group name for parallel execution grouping */
@@ -71,10 +71,10 @@ export interface WorkflowStep {
   id: string;
   name: string;
   type: StepType;
-  /** Skill reference — resolved via SkillResolver (workspace → system fallback) */
-  skill?: string;
-  /** Skill source (populated at resolution time) */
-  skillSource?: SkillSource;
+  /** Skill reference(s) — resolved via SkillResolver (workspace → system fallback) */
+  skill?: string | string[];
+  /** Skill source (populated at resolution time); array if skills is array */
+  skillSource?: SkillSource | SkillSource[];
   /** For condition steps: prompt shown to user */
   prompt?: string;
   /** Whether this step requires human intervention */

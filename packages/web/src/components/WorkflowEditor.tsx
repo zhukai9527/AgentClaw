@@ -140,7 +140,7 @@ function flowToDef(name: string, nodes: Node[], edges: Edge[]): WorkflowDef {
       name: d.name as string,
       type: d.type as "task" | "condition",
       status: d.status as CanvasStep["status"],
-      skill: d.skill as string | undefined,
+      skill: d.skill as string | string[] | undefined,
       skillSource: d.skillSource as CanvasStep["skillSource"],
       phaseId: d.phaseId as string | undefined,
       phaseName: d.phaseName as string | undefined,
@@ -237,7 +237,9 @@ interface PropertiesPanelProps {
 function PropertiesPanel({ node, onUpdate, onClose }: PropertiesPanelProps) {
   const data = node.data as Record<string, unknown>;
   const [name, setName] = useState((data.name as string) || "");
-  const [skill, setSkill] = useState((data.skill as string) || "");
+  const [skillText, setSkillText] = useState(
+    Array.isArray(data.skill) ? (data.skill as string[]).join(", ") : (data.skill as string) || "",
+  );
   const [prompt, setPrompt] = useState((data.prompt as string) || "");
   const [phaseName, setPhaseName] = useState((data.phaseName as string) || "");
   const [runMode, setRunMode] = useState((data.runMode as string) || "serial");
@@ -248,7 +250,9 @@ function PropertiesPanel({ node, onUpdate, onClose }: PropertiesPanelProps) {
 
   useEffect(() => {
     setName((data.name as string) || "");
-    setSkill((data.skill as string) || "");
+    setSkillText(
+      Array.isArray(data.skill) ? (data.skill as string[]).join(", ") : (data.skill as string) || "",
+    );
     setPrompt((data.prompt as string) || "");
     setPhaseName((data.phaseName as string) || "");
     setRunMode((data.runMode as string) || "serial");
@@ -259,7 +263,12 @@ function PropertiesPanel({ node, onUpdate, onClose }: PropertiesPanelProps) {
   }, [data]);
 
   const handleApply = () => {
-    onUpdate(node.id, { name, skill, prompt, phaseName, runMode, entryGate, exitGate, fallbackStep, fallbackPhase });
+    const skills = skillText
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const resolvedSkill = skills.length > 1 ? skills : (skills[0] || "");
+    onUpdate(node.id, { name, skill: resolvedSkill, prompt, phaseName, runMode, entryGate, exitGate, fallbackStep, fallbackPhase });
     onClose();
   };
 
@@ -280,12 +289,12 @@ function PropertiesPanel({ node, onUpdate, onClose }: PropertiesPanelProps) {
         />
         <label className="wfe-props-label">Type</label>
         <div className="wfe-props-value">{data.type as string}</div>
-        <label className="wfe-props-label">Skill</label>
+        <label className="wfe-props-label">Skill(s)</label>
         <input
           className="wfe-props-input"
-          value={skill}
-          onChange={(e) => setSkill(e.target.value)}
-          placeholder="skill-name"
+          value={skillText}
+          onChange={(e) => setSkillText(e.target.value)}
+          placeholder="skill-name (comma-separated for chain)"
         />
 
         <div className="wfe-props-separator" />

@@ -185,82 +185,162 @@ export function StepNode({ data }: NodeProps) {
   const phaseIdx = data.phaseIdx as number | undefined;
   const phaseColor = phaseIdx !== undefined ? PHASE_COLORS[phaseIdx % PHASE_COLORS.length] : undefined;
 
+  // Normalize skill(s) to array
+  const rawSkill = data.skill;
+  const skillList: string[] = rawSkill
+    ? Array.isArray(rawSkill) ? rawSkill : [rawSkill]
+    : [];
+  const rawSource = data.skillSource;
+  const sourceList: string[] = rawSource
+    ? Array.isArray(rawSource) ? rawSource : [rawSource]
+    : [];
+
   return (
     <div
       className="wf-node"
       style={{
         border: `2px solid ${borderColor}`,
-        borderLeft: phaseColor ? `5px solid ${phaseColor}` : `2px solid ${borderColor}`,
         borderRadius: "var(--radius)",
         background: "var(--bg-secondary)",
-        padding: "10px 16px",
-        minWidth: 160,
+        minWidth: 180,
         fontSize: 13,
         position: "relative",
+        overflow: "hidden",
       }}
     >
       <Handle type="target" position={Position.Left} />
-      {data.phaseName && phaseColor && (
+
+      {/* ── Phase accent bar ── */}
+      {phaseColor && (
+        <div style={{ height: 4, background: phaseColor }} />
+      )}
+
+      {/* ── HEADER ZONE: step metadata ── */}
+      <div style={{ padding: "8px 12px 4px" }}>
+        {data.phaseName && phaseColor && (
+          <div
+            style={{
+              fontSize: 10,
+              color: phaseColor,
+              marginBottom: 4,
+              fontWeight: 600,
+              letterSpacing: "0.5px",
+              textTransform: "uppercase" as const,
+            }}
+          >
+            {data.phaseName}
+            {data.runMode && data.runMode !== "serial" && (
+              <span
+                style={{
+                  marginLeft: 6,
+                  padding: "1px 5px",
+                  borderRadius: 3,
+                  background: `${phaseColor}20`,
+                  color: phaseColor,
+                  fontSize: 9,
+                  textTransform: "none" as const,
+                }}
+              >
+                {data.runMode}
+              </span>
+            )}
+          </div>
+        )}
+        <div style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: 2, lineHeight: 1.3 }}>
+          {data.name}
+        </div>
+        {isCondition && (
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Condition</div>
+        )}
+        {data.entryGate && (
+          <div style={{ fontSize: 10, color: "var(--warning)", marginTop: 2 }}>⛩ {data.entryGate}</div>
+        )}
+      </div>
+
+      {/* ── CONTENT ZONE: skill chain ── */}
+      {skillList.length > 0 && (
+        <div
+          style={{
+            borderTop: "1px solid var(--border)",
+            margin: "4px 0 0",
+            padding: "6px 12px 8px",
+            display: "flex",
+            flexDirection: "column" as const,
+            gap: 2,
+          }}
+        >
+          {skillList.map((name, i) => (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              {/* Arrow connector for chained skills */}
+              {i > 0 && (
+                <span style={{ color: "var(--text-muted)", fontSize: 10, width: 10, flexShrink: 0, textAlign: "center" }}>
+                  ↓
+                </span>
+              )}
+              {i === 0 && <span style={{ width: 10, flexShrink: 0 }} />}
+
+              {/* Skill card */}
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  color: phaseColor || "var(--text-muted)",
+                  background: phaseColor ? `${phaseColor}12` : "transparent",
+                  padding: "2px 8px",
+                  borderRadius: 4,
+                  border: `1px solid ${phaseColor ? phaseColor + "30" : "var(--border)"}`,
+                  whiteSpace: "nowrap" as const,
+                }}
+              >
+                {name}
+              </span>
+
+              {/* Source badge (only on first or when differs) */}
+              {sourceList[i] && (
+                <span
+                  style={{
+                    fontSize: 9,
+                    padding: "0 4px",
+                    borderRadius: 3,
+                    background: sourceList[i] === "workspace" ? "var(--accent)" : "var(--text-muted)",
+                    color: "#fff",
+                    lineHeight: "16px",
+                  }}
+                >
+                  {sourceList[i]}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── FOOTER: dependency hints ── */}
+      {data.dependencySteps && (data.dependencySteps as string[]).length > 0 && (
         <div
           style={{
             fontSize: 10,
-            color: phaseColor,
-            marginBottom: 6,
-            fontWeight: 600,
-            letterSpacing: "0.5px",
-            textTransform: "uppercase" as const,
+            color: "var(--text-muted)",
+            padding: "2px 12px 6px",
+            display: "flex",
+            gap: 2,
+            flexWrap: "wrap" as const,
+            borderTop: skillList.length > 0 ? "1px solid var(--border)" : undefined,
           }}
         >
-          {data.phaseName}
-          {data.runMode && data.runMode !== "serial" && (
-            <span
-              style={{
-                marginLeft: 6,
-                padding: "1px 5px",
-                borderRadius: 3,
-                background: `${phaseColor}20`,
-                color: phaseColor,
-                fontSize: 9,
-                textTransform: "none" as const,
-              }}
-            >
-              {data.runMode}
-            </span>
-          )}
-        </div>
-      )}
-      <div style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: 2 }}>
-        {data.name}
-      </div>
-      {data.skill && (
-        <div style={{ fontSize: 11, color: "var(--text-muted)", display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
-          <span style={{ color: phaseColor || "var(--text-muted)", fontWeight: 500 }}>{data.skill}</span>
-          {data.skillSource && (
-            <span
-              style={{
-                fontSize: 10,
-                padding: "0 4px",
-                borderRadius: 3,
-                background: data.skillSource === "workspace" ? "var(--accent)" : "var(--text-muted)",
-                color: "#fff",
-              }}
-            >
-              {data.skillSource}
-            </span>
-          )}
-        </div>
-      )}
-      {data.dependencySteps && (data.dependencySteps as string[]).length > 0 && (
-        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3, display: "flex", gap: 2, flexWrap: "wrap" }}>
           <span style={{ opacity: 0.6 }}>←</span>
           {(data.dependencySteps as string[]).slice(0, 3).join(", ")}
           {(data.dependencySteps as string[]).length > 3 && "…"}
         </div>
       )}
-      {isCondition && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Condition</div>}
-      {data.entryGate && (
-        <div style={{ fontSize: 10, color: "var(--warning)", marginTop: 2 }}>⛩ {data.entryGate}</div>
-      )}
+
       <Handle type="source" position={Position.Right} />
     </div>
   );
