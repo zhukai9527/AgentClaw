@@ -135,9 +135,9 @@ export function computeLayout(
 /*  Inner step card (used inside PhaseNode)       */
 /* ────────────────────────────────────────────── */
 
-const STEP_CARD_H = 56;
-const STEP_CARD_W = 160;
-const STEP_GAP = 24;
+const STEP_CARD_H = 80;
+const STEP_CARD_W = 180;
+const STEP_GAP = 28;
 
 function InnerStepCard({
   name,
@@ -156,16 +156,22 @@ function InnerStepCard({
   return (
     <div
       style={{
-        minWidth: STEP_CARD_W,
+        width: STEP_CARD_W,
+        height: STEP_CARD_H,
         background: "var(--bg-tertiary, #1e293b)",
         border: `1px solid ${phaseColor}40`,
         borderRadius: 6,
         padding: "6px 10px",
         fontSize: 11,
         lineHeight: 1.3,
+        display: "flex",
+        flexDirection: "column" as const,
+        justifyContent: "center",
+        overflow: "hidden",
+        boxSizing: "border-box" as const,
       }}
     >
-      <div style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: 2, fontSize: 12 }}>
+      <div style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: 2, fontSize: 12, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>
         {name}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 2 }}>
@@ -179,6 +185,7 @@ function InnerStepCard({
               background: `${phaseColor}18`,
               color: phaseColor,
               border: `1px solid ${phaseColor}30`,
+              whiteSpace: "nowrap" as const,
             }}
           >
             {s}
@@ -189,8 +196,8 @@ function InnerStepCard({
         <div style={{ fontSize: 10, color: "var(--warning)", marginTop: 2 }}>Condition</div>
       )}
       {exitGate && (
-        <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 2, lineHeight: 1.2 }}>
-          🚪 {exitGate.length > 30 ? exitGate.slice(0, 30) + "…" : exitGate}
+        <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 2, lineHeight: 1.2, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>
+          🚪 {exitGate.length > 40 ? exitGate.slice(0, 40) + "…" : exitGate}
         </div>
       )}
     </div>
@@ -224,7 +231,8 @@ export function PhaseNode({ data }: NodeProps) {
   }
 
   const contentW = STEP_CARD_W + 40;
-  const contentH = innerSteps.length * (STEP_CARD_H + STEP_GAP) - STEP_GAP + 24;
+  const contentH = innerSteps.length * (STEP_CARD_H + STEP_GAP) - STEP_GAP + 40;
+  const nodeMinH = 100 + (innerSteps.length > 0 ? contentH : 0) + (exitGate ? 30 : 0);
 
   return (
     <div
@@ -233,7 +241,7 @@ export function PhaseNode({ data }: NodeProps) {
         borderRadius: "var(--radius)",
         background: "var(--bg-secondary)",
         minWidth: 320,
-        minHeight: 120,
+        minHeight: nodeMinH,
         position: "relative",
         overflow: "hidden",
         fontSize: 13,
@@ -270,11 +278,11 @@ export function PhaseNode({ data }: NodeProps) {
           padding: "8px 12px 12px",
           display: "flex",
           flexDirection: "column" as const,
-          alignItems: "flex-start",
+          alignItems: "center",
           gap: 0,
-          minWidth: contentW,
+          width: contentW,
           minHeight: contentH,
-          overflowY: "auto" as const,
+          margin: "0 auto",
         }}
       >
         {innerSteps.map((step, i) => (
