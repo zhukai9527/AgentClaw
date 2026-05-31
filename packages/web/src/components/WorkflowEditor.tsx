@@ -73,6 +73,16 @@ function defToFlow(def: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
     phaseMap,
   );
 
+  const stepNameMap = new Map(def.steps.map((s) => [s.id, s.name]));
+  const dependencyMap = new Map<string, string[]>();
+  for (const e of def.edges) {
+    if (e.to) {
+      if (!dependencyMap.has(e.to)) dependencyMap.set(e.to, []);
+      const deps = dependencyMap.get(e.to)!;
+      if (!deps.includes(e.from)) deps.push(e.from);
+    }
+  }
+
   const nodes: Node[] = def.steps.map((s) => ({
     id: s.id,
     type: "stepNode",
@@ -91,6 +101,8 @@ function defToFlow(def: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
       exitGate: s.exitGate,
       fallbackStep: s.fallbackStep,
       fallbackPhase: s.fallbackPhase,
+      dependencySteps: (dependencyMap.get(s.id) || [])
+        .map((id) => stepNameMap.get(id) || id),
     },
   }));
 

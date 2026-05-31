@@ -250,6 +250,13 @@ export function StepNode({ data }: NodeProps) {
           )}
         </div>
       )}
+      {data.dependencySteps && (data.dependencySteps as string[]).length > 0 && (
+        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3, display: "flex", gap: 2, flexWrap: "wrap" }}>
+          <span style={{ opacity: 0.6 }}>←</span>
+          {(data.dependencySteps as string[]).slice(0, 3).join(", ")}
+          {(data.dependencySteps as string[]).length > 3 && "…"}
+        </div>
+      )}
       {isCondition && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Condition</div>}
       {data.entryGate && (
         <div style={{ fontSize: 10, color: "var(--warning)", marginTop: 2 }}>⛩ {data.entryGate}</div>
@@ -282,6 +289,17 @@ export function WorkflowCanvas({ steps, edges, fitView }: WorkflowCanvasProps) {
       phaseMap,
     );
 
+    // Compute dependency steps from edges for each node
+    const stepNameMap = new Map(steps.map((s) => [s.id, s.name]));
+    const dependencyMap = new Map<string, string[]>();
+    for (const e of edges) {
+      if (e.to) {
+        if (!dependencyMap.has(e.to)) dependencyMap.set(e.to, []);
+        const deps = dependencyMap.get(e.to)!;
+        if (!deps.includes(e.from)) deps.push(e.from);
+      }
+    }
+
     const nodes: Node[] = steps.map((step) => {
       const pos = positions.get(step.id) || { x: 0, y: 0 };
       return {
@@ -300,13 +318,23 @@ export function WorkflowCanvas({ steps, edges, fitView }: WorkflowCanvasProps) {
           runMode: step.runMode,
           entryGate: step.entryGate,
           exitGate: step.exitGate,
+          dependencySteps: (dependencyMap.get(step.id) || [])
+            .map((id) => stepNameMap.get(id) || id),
         },
       };
     });
 
-    const flowEdges: Edge[] = edges
-      .filter((e) => e.to)
-      .map((e) => {
+    // Deduplicate edges (same from→to may appear from serial + depends_on)
+    const seenEdges = new Set<string>();
+    const uniqueEdges = edges.filter((e) => {
+      if (!e.to) return false;
+      const key = `${e.from}->${e.to}`;
+      if (seenEdges.has(key)) return false;
+      seenEdges.add(key);
+      return true;
+    });
+
+    const flowEdges: Edge[] = uniqueEdges.map((e) => {
         const srcPhase = phaseMap[e.from];
         const tgtPhase = phaseMap[e.to!];
         const samePhase = srcPhase && tgtPhase && srcPhase === tgtPhase;

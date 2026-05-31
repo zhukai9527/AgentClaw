@@ -165,6 +165,13 @@ export function WorkspacePage() {
       status: undefined,
       skill: s.skill,
       skillSource: s.skillSource,
+      phaseId: s.phaseId,
+      phaseName: s.phaseName,
+      runMode: s.runMode,
+      entryGate: s.entryGate,
+      exitGate: s.exitGate,
+      fallbackStep: s.fallbackStep,
+      fallbackPhase: s.fallbackPhase,
     }));
     const edges: CanvasEdge[] = (wf.edges || []).map((e: any) => ({
       from: e.from || "",
