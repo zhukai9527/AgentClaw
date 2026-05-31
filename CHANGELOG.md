@@ -1,5 +1,10 @@
 # 更新日志
 
+## [1.5.51] - 2026-05-31
+
+### Fixed
+- **PhaseNode 布局修正**: InnerStepCard 固定宽高（180x80），内容垂直居中，文字超长省略。内层容器水平居中（alignItems center + margin auto）。节点最小高度根据 step 数量、header/footer 动态计算。STEP 常量调整：CARD_H 56→80, CARD_W 160→180, GAP 24→28。(`WorkflowCanvas.tsx`)
+
 ## [1.5.50] - 2026-05-31
 
 ### Added

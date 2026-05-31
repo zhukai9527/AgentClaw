@@ -86,7 +86,7 @@ export function computeLayout(
     if (!rankGroups.has(rank)) rankGroups.set(rank, []);
     rankGroups.get(rank)!.push(id);
   }
-  const H_SPACING = 180, V_SPACING = 70, PHASE_GAP = 120;
+  const H_SPACING = 240, V_SPACING = 90, PHASE_GAP = 120;
   const positions = new Map<string, LayoutPos>();
   const sortedRanks = Array.from(rankGroups.keys()).sort((a, b) => a - b);
   const phaseYOffsets = new Map<string, number>();
@@ -374,6 +374,7 @@ export function StepNode({ data }: NodeProps) {
         borderRadius: "var(--radius)",
         background: "var(--bg-secondary)",
         minWidth: 180,
+        maxWidth: 320,
         fontSize: 13,
         position: "relative",
         overflow: "hidden",
@@ -392,7 +393,7 @@ export function StepNode({ data }: NodeProps) {
             )}
           </div>
         )}
-        <div style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: 2, lineHeight: 1.3 }}>
+        <div style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: 2, lineHeight: 1.3, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>
           {data.name as string}
         </div>
         {isCondition && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Condition</div>}
@@ -405,7 +406,7 @@ export function StepNode({ data }: NodeProps) {
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               {i > 0 && <span style={{ color: "var(--text-muted)", fontSize: 10, width: 10, flexShrink: 0, textAlign: "center" }}>↓</span>}
               {i === 0 && <span style={{ width: 10, flexShrink: 0 }} />}
-              <span style={{ fontSize: 11, fontWeight: 500, color: phaseColor || "var(--text-muted)", background: phaseColor ? `${phaseColor}12` : "transparent", padding: "2px 8px", borderRadius: 4, border: `1px solid ${phaseColor ? phaseColor + "30" : "var(--border)"}`, whiteSpace: "nowrap" as const }}>
+              <span style={{ fontSize: 11, fontWeight: 500, color: phaseColor || "var(--text-muted)", background: phaseColor ? `${phaseColor}12` : "transparent", padding: "2px 8px", borderRadius: 4, border: `1px solid ${phaseColor ? phaseColor + "30" : "var(--border)"}`, whiteSpace: "nowrap" as const, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>
                 {name}
               </span>
               {sourceList[i] && (
