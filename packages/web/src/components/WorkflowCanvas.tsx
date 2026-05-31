@@ -201,7 +201,7 @@ function InnerStepCard({
 /*  PhaseNode — big container with embedded steps */
 /* ────────────────────────────────────────────── */
 
-function PhaseNode({ data }: NodeProps) {
+export function PhaseNode({ data }: NodeProps) {
   const phaseColor = PHASE_COLORS[(data.phaseIdx as number) % PHASE_COLORS.length];
   const innerSteps = data.innerSteps as any[];
   const entryGate = data.entryGate as string | undefined;
@@ -223,8 +223,8 @@ function PhaseNode({ data }: NodeProps) {
     }
   }
 
-  const contentW = innerSteps.length * (STEP_CARD_W + STEP_GAP) - STEP_GAP + 24;
-  const contentH = STEP_CARD_H + 40;
+  const contentW = STEP_CARD_W + 40;
+  const contentH = innerSteps.length * (STEP_CARD_H + STEP_GAP) - STEP_GAP + 24;
 
   return (
     <div
@@ -264,16 +264,17 @@ function PhaseNode({ data }: NodeProps) {
         )}
       </div>
 
-      {/* ── Inner step mini-flow ── */}
+      {/* ── Inner step mini-flow (vertical) ── */}
       <div
         style={{
           padding: "8px 12px 12px",
           display: "flex",
-          alignItems: "center",
+          flexDirection: "column" as const,
+          alignItems: "flex-start",
           gap: 0,
           minWidth: contentW,
           minHeight: contentH,
-          overflowX: "auto" as const,
+          overflowY: "auto" as const,
         }}
       >
         {innerSteps.map((step, i) => (
@@ -282,7 +283,7 @@ function PhaseNode({ data }: NodeProps) {
               <div
                 style={{
                   flexShrink: 0,
-                  width: STEP_GAP,
+                  height: STEP_GAP,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -290,7 +291,7 @@ function PhaseNode({ data }: NodeProps) {
               >
                 <svg width="24" height="24" viewBox="0 0 24 24">
                   <path
-                    d="M5 12h14M14 5l7 7-7 7"
+                    d="M12 5v14M5 14l7 7 7-7"
                     stroke={phaseColor}
                     strokeWidth="2"
                     fill="none"
@@ -301,7 +302,7 @@ function PhaseNode({ data }: NodeProps) {
               </div>
             )}
             {i > 0 && nextStep.get(innerSteps[i - 1].id) !== step.id && (
-              <div style={{ flexShrink: 0, width: STEP_GAP }} />
+              <div style={{ flexShrink: 0, height: STEP_GAP }} />
             )}
             <InnerStepCard
               name={step.name}

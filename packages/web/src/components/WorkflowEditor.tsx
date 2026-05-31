@@ -21,7 +21,7 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { StepNode, computeLayout, PHASE_COLORS, type CanvasStep, type CanvasEdge } from "./WorkflowCanvas";
+import { StepNode, PhaseNode, computeLayout, PHASE_COLORS, type CanvasStep, type CanvasEdge } from "./WorkflowCanvas";
 import "./WorkflowEditor.css";
 
 /* ------------------------------------------------------------------ */
@@ -56,7 +56,47 @@ function nextId(prefix = "step"): string {
 }
 
 function defToFlow(def: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
-  // Build phase map
+  // ── Phase mode ──
+  if (def.phases && def.phases.length > 0) {
+    const stepMap = new Map(def.steps.map((s) => [s.id, s]));
+    const phaseStepGroups = new Map<string, any[]>();
+    for (const ph of def.phases) phaseStepGroups.set(ph.id, []);
+    for (const s of def.steps) {
+      const group = phaseStepGroups.get(s.phaseId || "");
+      if (group) group.push(s);
+    }
+    const incomingEdges = new Map<string, string[]>();
+    for (const e of def.edges) {
+      if (e.to) {
+        if (!incomingEdges.has(e.to)) incomingEdges.set(e.to, []);
+        incomingEdges.get(e.to)!.push(e.from);
+      }
+    }
+    const stepNameMap = new Map(def.steps.map((s) => [s.id, s.name]));
+    const phaseNodes: Node[] = (def.phases || []).map((ph: any, idx: number) => {
+      const phaseSteps = phaseStepGroups.get(ph.id) || [];
+      const innerSteps = phaseSteps.map((s: CanvasStep) => {
+        const deps = incomingEdges.get(s.id) || [];
+        return { id: s.id, name: s.name, skill: s.skill, type: s.type, runMode: s.runMode, exitGate: s.exitGate, dependsOn: deps, dependsOnNames: deps.map((d: string) => stepNameMap.get(d) || d) };
+      });
+      return {
+        id: `phase-${ph.id}`,
+        type: "phaseNode",
+        position: { x: idx * 520, y: 0 },
+        data: { phaseId: ph.id, phaseName: ph.name, phaseIdx: idx, entryGate: ph.entry_gate, exitGate: ph.exit_gate, innerSteps },
+      };
+    });
+    const phaseEdges: Edge[] = [];
+    for (let i = 0; i < (def.phases || []).length - 1; i++) {
+      const fromId = `phase-${def.phases[i].id}`;
+      const toId = `phase-${def.phases[i + 1].id}`;
+      const c = PHASE_COLORS[i % PHASE_COLORS.length];
+      phaseEdges.push({ id: `${fromId}->${toId}`, source: fromId, target: toId, animated: true, style: { stroke: c, strokeWidth: 2 } });
+    }
+    return { nodes: phaseNodes, edges: phaseEdges };
+  }
+
+  // ── Flat mode (step-level DAG) ──
   const phaseMap: Record<string, string> = {};
   const phaseIndex = new Map<string, number>();
   let nextIdx = 0;
@@ -689,7 +729,7 @@ function EditorFlow({
           onNodeClick={onNodeClick}
           onNodeDoubleClick={onNodeDoubleClick}
           onPaneClick={onPaneClick}
-          nodeTypes={{ stepNode: StepNode }}
+          nodeTypes={{ stepNode: StepNode, phaseNode: PhaseNode }}
           defaultViewport={{ x: 20, y: 20, zoom: 1 }}
           attributionPosition="bottom-left"
           nodesDraggable={editMode}
