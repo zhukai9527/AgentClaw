@@ -15,6 +15,7 @@ data/agents/*
 !data/agents/default/
 data/agents/default/knowledge/
 packages/*/data/
+packages/*/*/data/
 *.db
 *.db-shm
 *.db-wal

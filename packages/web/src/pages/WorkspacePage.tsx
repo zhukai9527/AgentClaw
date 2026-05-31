@@ -41,11 +41,21 @@ export function WorkspacePage() {
   const [viewMode, setViewMode] = useState<ViewMode>("execute");
   const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
   const [showImport, setShowImport] = useState(false);
+  const [importMode, setImportMode] = useState<"git" | "local">("git");
   const [gitUrl, setGitUrl] = useState("");
+  const [localPath, setLocalPath] = useState("");
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
+  const [browsePath, setBrowsePath] = useState("");
+  const [browseEntries, setBrowseEntries] = useState<{ name: string; path: string; isDirectory: boolean }[]>([]);
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const [browseHistory, setBrowseHistory] = useState<string[]>([]);
+  const [roots, setRoots] = useState<string[]>([]);
+  const [rootsLoading, setRootsLoading] = useState(false);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
+  const [projects, setProjects] = useState<{ name: string; path: string }[]>([]);
+  const [importedWorkspaces, setImportedWorkspaces] = useState<{ name: string; path: string; active: boolean }[]>([]);
   const [workflowDef, setWorkflowDef] = useState<WorkflowDef>({ name: "untitled", steps: [], edges: [] });
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
@@ -72,6 +82,41 @@ export function WorkspacePage() {
     }
   }, []);
 
+  const fetchProjects = useCallback(async () => {
+    try {
+      const res = await fetch("/api/workspace/projects");
+      if (res.ok) {
+        const data = await res.json();
+        setProjects(data.projects || []);
+      }
+    } catch {}
+  }, []);
+
+  const fetchImportedWorkspaces = useCallback(async () => {
+    try {
+      const res = await fetch("/api/workspace/list");
+      if (res.ok) {
+        const data = await res.json();
+        setImportedWorkspaces(data.workspaces || []);
+      }
+    } catch {}
+  }, []);
+
+  const switchWorkspace = useCallback(async (path: string) => {
+    try {
+      const res = await fetch("/api/workspace/switch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setWorkspace({ activeWorkspacePath: data.path, targetProjects: [] });
+        fetchImportedWorkspaces();
+      }
+    } catch {}
+  }, [fetchImportedWorkspaces]);
+
   useEffect(() => {
     fetchStatus();
   }, [fetchStatus]);
@@ -79,8 +124,11 @@ export function WorkspacePage() {
   useEffect(() => {
     if (workspace?.activeWorkspacePath) {
       fetchTasks();
+      fetchProjects();
+    } else {
+      fetchImportedWorkspaces();
     }
-  }, [workspace?.activeWorkspacePath, fetchTasks]);
+  }, [workspace?.activeWorkspacePath, fetchTasks, fetchProjects, fetchImportedWorkspaces]);
 
   const selectTask = (task: TaskItem) => {
     setActiveTask(task);
@@ -91,6 +139,102 @@ export function WorkspacePage() {
 
   const handleWorkflowChange = useCallback((def: WorkflowDef) => {
     setWorkflowDef(def);
+  }, []);
+
+  const handleImport = async () => {
+    if (importing) return;
+    if (importMode === "git" && !gitUrl.trim()) return;
+    if (importMode === "local" && !localPath.trim()) return;
+    setImporting(true);
+    setImportError("");
+    const body = importMode === "git"
+      ? { remoteUrl: gitUrl.trim() }
+      : { localPath: localPath.trim() };
+    try {
+      const res = await fetch("/api/workspace/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Import failed");
+      }
+      const data = await res.json();
+      setWorkspace({ activeWorkspacePath: data.path, targetProjects: [] });
+      setShowImport(false);
+      setGitUrl("");
+      fetchProjects();
+    } catch (e: any) {
+      setImportError(e.message || "Unknown error");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const loadBrowse = useCallback(async (dirPath: string) => {
+    setBrowseLoading(true);
+    try {
+      const res = await fetch(`/api/workspace/browse?path=${encodeURIComponent(dirPath)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setBrowsePath(data.path);
+        setBrowseEntries(data.entries);
+      }
+    } catch {} finally {
+      setBrowseLoading(false);
+    }
+  }, []);
+
+  const openLocalImport = useCallback(async () => {
+    setBrowsePath("");
+    setBrowseEntries([]);
+    setBrowseHistory([]);
+    setLocalPath("");
+    setRootsLoading(true);
+    try {
+      const res = await fetch("/api/workspace/roots");
+      if (res.ok) {
+        const data = await res.json();
+        setRoots(data.roots || ["C:\\"]);
+      } else {
+        setRoots(["C:\\"]);
+      }
+    } catch {
+      setRoots(["C:\\"]);
+    } finally {
+      setRootsLoading(false);
+    }
+  }, []);
+
+  const browseEnterDir = useCallback((dirPath: string) => {
+    setBrowseHistory((h) => [...h, browsePath]);
+    loadBrowse(dirPath);
+  }, [browsePath, loadBrowse]);
+
+  const browseGoBack = useCallback(() => {
+    if (browseHistory.length > 0) {
+      const prev = browseHistory[browseHistory.length - 1];
+      setBrowseHistory((h) => h.slice(0, -1));
+      if (!prev) {
+        setBrowsePath("");
+        setBrowseEntries([]);
+      } else {
+        loadBrowse(prev);
+      }
+    } else if (browsePath) {
+      setBrowsePath("");
+      setBrowseEntries([]);
+    }
+  }, [browseHistory, browsePath, loadBrowse]);
+
+  const selectRoot = useCallback((root: string) => {
+    setBrowseHistory((h) => [...h, browsePath]);
+    loadBrowse(root);
+  }, [browsePath, loadBrowse]);
+
+  const browseSelectDir = useCallback((dirPath: string) => {
+    setLocalPath(dirPath);
   }, []);
 
   const handleSendChat = async () => {
@@ -140,6 +284,23 @@ export function WorkspacePage() {
         {hasWorkspace ? (
           <>
             <aside className="ws-sidebar">
+              <div className="ws-project-info">
+                <div className="ws-project-name">
+                  {workspace?.activeWorkspacePath?.split(/[\\/]/).filter(Boolean).pop() || "Workspace"}
+                </div>
+                <div className="ws-project-path" title={workspace?.activeWorkspacePath}>
+                  {workspace?.activeWorkspacePath}
+                </div>
+              </div>
+              {projects.length > 0 && (
+                <div className="ws-project-list">
+                  {projects.map((p) => (
+                    <div key={p.path} className="ws-project-item" title={p.path}>
+                      &#x1f4c1; {p.name}
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="ws-sidebar-header">
                 <span className="ws-sidebar-title">{t("tasks.title")}</span>
                 <button
@@ -300,6 +461,22 @@ export function WorkspacePage() {
             <button className="btn-primary" onClick={() => setShowImport(true)}>
               {t("workspace.import")}
             </button>
+
+            {importedWorkspaces.length > 0 && (
+              <div className="ws-existing-workspaces">
+                <h3>Imported Workspaces</h3>
+                <div className="ws-existing-list">
+                  {importedWorkspaces.map((ws) => (
+                    <div key={ws.path} className="ws-existing-item">
+                      <span className="ws-existing-name">&#x1f4c1; {ws.name}</span>
+                      <button className="btn-secondary ws-existing-switch" onClick={() => switchWorkspace(ws.path)}>
+                        Switch
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -312,15 +489,97 @@ export function WorkspacePage() {
             </button>
             <h3>{t("workspace.import")}</h3>
             <p className="ws-modal-desc">{t("workspace.importDesc")}</p>
-            <label className="ws-modal-label">{t("workspace.gitUrl")}</label>
-            <input
-              className="ws-modal-input"
-              type="text"
-              value={gitUrl}
-              onChange={(e) => setGitUrl(e.target.value)}
-              placeholder={t("workspace.gitUrlPlaceholder")}
-              onKeyDown={(e) => e.key === "Enter" && handleImport()}
-            />
+            <div className="ws-modal-tabs">
+              <button
+                className={`ws-modal-tab${importMode === "git" ? " active" : ""}`}
+                onClick={() => setImportMode("git")}
+              >
+                Git URL
+              </button>
+              <button
+                className={`ws-modal-tab${importMode === "local" ? " active" : ""}`}
+                onClick={() => { setImportMode("local"); openLocalImport(); }}
+              >
+                Local Path
+              </button>
+            </div>
+            {importMode === "git" ? (
+              <>
+                <label className="ws-modal-label">{t("workspace.gitUrl")}</label>
+                <input
+                  className="ws-modal-input"
+                  type="text"
+                  value={gitUrl}
+                  onChange={(e) => setGitUrl(e.target.value)}
+                  placeholder={t("workspace.gitUrlPlaceholder")}
+                  onKeyDown={(e) => e.key === "Enter" && handleImport()}
+                />
+              </>
+            ) : (
+              <>
+                <label className="ws-modal-label">Select Directory</label>
+                <div className="ws-browse-bar">
+                  <button className="ws-browse-back" onClick={browseGoBack} disabled={!browsePath && browseHistory.length === 0}>
+                    &larr;
+                  </button>
+                  <span className="ws-browse-current">{browsePath || "Click a directory to browse"}</span>
+                  {browsePath && (
+                    <button className="ws-browse-root-btn" onClick={() => { setBrowsePath(""); setBrowseEntries([]); setBrowseHistory([]); }}>
+                      Drives
+                    </button>
+                  )}
+                </div>
+                {!browsePath ? (
+                  rootsLoading ? (
+                    <div className="ws-browse-loading">Loading drives...</div>
+                  ) : roots.length > 0 ? (
+                    <div className="ws-browse-list">
+                      <div className="ws-browse-list-title">Select a drive</div>
+                      {roots.map((root) => (
+                        <div key={root} className="ws-browse-entry">
+                          <button className="ws-browse-btn" onClick={() => selectRoot(root)}>
+                            &#x1f4c1; {root}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <button className="ws-browse-start" onClick={openLocalImport}>
+                      Browse Filesystem
+                    </button>
+                  )
+                ) : (
+                  <div className="ws-browse-list">
+                    {browseLoading ? (
+                      <div className="ws-browse-loading">Loading...</div>
+                    ) : browseEntries.length === 0 ? (
+                      <div className="ws-browse-empty">Empty directory</div>
+                    ) : (
+                      browseEntries.map((entry) => {
+                        const isSelected = localPath === entry.path;
+                        return (
+                          <div key={entry.path} className={`ws-browse-entry${isSelected ? " selected" : ""}`}>
+                            {entry.isDirectory ? (
+                              <>
+                                <button className="ws-browse-btn" onClick={() => browseEnterDir(entry.path)}>
+                                  &#x1f4c1; {entry.name}
+                                </button>
+                                <button className="ws-browse-select" onClick={() => browseSelectDir(entry.path)}>
+                                  {isSelected ? "Selected" : "Select"}
+                                </button>
+                              </>
+                            ) : (
+                              <span className="ws-browse-file">&#x1f4c4; {entry.name}</span>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+                {localPath && <p className="ws-browse-selected">Selected: {localPath}</p>}
+              </>
+            )}
             {importError && <p className="ws-modal-error">{importError}</p>}
             <div className="ws-modal-actions">
               <button className="btn-secondary" onClick={() => setShowImport(false)}>
@@ -329,7 +588,7 @@ export function WorkspacePage() {
               <button
                 className="btn-primary"
                 onClick={handleImport}
-                disabled={importing || !gitUrl.trim()}
+                disabled={importing || (importMode === "git" ? !gitUrl.trim() : !localPath.trim())}
               >
                 {importing ? t("workspace.importing") : t("workspace.import")}
               </button>
