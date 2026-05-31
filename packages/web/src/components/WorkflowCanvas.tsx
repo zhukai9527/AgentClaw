@@ -86,7 +86,7 @@ export function computeLayout(
     if (!rankGroups.has(rank)) rankGroups.set(rank, []);
     rankGroups.get(rank)!.push(id);
   }
-  const H_SPACING = 240, V_SPACING = 90, PHASE_GAP = 120;
+  const H_SPACING = 320, V_SPACING = 100, PHASE_GAP = 120;
   const positions = new Map<string, LayoutPos>();
   const sortedRanks = Array.from(rankGroups.keys()).sort((a, b) => a - b);
   const phaseYOffsets = new Map<string, number>();
@@ -490,7 +490,7 @@ export function WorkflowCanvas({ steps, edges, phases, fitView }: WorkflowCanvas
         return {
           id: `phase-${ph.id}`,
           type: "phaseNode" as const,
-          position: { x: idx * 480, y: 0 },
+          position: { x: idx * 400, y: 0 },
           data: {
             phaseId: ph.id,
             phaseName: ph.name,
