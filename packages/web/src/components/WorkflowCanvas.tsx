@@ -501,11 +501,15 @@ export function WorkflowCanvas({ steps, edges, phases, fitView }: WorkflowCanvas
             dependsOnNames: deps.map((d) => stepNameMap.get(d) || d),
           };
         });
+        // Estimate PhaseNode width: min-width 320 + extra for phase name text overflow
+        const nameLen = (ph.name || "").length;
+        const estimatedW = Math.max(320, nameLen * 14 + 40);
 
         return {
           id: `phase-${ph.id}`,
           type: "phaseNode" as const,
           position: { x: idx * 400, y: 0 },
+          width: estimatedW,
           data: {
             phaseId: ph.id,
             phaseName: ph.name,
@@ -513,6 +517,7 @@ export function WorkflowCanvas({ steps, edges, phases, fitView }: WorkflowCanvas
             entryGate: ph.entry_gate,
             exitGate: ph.exit_gate,
             innerSteps,
+            _nodeWidth: estimatedW,
           },
         };
       });
@@ -532,6 +537,7 @@ export function WorkflowCanvas({ steps, edges, phases, fitView }: WorkflowCanvas
       }
 
       console.log("[WorkflowCanvas] phase nodes:", phaseNodes.map(n => ({ id: n.id, pos: n.position, w: n.width })));
+      console.log("[WorkflowCanvas] phase nodes:", phaseNodes.map(n => ({ id: n.id, pos: n.position, w: n.width, estimatedW: (n.data as any)?._nodeWidth, innerSteps: ((n.data as any)?.innerSteps || []).length })));
       return { nodes: phaseNodes, flowEdges: phaseEdges };
     }
 
