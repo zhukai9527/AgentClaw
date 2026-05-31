@@ -1,5 +1,15 @@
 # 更新日志
 
+## [1.5.49] - 2026-05-31
+
+### Added
+- **Phase 节点大容器可视化**: 新增 `PhaseNode` 组件（React Flow 自定义节点），phase 作为顶层大节点，内部嵌入 step mini-flow。每个 phase node 包含：顶部阶段色条、阶段名、入口门禁(entry_gate)、内部 steps 串行链（skill 卡片 + depends_on 箭头）、底部出口门禁(exit_gate)。Phase 之间以动画实线连接。(`WorkflowCanvas.tsx`)
+- **Canvas 双模式**: `WorkflowCanvas` 支持 `phases` prop。当有 phases 数据时渲染 phase 模式（阶段级 DAG），否则回退 flat DAG 模式（原有 step 级渲染）。`selectWorkflow` 自动传递 phases 字段。(`WorkflowCanvas.tsx`, `WorkspacePage.tsx`)
+- **Step 内部渲染**: 每个 PhaseNode 内部渲染 `InnerStepCard`，显示 step 名称、skill 标签、condition 标记、exit_gate 摘要。steps 根据 depends_on 关系自动串行排列并显示 SVG 箭头。(`WorkflowCanvas.tsx`)
+
+### Changed
+- **StepNode 重构**: StepNode 缩小为仅 flat 模式使用，保留三区布局（header + skill 链 + 依赖 footer）。(`WorkflowCanvas.tsx`)
+
 ## [1.5.48] - 2026-05-31
 
 ### Added
