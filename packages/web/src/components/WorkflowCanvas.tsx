@@ -429,6 +429,30 @@ export function PhaseNode({ data }: NodeProps) {
               const from = cardPositions.get(edge.from);
               const to = cardPositions.get(edge.to);
               if (!from || !to) return null;
+              // Same rank → horizontal arrow (right edge → left edge)
+              if (from.y === to.y) {
+                const x1 = from.x + dynCardW;
+                const y1 = from.y + STEP_CARD_H / 2;
+                const x2 = to.x;
+                const y2 = to.y + STEP_CARD_H / 2;
+                const dx = x2 - x1;
+                const dy = y2 - y1;
+                const len = Math.sqrt(dx * dx + dy * dy) || 1;
+                const aux = dx / len;
+                const auy = dy / len;
+                const apx = -auy;
+                const apy = aux;
+                const ahH = 8;
+                const ahW = 5;
+                const arrowPoints = `${x2},${y2} ${x2 - aux * ahH + apx * ahW},${y2 - auy * ahH + apy * ahW} ${x2 - aux * ahH - apx * ahW},${y2 - auy * ahH - apy * ahW}`;
+                return (
+                  <g key={i}>
+                    <path d={`M${x1},${y1} L${x2},${y2}`} stroke={phaseColor} strokeWidth="1.5" fill="none" />
+                    <polygon points={arrowPoints} fill={phaseColor} />
+                  </g>
+                );
+              }
+              // Cross rank → vertical arrow with fan-out offsets + Bezier
               const fanW = Math.min(dynCardW - 4, 120);
               const srcList = srcEdgesMap.get(edge.from) || [];
               const tgtList = tgtEdgesMap.get(edge.to) || [];
@@ -441,19 +465,11 @@ export function PhaseNode({ data }: NodeProps) {
               const x2 = to.x + tgtOffset;
               const y2 = to.y;
               const midY = (y1 + y2) / 2;
-              // Compute arrowhead direction: evaluate cubic Bezier near endpoint (t=0.9)
-              // for curves, or use line direction for straight paths
-              const isStraightArrow = Math.abs(x1 - x2) < 2;
-              let adx: number, ady: number;
-              if (isStraightArrow) {
-                adx = 0;
-                ady = y2 - y1;
-              } else {
-                const ppx = 0.028 * x1 + 0.972 * x2;
-                const ppy = 0.001 * y1 + 0.27 * midY + 0.729 * y2;
-                adx = x2 - ppx;
-                ady = y2 - ppy;
-              }
+              // Arrowhead: evaluate cubic Bezier direction near endpoint (t=0.9)
+              const ppx = 0.028 * x1 + 0.972 * x2;
+              const ppy = 0.001 * y1 + 0.27 * midY + 0.729 * y2;
+              const adx = x2 - ppx;
+              const ady = y2 - ppy;
               const aLen = Math.sqrt(adx * adx + ady * ady) || 1;
               const aux = adx / aLen;
               const auy = ady / aLen;
@@ -464,19 +480,8 @@ export function PhaseNode({ data }: NodeProps) {
               const arrowPoints = `${x2},${y2} ${x2 - aux * ahH + apx * ahW},${y2 - auy * ahH + apy * ahW} ${x2 - aux * ahH - apx * ahW},${y2 - auy * ahH - apy * ahW}`;
               return (
                 <g key={i}>
-                  <path
-                    d={isStraightArrow
-                      ? `M${x1},${y1} L${x1},${y2}`
-                      : `M${x1},${y1} C${x1},${midY} ${x2},${midY} ${x2},${y2}`
-                    }
-                    stroke={phaseColor}
-                    strokeWidth="1.5"
-                    fill="none"
-                  />
-                  <polygon
-                    points={arrowPoints}
-                    fill={phaseColor}
-                  />
+                  <path d={`M${x1},${y1} C${x1},${midY} ${x2},${midY} ${x2},${y2}`} stroke={phaseColor} strokeWidth="1.5" fill="none" />
+                  <polygon points={arrowPoints} fill={phaseColor} />
                 </g>
               );
             });
