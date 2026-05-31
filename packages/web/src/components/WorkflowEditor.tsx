@@ -485,6 +485,7 @@ function EditorFlow({
   useEffect(() => {
     if (initial) {
       const { nodes: fn, edges: fe } = defToFlow(initial);
+      console.log("[WorkflowEditor] defToFlow nodes:", fn.map(n => ({ id: n.id, type: n.type, pos: n.position, data: { name: n.data?.name, phaseId: n.data?.phaseId } })));
       setNodes(fn);
       setEdges(fe);
       setWorkflowName(initial.name || "untitled");
