@@ -21,7 +21,7 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { StepNode, computeLayout, type CanvasStep, type CanvasEdge } from "./WorkflowCanvas";
+import { StepNode, computeLayout, PHASE_COLORS, type CanvasStep, type CanvasEdge } from "./WorkflowCanvas";
 import "./WorkflowEditor.css";
 
 /* ------------------------------------------------------------------ */
@@ -56,10 +56,23 @@ function nextId(prefix = "step"): string {
 }
 
 function defToFlow(def: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
+  // Build phase map
+  const phaseMap: Record<string, string> = {};
+  const phaseIndex = new Map<string, number>();
+  let nextIdx = 0;
+  for (const s of def.steps) {
+    if (s.phaseId) {
+      phaseMap[s.id] = s.phaseId;
+      if (!phaseIndex.has(s.phaseId)) phaseIndex.set(s.phaseId, nextIdx++);
+    }
+  }
+
   const positions = computeLayout(
     def.steps.map((s) => s.id),
     def.edges,
+    phaseMap,
   );
+
   const nodes: Node[] = def.steps.map((s) => ({
     id: s.id,
     type: "stepNode",
@@ -72,6 +85,7 @@ function defToFlow(def: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
       skillSource: s.skillSource,
       phaseId: s.phaseId,
       phaseName: s.phaseName,
+      phaseIdx: s.phaseId ? phaseIndex.get(s.phaseId) : undefined,
       runMode: s.runMode,
       entryGate: s.entryGate,
       exitGate: s.exitGate,
@@ -79,17 +93,30 @@ function defToFlow(def: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
       fallbackPhase: s.fallbackPhase,
     },
   }));
+
   const edges: Edge[] = def.edges
     .filter((e) => e.to)
-    .map((e) => ({
-      id: `${e.from}->${e.to}`,
-      source: e.from,
-      target: e.to!,
-      label: e.label,
-      animated: true,
-      style: { stroke: "var(--border)", strokeWidth: 1.5 },
-      labelStyle: { fontSize: 11, fill: "var(--text-muted)" },
-    }));
+    .map((e) => {
+      const srcPhase = phaseMap[e.from];
+      const tgtPhase = phaseMap[e.to!];
+      const samePhase = srcPhase && tgtPhase && srcPhase === tgtPhase;
+      const idx = srcPhase ? phaseIndex.get(srcPhase) ?? 0 : 0;
+      const phaseColor = PHASE_COLORS[idx % PHASE_COLORS.length];
+
+      return {
+        id: `${e.from}->${e.to}`,
+        source: e.from,
+        target: e.to!,
+        label: e.label,
+        animated: samePhase,
+        style: {
+          stroke: samePhase ? phaseColor : "var(--border)",
+          strokeWidth: samePhase ? 2 : 1.5,
+          strokeDasharray: samePhase ? undefined : "4 3",
+        },
+        labelStyle: { fontSize: 11, fill: "var(--text-muted)" },
+      };
+    });
   return { nodes, edges };
 }
 
