@@ -42,10 +42,10 @@ export class WorkflowRegistryImpl implements WorkflowRegistry {
       if (!pool || !Array.isArray(pool.workflows)) return;
 
       this.poolEntries = pool.workflows;
-      const baseDir = path.dirname(indexesDir);
+      const poolDir = path.dirname(poolPath);
 
       for (const entry of pool.workflows) {
-        const wfPath = path.resolve(baseDir, entry.path);
+        const wfPath = path.resolve(poolDir, entry.path);
         if (!existsSync(wfPath)) continue;
         const def = await this.loadWorkflowFile(wfPath);
         if (def) {
