@@ -69,26 +69,89 @@ function defToFlow(def: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
     for (const e of def.edges) {
       if (e.to) {
         if (!incomingEdges.has(e.to)) incomingEdges.set(e.to, []);
-        incomingEdges.get(e.to)!.push(e.from);
+        if (!incomingEdges.get(e.to)!.includes(e.from)) {
+          incomingEdges.get(e.to)!.push(e.from);
+        }
       }
     }
     const stepNameMap = new Map(def.steps.map((s) => [s.id, s.name]));
-    const phaseNodes: Node[] = (def.phases || []).map((ph: any, idx: number) => {
+    const phaseNodes: Node[] = [];
+    const edPhaseGap = 120;
+    let edCurX = 20;
+    for (let idx = 0; idx < (def.phases || []).length; idx++) {
+      const ph = def.phases[idx];
       const phaseSteps = phaseStepGroups.get(ph.id) || [];
       const innerSteps = phaseSteps.map((s: CanvasStep) => {
         const deps = incomingEdges.get(s.id) || [];
         return { id: s.id, name: s.name, skill: s.skill, type: s.type, runMode: s.runMode, exitGate: s.exitGate, dependsOn: deps, dependsOnNames: deps.map((d: string) => stepNameMap.get(d) || d) };
       });
-      const nameLen = (ph.name || "").length;
-      const estimatedW = Math.max(320, nameLen * 14 + 40);
-      return {
+      // Estimate phase node width based on max parallel steps in any rank
+      const estPad = 20;
+      const estGap = 50;
+      const stepIds = new Set(innerSteps.map((s: any) => s.id));
+      const rankMap2 = new Map<string, number>();
+      const inDeg2 = new Map<string, number>();
+      for (const s of innerSteps) {
+        const deps = (s.dependsOn as string[] || []).filter((d: string) => stepIds.has(d));
+        inDeg2.set(s.id, deps.length);
+        if (deps.length === 0) rankMap2.set(s.id, 0);
+      }
+      const q2: string[] = innerSteps.filter((s: any) => inDeg2.get(s.id) === 0).map((s: any) => s.id);
+      let qi2 = 0;
+      while (qi2 < q2.length) {
+        const cur = q2[qi2++];
+        const cr = rankMap2.get(cur) ?? 0;
+        for (const s of innerSteps) {
+          const deps = (s.dependsOn as string[] || []).filter((d: string) => stepIds.has(d));
+          if (deps.includes(cur)) {
+            inDeg2.set(s.id, inDeg2.get(s.id)! - 1);
+            if (!rankMap2.has(s.id) || rankMap2.get(s.id)! < cr + 1) rankMap2.set(s.id, cr + 1);
+            if (inDeg2.get(s.id) === 0) q2.push(s.id);
+          }
+        }
+      }
+      // Join-aware rank compression (mirrors PhaseNode logic)
+      const joins2 = innerSteps.filter((s: any) => (inDeg2.get(s.id) || 0) > 1);
+      if (joins2.length > 0) {
+        for (const join of joins2) {
+          const anc = new Set<string>();
+          const q = [...((join.dependsOn as string[] || []).filter((d: string) => stepIds.has(d)))];
+          while (q.length) {
+            const c = q.shift()!;
+            if (anc.has(c)) continue;
+            anc.add(c);
+            const pd = (innerSteps.find((s: any) => s.id === c)?.dependsOn as string[] || []).filter((d: string) => stepIds.has(d));
+            for (const d of pd) { if (!anc.has(d)) q.push(d); }
+          }
+          const jd = (join.dependsOn as string[] || []).filter((d: string) => stepIds.has(d));
+          let mr = Infinity;
+          for (const d of jd) { const r2 = rankMap2.get(d) ?? 0; if (r2 < mr) mr = r2; }
+          if (mr === Infinity) continue;
+          for (const aId of anc) { const cr = rankMap2.get(aId) ?? 0; if (cr > mr) rankMap2.set(aId, mr); }
+          rankMap2.set(join.id, mr + 1);
+        }
+        const uniqueR = [...new Set(rankMap2.values())].sort((a, b) => a - b);
+        const renumR = new Map<number, number>();
+        uniqueR.forEach((r, i) => renumR.set(r, i));
+        for (const [id, r] of rankMap2) rankMap2.set(id, renumR.get(r) ?? r);
+      }
+
+      const rankGrp2 = new Map<number, number>();
+      for (const [id, r] of rankMap2) {
+        rankGrp2.set(r, (rankGrp2.get(r) || 0) + 1);
+      }
+      const maxCols2 = rankGrp2.size > 0 ? Math.max(...rankGrp2.values()) : 0;
+      const dynEstW = 180;
+      const estimatedW = Math.max(320, maxCols2 * dynEstW + (maxCols2 - 1) * estGap + estPad + 28);
+      phaseNodes.push({
         id: `phase-${ph.id}`,
         type: "phaseNode",
-        position: { x: idx * 520, y: 0 },
+        position: { x: edCurX, y: 0 },
         width: estimatedW,
         data: { phaseId: ph.id, phaseName: ph.name, phaseIdx: idx, entryGate: ph.entry_gate, exitGate: ph.exit_gate, innerSteps, _nodeWidth: estimatedW },
-      };
-    });
+      });
+      edCurX += estimatedW + edPhaseGap;
+    }
     const phaseEdges: Edge[] = [];
     for (let i = 0; i < (def.phases || []).length - 1; i++) {
       const fromId = `phase-${def.phases[i].id}`;

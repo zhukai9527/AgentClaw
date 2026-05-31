@@ -129,6 +129,15 @@ export class WorkflowRegistryImpl implements WorkflowRegistry {
     def.phases = phases;
 
     // Flatten phases into steps + edges for DAG compatibility
+    const edgeKeys = new Set<string>();
+    const addEdge = (from: string, to: string) => {
+      const key = `${from}→${to}`;
+      if (!edgeKeys.has(key)) {
+        edgeKeys.add(key);
+        def.edges.push({ from, to });
+      }
+    };
+
     let prevPhaseStepId: string | null = null;
     for (const phase of phases) {
       const phaseSteps = phase.steps;
@@ -158,18 +167,19 @@ export class WorkflowRegistryImpl implements WorkflowRegistry {
 
         // Connect phase-to-phase edge
         if (prevPhaseStepId) {
-          def.edges.push({ from: prevPhaseStepId, to: ps.id });
+          addEdge(prevPhaseStepId, ps.id);
         }
 
-        // Connect intra-phase serial edge
+        // Connect intra-phase serial edge (serial mode only — parallel steps
+        // must declare explicit depends_on for their dependencies)
         if (ps.run_mode === "serial" && prevStepInPhase) {
-          def.edges.push({ from: prevStepInPhase, to: ps.id });
+          addEdge(prevStepInPhase, ps.id);
         }
 
         // Handle depends_on
         if (ps.depends_on) {
           for (const dep of ps.depends_on) {
-            def.edges.push({ from: dep, to: ps.id });
+            addEdge(dep, ps.id);
           }
         }
 

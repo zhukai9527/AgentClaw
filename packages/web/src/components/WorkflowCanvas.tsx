@@ -152,7 +152,7 @@ export function computeLayout(
 
 const STEP_CARD_H = 80;
 const STEP_CARD_W = 180;
-const STEP_GAP = 28;
+const STEP_GAP = 50;
 
 function InnerStepCard({
   name,
@@ -160,18 +160,20 @@ function InnerStepCard({
   type,
   exitGate,
   phaseColor,
+  width = STEP_CARD_W,
 }: {
   name: string;
   skill: string | string[] | undefined;
   type: string;
   exitGate?: string;
   phaseColor: string;
+  width?: number;
 }) {
   const skills = skill ? (Array.isArray(skill) ? skill : [skill]) : [];
   return (
     <div
       style={{
-        width: STEP_CARD_W,
+        width,
         height: STEP_CARD_H,
         background: "var(--bg-tertiary, #1e293b)",
         border: `1px solid ${phaseColor}40`,
@@ -233,16 +235,125 @@ export function PhaseNode({ data }: NodeProps) {
   const entryGate = data.entryGate as string | undefined;
   const exitGate = data.exitGate as string | undefined;
 
-  // Group inner steps by depends_on chains
+  // Compute intra-phase ranks (topological sort for grid layout)
+  const CARD_GAP = 50;
+  const contentPad = 20;
   const stepIds = new Set(innerSteps.map((s) => s.id));
-  const dependsOn = new Map<string, string[]>();
+  const rankMap = (() => {
+    const ranks = new Map<string, number>();
+    const inDegree = new Map<string, number>();
+    for (const s of innerSteps) {
+      const deps = (s.dependsOn as string[] || []).filter((d: string) => stepIds.has(d));
+      inDegree.set(s.id, deps.length);
+      if (deps.length === 0) ranks.set(s.id, 0);
+    }
+    const queue: string[] = [];
+    for (const s of innerSteps) { if (inDegree.get(s.id) === 0) queue.push(s.id); }
+    let qi = 0;
+    while (qi < queue.length) {
+      const cur = queue[qi++];
+      const curRank = ranks.get(cur) ?? 0;
+      for (const s of innerSteps) {
+        const deps = (s.dependsOn as string[] || []).filter((d: string) => stepIds.has(d));
+        if (deps.includes(cur)) {
+          const nr = curRank + 1;
+          inDegree.set(s.id, inDegree.get(s.id)! - 1);
+          if (!ranks.has(s.id) || ranks.get(s.id)! < nr) ranks.set(s.id, nr);
+          if (inDegree.get(s.id) === 0) queue.push(s.id);
+        }
+      }
+    }
+    return ranks;
+  })();
+
+  // Compress ranks around join nodes: all predecessors of a join get pulled to the
+  // same rank so the fan-in structure is visually clear.
+  const compressedRankMap = (() => {
+    // Build in-degree to identify joins
+    const inDeg = new Map<string, number>();
+    for (const s of innerSteps) {
+      const deps = (s.dependsOn as string[] || []).filter((d: string) => stepIds.has(d));
+      inDeg.set(s.id, deps.length);
+    }
+    const joins = innerSteps.filter(s => (inDeg.get(s.id) || 0) > 1);
+    if (joins.length === 0) return rankMap;
+
+    const result = new Map(rankMap);
+    for (const join of joins) {
+      // BFS backward to collect all ancestors
+      const ancestors = new Set<string>();
+      const queue = [...((join.dependsOn as string[] || []).filter((d: string) => stepIds.has(d)))];
+      while (queue.length > 0) {
+        const cur = queue.shift()!;
+        if (ancestors.has(cur)) continue;
+        ancestors.add(cur);
+        const s = innerSteps.find(s => s.id === cur);
+        if (!s) continue;
+        const deps = (s.dependsOn as string[] || []).filter((d: string) => stepIds.has(d));
+        for (const d of deps) { if (!ancestors.has(d)) queue.push(d); }
+      }
+
+      // Find min rank among direct predecessors
+      const joinDeps = (join.dependsOn as string[] || []).filter((d: string) => stepIds.has(d));
+      let minRank = Infinity;
+      for (const d of joinDeps) {
+        const r = rankMap.get(d) ?? 0;
+        if (r < minRank) minRank = r;
+      }
+      if (minRank === Infinity) continue;
+
+      // Compress ancestors whose rank is deeper than minRank
+      for (const aId of ancestors) {
+        const cr = result.get(aId) ?? 0;
+        if (cr > minRank) result.set(aId, minRank);
+      }
+      // Place join at next rank
+      result.set(join.id, minRank + 1);
+    }
+
+    // Renumber to consecutive ranks
+    const unique = [...new Set(result.values())].sort((a, b) => a - b);
+    const renum = new Map<number, number>();
+    unique.forEach((r, i) => renum.set(r, i));
+    for (const [id, r] of result) result.set(id, renum.get(r) ?? r);
+    return result;
+  })();
+
+  const rankGroups = new Map<number, typeof innerSteps>();
   for (const s of innerSteps) {
-    dependsOn.set(s.id, (s.dependsOn as string[] || []).filter((d: string) => stepIds.has(d)));
+    const r = compressedRankMap.get(s.id) ?? 0;
+    if (!rankGroups.has(r)) rankGroups.set(r, []);
+    rankGroups.get(r)!.push(s);
+  }
+  const sortedRanks = Array.from(rankGroups.entries()).sort((a, b) => a[0] - b[0]);
+  const maxCols = sortedRanks.length > 0 ? Math.max(...sortedRanks.map(([, g]) => g.length)) : 0;
+  const numRanks = sortedRanks.length;
+  const dynCardW = STEP_CARD_W;
+  const contentW = maxCols > 0 ? maxCols * dynCardW + (maxCols - 1) * CARD_GAP + contentPad : dynCardW + contentPad;
+  const contentH = numRanks > 0 ? numRanks * (STEP_CARD_H + STEP_GAP) - STEP_GAP : 0;
+  const nodeMinH = 100 + (innerSteps.length > 0 ? contentH + contentPad : 0) + (exitGate ? 30 : 0);
+
+  // Compute absolute positions for each step card
+  interface CardPos { id: string; x: number; y: number; }
+  const cardPositions = new Map<string, CardPos>();
+  for (const [rank, group] of sortedRanks) {
+    const rowW = group.length * dynCardW + (group.length - 1) * CARD_GAP;
+    const startX = (contentW - rowW) / 2;
+    group.forEach((s, col) => {
+      cardPositions.set(s.id, {
+        id: s.id,
+        x: startX + col * (dynCardW + CARD_GAP),
+        y: rank * (STEP_CARD_H + STEP_GAP),
+      });
+    });
   }
 
-  const contentW = STEP_CARD_W + 40;
-  const contentH = innerSteps.length * (STEP_CARD_H + STEP_GAP) - STEP_GAP + 40;
-  const nodeMinH = 100 + (innerSteps.length > 0 ? contentH : 0) + (exitGate ? 30 : 0);
+  // Build intra-phase edges
+  const phEdges: { from: string; to: string }[] = [];
+  for (const s of innerSteps) {
+    const deps = (s.dependsOn as string[] || []).filter((d: string) => stepIds.has(d));
+    for (const d of deps) phEdges.push({ from: d, to: s.id });
+  }
 
   return (
     <div
@@ -282,54 +393,121 @@ export function PhaseNode({ data }: NodeProps) {
         )}
       </div>
 
-      {/* ── Inner step mini-flow (vertical) ── */}
+      {/* ── Inner step mini-flow (grid layout with SVG arrows) ── */}
       <div
         style={{
           padding: "8px 12px 12px",
-          display: "flex",
-          flexDirection: "column" as const,
-          alignItems: "center",
-          gap: 0,
+          position: "relative",
           width: contentW,
           minHeight: contentH,
           margin: "0 auto",
         }}
       >
-        {innerSteps.map((step, i) => (
-          <Fragment key={step.id}>
-            {i > 0 && (step.dependsOn as string[] || []).includes(innerSteps[i - 1].id) && (
-              <div
-                style={{
-                  flexShrink: 0,
-                  height: STEP_GAP,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24">
+        {/* SVG arrow layer */}
+        <svg
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            pointerEvents: "none",
+            overflow: "visible",
+          }}
+        >
+          {(() => {
+            // Precompute fan-out offsets: spread edges across source/target card width
+            const srcEdgesMap = new Map<string, string[]>();
+            const tgtEdgesMap = new Map<string, string[]>();
+            for (const e of phEdges) {
+              if (!srcEdgesMap.has(e.from)) srcEdgesMap.set(e.from, []);
+              if (!tgtEdgesMap.has(e.to)) tgtEdgesMap.set(e.to, []);
+              srcEdgesMap.get(e.from)!.push(e.to);
+              tgtEdgesMap.get(e.to)!.push(e.from);
+            }
+            return phEdges.map((edge, i) => {
+              const from = cardPositions.get(edge.from);
+              const to = cardPositions.get(edge.to);
+              if (!from || !to) return null;
+              const fanW = Math.min(dynCardW - 4, 120);
+              const srcList = srcEdgesMap.get(edge.from) || [];
+              const tgtList = tgtEdgesMap.get(edge.to) || [];
+              const srcIdx = srcList.indexOf(edge.to);
+              const tgtIdx = tgtList.indexOf(edge.from);
+              const srcOffset = srcList.length > 1 ? (srcIdx + 1) / (srcList.length + 1) * fanW + (dynCardW - fanW) / 2 : dynCardW / 2;
+              const tgtOffset = tgtList.length > 1 ? (tgtIdx + 1) / (tgtList.length + 1) * fanW + (dynCardW - fanW) / 2 : dynCardW / 2;
+              const x1 = from.x + srcOffset;
+              const y1 = from.y + STEP_CARD_H;
+              const x2 = to.x + tgtOffset;
+              const y2 = to.y;
+              const midY = (y1 + y2) / 2;
+              // Compute arrowhead direction: evaluate cubic Bezier near endpoint (t=0.9)
+              // for curves, or use line direction for straight paths
+              const isStraightArrow = Math.abs(x1 - x2) < 2;
+              let adx: number, ady: number;
+              if (isStraightArrow) {
+                adx = 0;
+                ady = y2 - y1;
+              } else {
+                const ppx = 0.028 * x1 + 0.972 * x2;
+                const ppy = 0.001 * y1 + 0.27 * midY + 0.729 * y2;
+                adx = x2 - ppx;
+                ady = y2 - ppy;
+              }
+              const aLen = Math.sqrt(adx * adx + ady * ady) || 1;
+              const aux = adx / aLen;
+              const auy = ady / aLen;
+              const apx = -auy;
+              const apy = aux;
+              const ahH = 8;
+              const ahW = 5;
+              const arrowPoints = `${x2},${y2} ${x2 - aux * ahH + apx * ahW},${y2 - auy * ahH + apy * ahW} ${x2 - aux * ahH - apx * ahW},${y2 - auy * ahH - apy * ahW}`;
+              return (
+                <g key={i}>
                   <path
-                    d="M12 5v14M5 14l7 7 7-7"
+                    d={isStraightArrow
+                      ? `M${x1},${y1} L${x1},${y2}`
+                      : `M${x1},${y1} C${x1},${midY} ${x2},${midY} ${x2},${y2}`
+                    }
                     stroke={phaseColor}
-                    strokeWidth="2"
+                    strokeWidth="1.5"
                     fill="none"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
                   />
-                </svg>
-              </div>
-            )}
-            {i > 0 && !(step.dependsOn as string[] || []).includes(innerSteps[i - 1].id) && (
-              <div style={{ flexShrink: 0, height: STEP_GAP }} />
-            )}
-            <InnerStepCard
-              name={step.name}
-              skill={step.skill}
-              type={step.type}
-              exitGate={step.exitGate}
-              phaseColor={phaseColor}
-            />
-          </Fragment>
+                  <polygon
+                    points={arrowPoints}
+                    fill={phaseColor}
+                  />
+                </g>
+              );
+            });
+          })()}
+        </svg>
+        {/* Cards layer */}
+        {sortedRanks.map(([rank, group]) => (
+          <div
+            key={rank}
+            style={{
+              position: "absolute",
+              top: rank * (STEP_CARD_H + STEP_GAP),
+              left: 0,
+              right: 0,
+              display: "flex",
+              justifyContent: "center",
+              gap: CARD_GAP,
+            }}
+          >
+            {group.map((s: any) => (
+              <InnerStepCard
+                key={s.id}
+                name={s.name}
+                skill={s.skill}
+                type={s.type}
+                exitGate={s.exitGate}
+                phaseColor={phaseColor}
+                width={dynCardW}
+              />
+            ))}
+          </div>
         ))}
       </div>
 
@@ -471,17 +649,23 @@ export function WorkflowCanvas({ steps, edges, phases, fitView }: WorkflowCanvas
         if (group) group.push(s);
       }
 
-      // Build edge lookup for depends_on
+      // Build edge lookup for depends_on (deduplicated — serial + depends_on can create duplicates)
       const incomingEdges = new Map<string, string[]>();
       for (const e of edges) {
         if (e.to) {
           if (!incomingEdges.has(e.to)) incomingEdges.set(e.to, []);
-          incomingEdges.get(e.to)!.push(e.from);
+          if (!incomingEdges.get(e.to)!.includes(e.from)) {
+            incomingEdges.get(e.to)!.push(e.from);
+          }
         }
       }
       const stepNameMap = new Map(steps.map((s) => [s.id, s.name]));
 
-      const phaseNodes: Node[] = phases.map((ph, idx) => {
+      const phaseNodes: Node[] = [];
+      const phPhaseGap = 120;
+      let curPhaseX = 20;
+      for (let idx = 0; idx < phases.length; idx++) {
+        const ph = phases[idx];
         const phaseSteps = phaseStepGroups.get(ph.id) || [];
         const innerSteps = phaseSteps.map((s: CanvasStep) => {
           const deps = incomingEdges.get(s.id) || [];
@@ -496,14 +680,72 @@ export function WorkflowCanvas({ steps, edges, phases, fitView }: WorkflowCanvas
             dependsOnNames: deps.map((d) => stepNameMap.get(d) || d),
           };
         });
-        // Estimate PhaseNode width: min-width 320 + extra for phase name text overflow
-        const nameLen = (ph.name || "").length;
-        const estimatedW = Math.max(320, nameLen * 14 + 40);
+        // Estimate PhaseNode width from rank-based layout
+        const phEstIds = new Set(phaseSteps.map((s: any) => s.id));
+        const phEstRankMap = new Map<string, number>();
+        const phEstInDeg = new Map<string, number>();
+        for (const s of phaseSteps) {
+          const deps = (incomingEdges.get(s.id) || []).filter((d: string) => phEstIds.has(d));
+          phEstInDeg.set(s.id, deps.length);
+          if (deps.length === 0) phEstRankMap.set(s.id, 0);
+        }
+        const phQ: string[] = phaseSteps.filter((s: any) => phEstInDeg.get(s.id) === 0).map((s: any) => s.id);
+        let phQi = 0;
+        while (phQi < phQ.length) {
+          const cur = phQ[phQi++];
+          const cr = phEstRankMap.get(cur) ?? 0;
+          for (const s of phaseSteps) {
+            const deps = (incomingEdges.get(s.id) || []).filter((d: string) => phEstIds.has(d));
+            if (deps.includes(cur)) {
+              phEstInDeg.set(s.id, phEstInDeg.get(s.id)! - 1);
+              if (!phEstRankMap.has(s.id) || phEstRankMap.get(s.id)! < cr + 1) phEstRankMap.set(s.id, cr + 1);
+              if (phEstInDeg.get(s.id) === 0) phQ.push(s.id);
+            }
+          }
+        }
+        // Join-aware rank compression (mirrors PhaseNode logic)
+        const phEstInDeg2 = new Map<string, number>();
+        for (const s of phaseSteps) {
+          const deps = (incomingEdges.get(s.id) || []).filter((d: string) => phEstIds.has(d));
+          phEstInDeg2.set(s.id, deps.length);
+        }
+        const phEstJoins = phaseSteps.filter((s: any) => (phEstInDeg2.get(s.id) || 0) > 1);
+        if (phEstJoins.length > 0) {
+          for (const join of phEstJoins) {
+            const anc = new Set<string>();
+            const q = [...((incomingEdges.get(join.id) || []).filter((d: string) => phEstIds.has(d)))];
+            while (q.length) {
+              const c = q.shift()!;
+              if (anc.has(c)) continue;
+              anc.add(c);
+              const pd = (incomingEdges.get(c) || []).filter((d: string) => phEstIds.has(d));
+              for (const d of pd) { if (!anc.has(d)) q.push(d); }
+            }
+            const jd = (join.dependsOn || incomingEdges.get(join.id) || []).filter((d: string) => phEstIds.has(d));
+            let mr = Infinity;
+            for (const d of jd) { const r2 = phEstRankMap.get(d) ?? 0; if (r2 < mr) mr = r2; }
+            if (mr === Infinity) continue;
+            for (const aId of anc) { const cr = phEstRankMap.get(aId) ?? 0; if (cr > mr) phEstRankMap.set(aId, mr); }
+            phEstRankMap.set(join.id, mr + 1);
+          }
+          const uniqueR = [...new Set(phEstRankMap.values())].sort((a, b) => a - b);
+          const renumR = new Map<number, number>();
+          uniqueR.forEach((r, i) => renumR.set(r, i));
+          for (const [id, r] of phEstRankMap) phEstRankMap.set(id, renumR.get(r) ?? r);
+        }
 
-        return {
+        const phEstRankGrp = new Map<number, number>();
+        for (const [, r] of phEstRankMap) phEstRankGrp.set(r, (phEstRankGrp.get(r) || 0) + 1);
+        const phMaxCols = phEstRankGrp.size > 0 ? Math.max(...phEstRankGrp.values()) : 0;
+        const phEstPad = 20;
+        const phDynW = 180;
+        const phEstGap = 50;
+        const estimatedW = Math.max(320, phMaxCols * phDynW + (phMaxCols - 1) * phEstGap + phEstPad + 28);
+
+        phaseNodes.push({
           id: `phase-${ph.id}`,
           type: "phaseNode" as const,
-          position: { x: idx * 400, y: 0 },
+          position: { x: curPhaseX, y: 0 },
           width: estimatedW,
           data: {
             phaseId: ph.id,
@@ -514,8 +756,9 @@ export function WorkflowCanvas({ steps, edges, phases, fitView }: WorkflowCanvas
             innerSteps,
             _nodeWidth: estimatedW,
           },
-        };
-      });
+        });
+        curPhaseX += estimatedW + phPhaseGap;
+      }
 
       const phaseEdges: Edge[] = [];
       for (let i = 0; i < phases.length - 1; i++) {
