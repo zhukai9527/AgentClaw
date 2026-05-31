@@ -1,5 +1,12 @@
 # 更新日志
 
+## [1.5.47] - 2026-05-31
+
+### Fixed
+- **阶段元数据被丢弃**: `selectWorkflow` 现在传递全部字段（phaseId, phaseName, runMode, entryGate, exitGate, fallbackStep, fallbackPhase），Canvas 恢复阶段颜色、标签和布局分组。(`WorkspacePage.tsx`)
+- **边缘去重**: Canvas 去除 serial + depends_on 产生的重复边。(`WorkflowCanvas.tsx`)
+- **依赖步骤显示**: StepNode 内新增 `← 依赖步骤名` 行，每个节点直接展示前置依赖，无需仅靠连线判断。(`WorkflowCanvas.tsx`, `WorkflowEditor.tsx`)
+
 ## [1.5.46] - 2026-05-31
 
 ### Fixed
