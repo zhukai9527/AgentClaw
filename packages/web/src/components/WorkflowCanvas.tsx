@@ -86,7 +86,8 @@ export function computeLayout(
     if (!rankGroups.has(rank)) rankGroups.set(rank, []);
     rankGroups.get(rank)!.push(id);
   }
-  const NODE_W = 280, RANK_GAP = 40, V_SPACING = 100, PHASE_GAP = 120;
+  // Global * { box-sizing:border-box } → maxWidth:320 IS the total box width
+  const NODE_W = 320, RANK_GAP = 40, V_SPACING = 100, PHASE_GAP = 120;
   const positions = new Map<string, LayoutPos>();
   const sortedRanks = Array.from(rankGroups.keys()).sort((a, b) => a - b);
 
