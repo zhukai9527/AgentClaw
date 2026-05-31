@@ -19,6 +19,14 @@ export interface CanvasStep {
   status?: "pending" | "running" | "done" | "failed" | "waiting";
   skillSource?: "workspace" | "system";
   skill?: string;
+  /** Phase grouping (Codex-style) */
+  phaseId?: string;
+  phaseName?: string;
+  runMode?: "serial" | "parallel" | "join";
+  entryGate?: string;
+  exitGate?: string;
+  fallbackStep?: string;
+  fallbackPhase?: string;
 }
 
 export interface CanvasEdge {
@@ -44,6 +52,7 @@ export function StepNode({ data }: NodeProps) {
 
   const borderColor = statusColors[data.status ?? "pending"];
   const isCondition = data.type === "condition";
+  const hasPhase = data.phaseName || data.phaseId;
 
   return (
     <div
@@ -59,6 +68,16 @@ export function StepNode({ data }: NodeProps) {
       }}
     >
       <Handle type="target" position={Position.Top} />
+      {hasPhase && (
+        <div style={{ fontSize: 10, color: "var(--accent)", marginBottom: 4, fontWeight: 500 }}>
+          {data.phaseName || data.phaseId}
+          {data.runMode && data.runMode !== "serial" && (
+            <span style={{ marginLeft: 6, padding: "0 4px", borderRadius: 3, background: "var(--accent-subtle-bg)" }}>
+              {data.runMode}
+            </span>
+          )}
+        </div>
+      )}
       <div style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: 2 }}>
         {data.name}
       </div>
@@ -81,6 +100,9 @@ export function StepNode({ data }: NodeProps) {
         </div>
       )}
       {isCondition && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Condition</div>}
+      {data.entryGate && (
+        <div style={{ fontSize: 10, color: "var(--warning)", marginTop: 2 }}>⛩ {data.entryGate}</div>
+      )}
       <Handle type="source" position={Position.Bottom} />
     </div>
   );

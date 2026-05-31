@@ -1,4 +1,5 @@
 import { mkdirSync, existsSync, cpSync, writeFileSync, rmSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { join, basename, resolve, dirname } from "node:path";
 import { execSync } from "node:child_process";
 import type { FastifyInstance } from "fastify";
@@ -9,6 +10,15 @@ import {
   saveWorkspaceState,
   setActiveWorkspace,
 } from "../workspace.js";
+
+/** Safe directory listing — returns empty array on error */
+async function readdirSafe(dirPath: string): Promise<string[]> {
+  try {
+    return await readdir(dirPath);
+  } catch {
+    return [];
+  }
+}
 
 const WORKSPACES_DIR = resolve(process.cwd(), "data", "workspaces");
 
@@ -84,13 +94,50 @@ export function registerWorkspaceRoutes(
   app.get("/api/workspace/workflows", async (_req, reply) => {
     const state = loadWorkspaceState();
     if (!state.activeWorkspacePath) {
-      return reply.send({ workflows: [] });
+      return reply.send({ workflows: [], poolEntries: [] });
     }
     const workflowsDir = join(state.activeWorkspacePath, "workflows");
     const registry = new WorkflowRegistryImpl();
     await registry.scanDirectory(workflowsDir);
-    return reply.send({ workflows: registry.list() });
+
+    // Also scan Codex-style indexes/ directory if present
+    const codexSkillsDir = join(state.activeWorkspacePath, ".codex", "skills");
+    for (const skillDir of await readdirSafe(codexSkillsDir)) {
+      const indexesDir = join(codexSkillsDir, skillDir, "workflow", "indexes");
+      await registry.scanIndexDirectory(indexesDir);
+    }
+
+    return reply.send({
+      workflows: registry.list(),
+      poolEntries: registry.getPoolEntries(),
+    });
   });
+
+  // GET /api/workspace/workflows/find-by-type — find workflow by task type
+  app.get<{ Querystring: { type: string } }>(
+    "/api/workspace/workflows/find-by-type",
+    async (req, reply) => {
+      const state = loadWorkspaceState();
+      if (!state.activeWorkspacePath) {
+        return reply.status(400).send({ error: "No active workspace" });
+      }
+      const { type } = req.query;
+      if (!type) {
+        return reply.status(400).send({ error: "type is required" });
+      }
+      const codexSkillsDir = join(state.activeWorkspacePath, ".codex", "skills");
+      const registry = new WorkflowRegistryImpl();
+      for (const skillDir of await readdirSafe(codexSkillsDir)) {
+        const indexesDir = join(codexSkillsDir, skillDir, "workflow", "indexes");
+        await registry.scanIndexDirectory(indexesDir);
+      }
+      const match = registry.findByTaskType(type);
+      if (!match) {
+        return reply.send({ found: false });
+      }
+      return reply.send({ found: true, workflow: match });
+    },
+  );
 
   // PUT /api/workspace/workflows/:name — save/update workflow YAML
   app.put<{ Params: { name: string }; Body: { definition: any } }>(

@@ -33,6 +33,11 @@ export interface WorkflowDef {
   description?: string;
   steps: CanvasStep[];
   edges: CanvasEdge[];
+  /** Codex-style phases (optional) */
+  phases?: any[];
+  applies_to?: string[];
+  entry_condition?: string;
+  exit_condition?: string;
 }
 
 interface WorkflowEditorProps {
@@ -55,7 +60,20 @@ function defToFlow(def: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
     id: s.id,
     type: "stepNode",
     position: { x: 0, y: i * 120 },
-    data: { ...s },
+    data: {
+      name: s.name,
+      type: s.type,
+      status: s.status,
+      skill: s.skill,
+      skillSource: s.skillSource,
+      phaseId: s.phaseId,
+      phaseName: s.phaseName,
+      runMode: s.runMode,
+      entryGate: s.entryGate,
+      exitGate: s.exitGate,
+      fallbackStep: s.fallbackStep,
+      fallbackPhase: s.fallbackPhase,
+    },
   }));
   const edges: Edge[] = def.edges
     .filter((e) => e.to)
@@ -72,14 +90,24 @@ function defToFlow(def: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
 }
 
 function flowToDef(name: string, nodes: Node[], edges: Edge[]): WorkflowDef {
-  const steps: CanvasStep[] = nodes.map((n) => ({
-    id: n.id,
-    name: (n.data as Record<string, unknown>).name as string,
-    type: (n.data as Record<string, unknown>).type as "task" | "condition",
-    status: (n.data as Record<string, unknown>).status as CanvasStep["status"],
-    skill: (n.data as Record<string, unknown>).skill as string | undefined,
-    skillSource: (n.data as Record<string, unknown>).skillSource as CanvasStep["skillSource"],
-  }));
+  const steps: CanvasStep[] = nodes.map((n) => {
+    const d = n.data as Record<string, unknown>;
+    return {
+      id: n.id,
+      name: d.name as string,
+      type: d.type as "task" | "condition",
+      status: d.status as CanvasStep["status"],
+      skill: d.skill as string | undefined,
+      skillSource: d.skillSource as CanvasStep["skillSource"],
+      phaseId: d.phaseId as string | undefined,
+      phaseName: d.phaseName as string | undefined,
+      runMode: d.runMode as CanvasStep["runMode"],
+      entryGate: d.entryGate as string | undefined,
+      exitGate: d.exitGate as string | undefined,
+      fallbackStep: d.fallbackStep as string | undefined,
+      fallbackPhase: d.fallbackPhase as string | undefined,
+    };
+  });
   const flowEdges: CanvasEdge[] = edges.map((e) => ({
     from: e.source,
     to: e.target,
@@ -95,6 +123,10 @@ function defToJson(def: WorkflowDef): string {
       description: def.description,
       steps: def.steps,
       edges: def.edges,
+      phases: def.phases,
+      applies_to: def.applies_to,
+      entry_condition: def.entry_condition,
+      exit_condition: def.exit_condition,
     },
     null,
     2,
@@ -108,6 +140,10 @@ function jsonToDef(json: string): WorkflowDef {
     description: parsed.description,
     steps: Array.isArray(parsed.steps) ? parsed.steps : [],
     edges: Array.isArray(parsed.edges) ? parsed.edges : [],
+    phases: parsed.phases,
+    applies_to: parsed.applies_to,
+    entry_condition: parsed.entry_condition,
+    exit_condition: parsed.exit_condition,
   };
 }
 
@@ -160,15 +196,27 @@ function PropertiesPanel({ node, onUpdate, onClose }: PropertiesPanelProps) {
   const [name, setName] = useState((data.name as string) || "");
   const [skill, setSkill] = useState((data.skill as string) || "");
   const [prompt, setPrompt] = useState((data.prompt as string) || "");
+  const [phaseName, setPhaseName] = useState((data.phaseName as string) || "");
+  const [runMode, setRunMode] = useState((data.runMode as string) || "serial");
+  const [entryGate, setEntryGate] = useState((data.entryGate as string) || "");
+  const [exitGate, setExitGate] = useState((data.exitGate as string) || "");
+  const [fallbackStep, setFallbackStep] = useState((data.fallbackStep as string) || "");
+  const [fallbackPhase, setFallbackPhase] = useState((data.fallbackPhase as string) || "");
 
   useEffect(() => {
     setName((data.name as string) || "");
     setSkill((data.skill as string) || "");
     setPrompt((data.prompt as string) || "");
+    setPhaseName((data.phaseName as string) || "");
+    setRunMode((data.runMode as string) || "serial");
+    setEntryGate((data.entryGate as string) || "");
+    setExitGate((data.exitGate as string) || "");
+    setFallbackStep((data.fallbackStep as string) || "");
+    setFallbackPhase((data.fallbackPhase as string) || "");
   }, [data]);
 
   const handleApply = () => {
-    onUpdate(node.id, { name, skill, prompt });
+    onUpdate(node.id, { name, skill, prompt, phaseName, runMode, entryGate, exitGate, fallbackStep, fallbackPhase });
     onClose();
   };
 
@@ -196,8 +244,58 @@ function PropertiesPanel({ node, onUpdate, onClose }: PropertiesPanelProps) {
           onChange={(e) => setSkill(e.target.value)}
           placeholder="skill-name"
         />
+
+        <div className="wfe-props-separator" />
+
+        <label className="wfe-props-label">Phase</label>
+        <input
+          className="wfe-props-input"
+          value={phaseName}
+          onChange={(e) => setPhaseName(e.target.value)}
+          placeholder="phase-name"
+        />
+        <label className="wfe-props-label">Run Mode</label>
+        <select className="wfe-props-input" value={runMode} onChange={(e) => setRunMode(e.target.value)}>
+          <option value="serial">Serial</option>
+          <option value="parallel">Parallel</option>
+          <option value="join">Join</option>
+        </select>
+        <label className="wfe-props-label">Entry Gate</label>
+        <input
+          className="wfe-props-input"
+          value={entryGate}
+          onChange={(e) => setEntryGate(e.target.value)}
+          placeholder="gate-name"
+        />
+        <label className="wfe-props-label">Exit Gate</label>
+        <input
+          className="wfe-props-input"
+          value={exitGate}
+          onChange={(e) => setExitGate(e.target.value)}
+          placeholder="gate-name"
+        />
+        {data.fallbackStep !== undefined && (
+          <>
+            <label className="wfe-props-label">Fallback Step</label>
+            <input
+              className="wfe-props-input"
+              value={fallbackStep}
+              onChange={(e) => setFallbackStep(e.target.value)}
+              placeholder="step-id"
+            />
+            <label className="wfe-props-label">Fallback Phase</label>
+            <input
+              className="wfe-props-input"
+              value={fallbackPhase}
+              onChange={(e) => setFallbackPhase(e.target.value)}
+              placeholder="phase-id"
+            />
+          </>
+        )}
+
         {(data.type as string) === "condition" && (
           <>
+            <div className="wfe-props-separator" />
             <label className="wfe-props-label">Prompt</label>
             <textarea
               className="wfe-props-textarea"

@@ -3,6 +3,12 @@
 ## [1.5.41] - 2026-05-31
 
 ### Added
+- **Codex 工作区兼容**: 新增 `WorkflowPhase`/`WorkflowPhaseStep`/`WorkflowPool`/`SkillPool` 类型，支持 Codex 风格的多阶段工作流（phases、gates、owner_skill、run_mode、task_types）。
+- **workflow-pool.yaml 索引解析**: `WorkflowRegistryImpl.scanIndexDirectory()` 读取 `indexes/workflow-pool.yaml` 注册工作流路由表，支持 `findByTaskType()` 按任务类型查找工作流。
+- **skill-pool.yaml 解析**: `SkillRegistryImpl.loadSkillPool()` 读取集中式技能注册表，为尚无 SKILL.md 的技能注册轻量条目。
+- **Phases → DAG 自动转换**: `codexToDefinition()` 将 Codex 多阶段工作流（phases/steps）展平为标准 DAG（steps/edges），保持引擎兼容。
+- **Codex 工作区 API**: `GET /api/workspace/workflows` 同时扫描 `.codex/skills/*/workflow/indexes/`；新增 `GET /api/workspace/workflows/find-by-type?type=xxx` 路由。
+- **前端 Phase 展示**: WorkflowCanvas 节点显示 phaseName/runMode/entryGate；WorkflowEditor 属性面板支持 Phase/Run Mode/Gate/Fallback 编辑。
 - **ワークフロー CRUD API**: 新增 `PUT /api/workspace/workflows/:name` 保存、`DELETE /api/workspace/workflows/:name` 删除、`POST /api/workspace/tasks` 创建任务三个后端端点。
 - **ワークフロー操作按钮**: Execute/Edit 模式下显示 Run/Save/Delete 按钮，支持确认删除弹窗。
 - **新任务弹窗**: 点击 New Task 打开表单弹窗，支持标题、描述、优先级设置。

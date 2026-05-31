@@ -2,10 +2,12 @@ import { existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { watch, type FSWatcher } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { parse as parseYaml } from "yaml";
 import type {
   Skill,
   SkillMatch,
   SkillRegistry,
+  SkillPool,
 } from "@agentclaw/types";
 import { parseSkillFile } from "./parser.js";
 
@@ -63,6 +65,35 @@ export class SkillRegistryImpl implements SkillRegistry {
       writeFileSync(this.settingsPath, JSON.stringify(settings, null, 2));
     } catch (err) {
       console.warn(`[skills] Failed to save settings: ${err}`);
+    }
+  }
+
+  /**
+   * Load skills from a Codex-style skill-pool.yaml file.
+   * This creates lightweight Skill entries from the pool's key-value pairs.
+   * Only registers skills that don't already have a SKILL.md file loaded.
+   */
+  async loadSkillPool(filePath: string): Promise<void> {
+    if (!existsSync(filePath)) return;
+    try {
+      const content = await readFile(filePath, "utf-8");
+      const pool = parseYaml(content) as SkillPool;
+      if (!pool || !pool.skills) return;
+      for (const [name, description] of Object.entries(pool.skills)) {
+        if (this.skills.has(name)) continue;
+        const skill: Skill = {
+          id: name,
+          name,
+          description: description || "",
+          path: filePath,
+          instructions: "",
+          enabled: true,
+          useCount: 0,
+        };
+        this.register(skill);
+      }
+    } catch {
+      // skip invalid pool file
     }
   }
 

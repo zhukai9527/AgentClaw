@@ -206,10 +206,22 @@
   letter-spacing: 0.03em;
 }
 
+select.wfe-props-input {
+  appearance: auto;
+  height: auto;
+  cursor: pointer;
+}
+
 .wfe-props-value {
   font-size: 13px;
   color: var(--text-secondary);
   padding: 4px 0;
+}
+
+.wfe-props-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
 }
 
 .wfe-props-input {
