@@ -12,6 +12,7 @@
   "dependencies": {
     "@babel/standalone": "^7.29.1",
     "@sentry/react": "^10.42.0",
+    "@xyflow/react": "^12.10.2",
     "i18next": "^25.8.16",
     "mermaid": "^11.14.0",
     "react": "^19.2.4",

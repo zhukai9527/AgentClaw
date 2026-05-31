@@ -21,7 +21,8 @@
     "@agentclaw/providers": "workspace:*",
     "@agentclaw/tools": "workspace:*",
     "@agentclaw/types": "workspace:*",
-    "lru-cache": "^11.2.7"
+    "lru-cache": "^11.2.7",
+    "yaml": "^2.7.0"
   },
   "devDependencies": {
     "@agentclaw/memory": "workspace:*",

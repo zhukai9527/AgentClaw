@@ -25,7 +25,7 @@ import {
   formatHealthResults,
   type HealthCheckResult,
 } from "./health-check.js";
-import { loadConfig, type AppConfig, type ProviderInstance } from "./config.js";
+import { loadConfig, resolveActiveProvider, type AppConfig, type ProviderInstance } from "./config.js";
 import { broadcastSessionActivity } from "./utils.js";
 
 export interface AppContext {
@@ -136,11 +136,13 @@ function collectProviders(cfg: AppConfig): {
     return { provider: localProvider, providerName: "local", model };
   }
 
-  // Sort: enabled + activeProvider first, then enabled, then disabled
-  const active = cfg.activeProvider;
+  // Use resolveActiveProvider to determine the primary provider
+  const resolved = resolveActiveProvider(cfg);
+
+  // Sort: active first, then enabled, then disabled
   const sorted = [...instances].sort((a, b) => {
-    if (a.id === active && a.enabled) return -1;
-    if (b.id === active && b.enabled) return 1;
+    if (a.id === resolved.providerId && a.enabled) return -1;
+    if (b.id === resolved.providerId && b.enabled) return 1;
     if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
     return 0;
   });

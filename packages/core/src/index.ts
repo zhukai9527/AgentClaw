@@ -16,11 +16,10 @@ export {
   evaluateTraceQuality,
 } from "./eval.js";
 export type {
-  ExpectedToolCall,
-  TrajectoryTestCase,
-  CheckResult,
-  TrajectoryEvalResult,
-  EvalReport,
   TraceQualityOptions,
   TraceQualityResult,
 } from "./eval.js";
+
+export { WorkflowRegistryImpl, WorkflowEngine, TaskSessionManager } from "./workflow/index.js";
+export type { WorkflowEngineOptions, TaskSessionInfo, TaskSessionStatus, TaskSessionManagerOptions } from "./workflow/index.js";
+export { DefaultTaskProviderRegistry } from "./workflow/task-providers.js";

@@ -7,6 +7,7 @@ import type {
   ContentBlock,
   Message,
   ToolExecutionContext,
+  PresentOption,
 } from "@agentclaw/types";
 import * as Sentry from "@sentry/node";
 
@@ -159,6 +160,11 @@ interface ActiveStream {
     current: ((answer: string) => void) | null;
     timer: ReturnType<typeof setTimeout> | null;
   };
+  /** present_options 回调引用 */
+  pendingInteractiveRef: {
+    current: ((result: { selected: string | string[] }) => void) | null;
+    timer: ReturnType<typeof setTimeout> | null;
+  };
   /** 用户主动停止（点 Stop 按钮） */
   userAborted: boolean;
 }
@@ -277,6 +283,21 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
         return;
       }
 
+      // ── interactive_reply：回复 present_options ──
+      if (parsed.type === "interactive_reply") {
+        const stream = activeStreams.get(sessionId);
+        if (stream?.pendingInteractiveRef.current) {
+          const msg = parsed as unknown as { selected?: string | string[] };
+          stream.pendingInteractiveRef.current({ selected: msg.selected ?? "" });
+          stream.pendingInteractiveRef.current = null;
+          if (stream.pendingInteractiveRef.timer) {
+            clearTimeout(stream.pendingInteractiveRef.timer);
+            stream.pendingInteractiveRef.timer = null;
+          }
+        }
+        return;
+      }
+
       if (parsed.type !== "message" || !parsed.content) {
         safeSendTo(
           socket,
@@ -305,6 +326,7 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
         buffer: [],
         socketRef: { current: socket },
         pendingPromptRef: { current: null, timer: null },
+        pendingInteractiveRef: { current: null, timer: null },
         userAborted: false,
       };
       activeStreams.set(sessionId, stream);
@@ -386,6 +408,28 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
               };
               stream.pendingPromptRef.timer = timer;
               streamSend(JSON.stringify({ type: "prompt", question }));
+            });
+          },
+          presentOptions: (
+            prompt: string,
+            options: PresentOption[],
+            multiple?: boolean,
+          ) => {
+            return new Promise<{ selected: string | string[] }>((resolveInteractive) => {
+              const timer = setTimeout(
+                () => {
+                  stream.pendingInteractiveRef.current = null;
+                  stream.pendingInteractiveRef.timer = null;
+                  resolveInteractive({ selected: multiple ? [] : "" });
+                },
+                5 * 60 * 1000,
+              );
+              stream.pendingInteractiveRef.current = (result) => {
+                clearTimeout(timer);
+                resolveInteractive(result);
+              };
+              stream.pendingInteractiveRef.timer = timer;
+              streamSend(JSON.stringify({ type: "present_options", prompt, options, multiple: !!multiple }));
             });
           },
           notifyUser: async (message: string) => {
@@ -539,6 +583,10 @@ export function registerWebSocket(app: FastifyInstance, ctx: AppContext): void {
           if (stream.pendingPromptRef.timer) {
             clearTimeout(stream.pendingPromptRef.timer);
             stream.pendingPromptRef.timer = null;
+          }
+          if (stream.pendingInteractiveRef.timer) {
+            clearTimeout(stream.pendingInteractiveRef.timer);
+            stream.pendingInteractiveRef.timer = null;
           }
           activeStreams.delete(sessionId);
         }

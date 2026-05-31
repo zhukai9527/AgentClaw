@@ -674,6 +674,33 @@ describe("Config 路由", () => {
     });
   });
 
+
+  describe("GET /api/config - resolved values", () => {
+    it("返回中包含 activeProvider 和 providers[]", async () => {
+      // 写入一个包含 providers 的配置
+      const { loadConfig, saveConfig } = await import("../config.js");
+      saveConfig({
+        providers: [
+          { id: "deepseek", type: "openai", name: "DeepSeek", enabled: true, apiKey: "sk-ds" },
+          { id: "anthropic", type: "claude", name: "Anthropic", enabled: false, apiKey: "sk-ant" },
+        ],
+        activeProvider: "deepseek",
+      } as any);
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/config",
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.activeProvider).toBe("deepseek");
+      expect(body.providers).toBeDefined();
+      expect(body.providers.length).toBe(2);
+      expect(body.provider).toBe("mock-provider"); // from ctx.config
+      expect(body.model).toBe("mock-model");
+    });
+  });
   describe("PUT /api/config", () => {
     it("更新模型配置", async () => {
       const mockOrchestrator = ctx.orchestrator as any;

@@ -8,6 +8,7 @@ import {
   type AppConfig,
   type ProviderInstance,
   type SearchEngineConfig,
+  resolveActiveProvider,
 } from "../config.js";
 import {
   ClaudeProvider,
@@ -51,13 +52,14 @@ function rebuildProvider(cfg: AppConfig): {
   name: string;
   model?: string;
 } | null {
-  const providers = cfg.providers || [];
-  const activeId = cfg.activeProvider;
+  const resolved = resolveActiveProvider(cfg);
 
-  // 优先找 activeProvider，否则找第一个 enabled 的
-  const target =
-    providers.find((p) => p.id === activeId && p.apiKey) ||
-    providers.find((p) => p.enabled && p.apiKey);
+  // 如果回退到本地，说明无可用 provider
+  if (resolved.providerId === "local") return null;
+
+  const target = (cfg.providers || []).find(
+    (p) => p.id === resolved.providerId && p.apiKey,
+  );
   if (!target) return null;
 
   return {

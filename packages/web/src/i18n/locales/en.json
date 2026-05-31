@@ -26,6 +26,7 @@
   },
   "nav": {
     "chat": "Chat",
+    "workspace": "Team Workspace",
     "tasks": "Tasks",
     "automations": "Scheduled Tasks",
     "projects": "Projects",
@@ -553,5 +554,41 @@
     "noSessions": "No sessions yet, click above to start chatting",
     "newChatIn": "New chat in \"{{name}}\"",
     "newSession": "New session"
+  },
+  "workspace": {
+    "import": "Import Workspace",
+    "importDesc": "Clone a Git repository to use as your team workspace. The workspace may contain skills, workflows, and target projects.",
+    "gitUrl": "Git Repository URL",
+    "gitUrlPlaceholder": "https://github.com/org/team-workspace.git",
+    "importing": "Importing...",
+    "importSuccess": "Workspace imported successfully!",
+    "importError": "Import failed",
+    "switch": "Switch Workspace",
+    "noWorkspace": "No workspace imported yet",
+    "noWorkspaceDesc": "Import a Git repository to start working with your team's skills and workflows.",
+    "noTasks": "No tasks yet. Sync from your task provider to get started.",
+    "selectTask": "Select a task from the left panel, or import a workspace to get started.",
+    "targetProjects": "Target Projects",
+    "editor": {
+      "view": "View",
+      "edit": "Edit",
+      "addStep": "+Step",
+      "addCond": "+Cond",
+      "export": "Export",
+      "import": "Import",
+      "exportTitle": "Export Workflow (JSON)",
+      "importTitle": "Import Workflow (JSON)",
+      "props": "Node Properties",
+      "propsName": "Name",
+      "propsType": "Type",
+      "propsSkill": "Skill",
+      "propsPrompt": "Prompt",
+      "propsApply": "Apply",
+      "dragHint": "Drag to canvas",
+      "untitled": "untitled",
+      "invalidJson": "Invalid JSON format",
+      "taskStep": "Task Step",
+      "condition": "Condition"
+    }
   }
 }

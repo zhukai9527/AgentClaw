@@ -266,7 +266,7 @@ export function loadConfig(configPath?: string): AppConfig {
  * 从旧格式字段（anthropicApiKey 等）构建 providers[] 数组。
  * 纯内存转换，不写回文件。
  */
-function migrateToProviders(cfg: AppConfig): ProviderInstance[] {
+export function migrateToProviders(cfg: AppConfig): ProviderInstance[] {
   const providers: ProviderInstance[] = [];
   const oldActive = cfg.activeProvider; // "claude" / "openai" / "gemini"
 
@@ -373,6 +373,53 @@ function deepMerge(
 }
 
 /**
+ * ?? active provider ? id ? model?
+ *
+ * ??????????
+ *  1. providers[] + activeProvider???? provider ??? apiKey?
+ *  2. providers[] + ??? enabled ?? apiKey ? provider
+ *  3. ????anthropicApiKey / openaiApiKey / geminiApiKey????????
+ *  4. ????? Ollama?id="local", model="llama3"?
+ */
+export function resolveActiveProvider(cfg: AppConfig): {
+  providerId: string;
+  model?: string;
+} {
+  const providers = cfg.providers || [];
+
+  // Rule 1: activeProvider points to a configured provider
+  if (cfg.activeProvider) {
+    const active = providers.find(
+      (p) => p.id === cfg.activeProvider && p.apiKey,
+    );
+    if (active) return { providerId: active.id, model: active.model };
+  }
+
+  // Rule 2: first enabled provider with apiKey
+  const enabled = providers.find((p) => p.enabled && p.apiKey);
+  if (enabled) return { providerId: enabled.id, model: enabled.model };
+
+  // Rule 3: migrate legacy fields, respect activeProvider
+  if (
+    cfg.anthropicApiKey ||
+    cfg.openaiApiKey ||
+    cfg.geminiApiKey
+  ) {
+    const migrated = migrateToProviders(cfg);
+    // If activeProvider is set, prefer it in migrated results
+    if (cfg.activeProvider) {
+      const active = migrated.find((p) => p.id === cfg.activeProvider && p.apiKey);
+      if (active) return { providerId: active.id, model: active.model };
+    }
+    const first = migrated.find((p) => p.apiKey);
+    if (first) return { providerId: first.id, model: first.model };
+  }
+
+  // Rule 4: fallback to local Ollama
+  return { providerId: "local", model: cfg.defaultModel || "llama3" };
+}
+
+/**
  * 保存配置到 config.json（合并写入，不是全量覆盖）。
  * 只写入传入的字段，不影响已有字段。嵌套对象递归合并。
  */
@@ -389,6 +436,29 @@ export function saveConfig(
       existing = JSON.parse(readFileSync(path, "utf-8"));
     } catch {
       // 文件损坏则覆盖
+    }
+  }
+
+  // 归一化：如果更新包含旧字段但没有 providers[]，生成 canonical 结构
+  const hasLegacyFields =
+    config.anthropicApiKey !== undefined ||
+    config.openaiApiKey !== undefined ||
+    config.geminiApiKey !== undefined;
+  if (hasLegacyFields && !config.providers) {
+    const merged = deepMerge(existing, config as Record<string, unknown>);
+    const migrated = migrateToProviders(merged as unknown as AppConfig);
+    if (migrated.length > 0) {
+      // 合并：更新已有 provider 或添加新的，不覆盖现有 providers
+      const existingProviders = (existing.providers || []) as any[];
+      if (existingProviders.length > 0) {
+        const mergedMap = new Map(existingProviders.map((p: any) => [p.id, p]));
+        for (const mp of migrated) {
+          mergedMap.set(mp.id, mp);
+        }
+        (config as any).providers = Array.from(mergedMap.values());
+      } else {
+        (config as any).providers = migrated;
+      }
     }
   }
 

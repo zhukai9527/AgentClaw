@@ -1083,7 +1083,8 @@ export interface WSMessage {
     | "resuming"
     | "stopped"
     | "thinking"
-    | "handoff";
+    | "handoff"
+    | "present_options";
   sessionId?: string;
   channel?: string;
   text?: string;
@@ -1108,6 +1109,9 @@ export interface WSMessage {
   cacheReadTokens?: number;
   success?: boolean;
   question?: string;
+  options?: Array<{ label: string; value: string; description?: string }>;
+  multiple?: boolean;
+  selected?: string | string[];
   agentId?: string;
 }
 
@@ -1164,6 +1168,11 @@ export function connectWebSocket(
     promptReply(content: string) {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "prompt_reply", content }));
+      }
+    },
+    interactiveReply(selected: string | string[]) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "interactive_reply", selected }));
       }
     },
   };

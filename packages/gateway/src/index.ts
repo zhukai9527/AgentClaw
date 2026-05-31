@@ -46,6 +46,15 @@ export { startWeComBot } from "./wecom.js";
 export type { WeComConfig } from "./wecom.js";
 export { registerAgentApiRoutes } from "./routes/agent-api.js";
 export { HeartbeatManager } from "./heartbeat.js";
+export {
+  loadWorkspaceState,
+  saveWorkspaceState,
+  setActiveWorkspace,
+  addTargetProject,
+  removeTargetProject,
+  listTargetProjects,
+} from "./workspace.js";
+export type { WorkspaceState, TargetProject } from "./workspace.js";
 export type { HeartbeatConfig, HeartbeatDeps } from "./heartbeat.js";
 export { runHealthChecks, formatHealthResults } from "./health-check.js";
 export type { HealthCheckResult } from "./health-check.js";

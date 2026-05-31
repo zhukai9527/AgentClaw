@@ -26,6 +26,7 @@
   },
   "nav": {
     "chat": "对话",
+    "workspace": "团队工作流",
     "tasks": "任务",
     "automations": "定时任务",
     "projects": "项目",
@@ -553,5 +554,41 @@
     "noSessions": "还没有会话，点击上方开始聊天",
     "newChatIn": "在「{{name}}」中新建聊天",
     "newSession": "新会话"
+  },
+  "workspace": {
+    "import": "导入工作空间",
+    "importDesc": "克隆 Git 仓库作为团队工作空间。工作空间可包含技能、工作流和目标项目。",
+    "gitUrl": "Git 仓库地址",
+    "gitUrlPlaceholder": "https://github.com/org/team-workspace.git",
+    "importing": "导入中...",
+    "importSuccess": "工作空间导入成功！",
+    "importError": "导入失败",
+    "switch": "切换工作空间",
+    "noWorkspace": "尚未导入工作空间",
+    "noWorkspaceDesc": "导入 Git 仓库以开始使用团队的技能和工作流。",
+    "noTasks": "暂无任务。从任务提供商同步以开始。",
+    "selectTask": "从左侧面板选择任务，或导入工作空间以开始。",
+    "targetProjects": "目标项目",
+    "editor": {
+      "view": "查看",
+      "edit": "编辑",
+      "addStep": "+步骤",
+      "addCond": "+条件",
+      "export": "导出",
+      "import": "导入",
+      "exportTitle": "导出工作流 (JSON)",
+      "importTitle": "导入工作流 (JSON)",
+      "props": "节点属性",
+      "propsName": "名称",
+      "propsType": "类型",
+      "propsSkill": "技能",
+      "propsPrompt": "提示",
+      "propsApply": "应用",
+      "dragHint": "拖拽到画布",
+      "untitled": "未命名",
+      "invalidJson": "JSON 格式无效",
+      "taskStep": "任务步骤",
+      "condition": "条件"
+    }
   }
 }

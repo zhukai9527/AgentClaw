@@ -150,6 +150,29 @@ npm run start:web    # Web UI 开发服务器（热更新）
 npm run cli          # 终端交互模式
 ```
 
+### 桌面开发
+
+桌面端基于 Tauri，除了 Node.js / pnpm 之外还需要 Rust toolchain 和 Bun。
+
+```bash
+# 安装依赖
+pnpm install
+
+# Windows 先安装 Rust
+winget install Rustlang.Rustup
+rustup default stable
+
+# 再安装 Bun（用于 sidecar 编译）
+winget install Oven-sh.Bun
+
+# 验证工具可用后再启动桌面开发
+cargo --version
+bun --version
+pnpm --filter @agentclaw/desktop dev
+```
+
+首次安装依赖时，`packages/desktop` 会在 `preinstall` 阶段检查 `cargo` 和 `bun` 是否可用；`dev` 和 `build:desktop` 本身不再重复做这类检查。
+
 ## 核心功能
 
 ### Hive — Agent-as-a-Service

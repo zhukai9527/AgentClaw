@@ -205,6 +205,13 @@ export function Layout() {
         {/* Navigation */}
         <nav className="sidebar-nav">
           <NavLink
+            to="/workspace"
+            className={({ isActive }) => (isActive ? "active" : "")}
+            onClick={closeSidebarOnMobile}
+          >
+            <IconProjects size={16} /> {t("nav.workspace")}
+          </NavLink>
+          <NavLink
             to="/tasks"
             className={({ isActive }) => (isActive ? "active" : "")}
             onClick={closeSidebarOnMobile}

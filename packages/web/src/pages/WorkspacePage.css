@@ -1,0 +1,575 @@
+/* WorkspacePage — 3-column team workspace layout */
+
+.ws-layout {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  gap: 0;
+}
+
+/* ── Left sidebar (task list) ── */
+
+.ws-sidebar {
+  width: 280px;
+  min-width: 280px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.ws-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.ws-sidebar-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ws-task-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.ws-task-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ── Center (workflow + chat) ── */
+
+.ws-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.ws-welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.ws-welcome-icon {
+  font-size: 48px;
+  opacity: 0.3;
+}
+
+.ws-welcome h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.ws-welcome p {
+  font-size: 15px;
+  max-width: 400px;
+  line-height: 1.5;
+}
+
+.ws-canvas-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  background: var(--bg-secondary);
+  margin: 12px;
+  border-radius: var(--radius);
+  border: 1px dashed var(--border);
+}
+
+.ws-canvas-area {
+  flex: 1;
+  display: flex;
+  margin: 8px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.ws-chat {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+}
+
+.ws-chat-messages {
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ws-chat-placeholder {
+  padding: 12px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ws-chat-msg {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+
+.ws-chat-msg-user {
+  background: var(--accent-subtle-bg);
+}
+
+.ws-chat-msg-role {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}
+
+.ws-chat-msg-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
+.ws-chat-input-row {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.ws-chat-input {
+  flex: 1;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  outline: none;
+}
+.ws-chat-input:focus {
+  border-color: var(--accent);
+}
+
+.ws-chat-send {
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* ── Right preview panel ── */
+
+.ws-preview {
+  width: 320px;
+  min-width: 320px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.ws-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.ws-preview-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ws-preview-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ws-preview-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.ws-preview-iframe {
+  width: 100%;
+  flex: 1;
+  min-height: 200px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.ws-preview-artifact-list {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.ws-preview-artifact-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.ws-preview-artifact-item {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  word-break: break-all;
+}
+.ws-preview-artifact-item:hover {
+  background: var(--accent-subtle-bg);
+}
+
+/* ── Header task name ── */
+
+.ws-header-task {
+  font-weight: 400;
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin-left: 4px;
+}
+
+/* ── No workspace state ── */
+
+.ws-no-workspace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 64px 24px;
+  text-align: center;
+}
+
+.ws-no-workspace-icon {
+  font-size: 64px;
+  opacity: 0.3;
+}
+
+.ws-no-workspace h2 {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ws-no-workspace p {
+  font-size: 15px;
+  color: var(--text-muted);
+  max-width: 400px;
+  line-height: 1.5;
+}
+
+/* ── Import modal ── */
+
+.ws-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.ws-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px;
+  max-width: 480px;
+  width: 100%;
+  position: relative;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.ws-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  background: none;
+  border: none;
+  font-size: 22px;
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.ws-modal-close:hover {
+  color: var(--text-primary);
+}
+
+.ws-modal h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: var(--text-primary);
+}
+
+.ws-modal-desc {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+.ws-modal-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.ws-modal-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color var(--transition-fast);
+}
+
+.ws-modal-input:focus {
+  border-color: var(--accent);
+}
+
+.ws-modal-error {
+  color: var(--error);
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+
+.ws-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+/* ── Task item in sidebar list ── */
+
+.ws-task-item {
+  display: block;
+  width: 100%;
+  padding: 10px 10px;
+  margin-bottom: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.ws-task-item:hover {
+  background: var(--bg-tertiary);
+}
+.ws-task-item.active {
+  background: var(--accent-subtle-bg);
+  border-color: var(--accent-subtle-border);
+}
+
+.ws-task-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ws-task-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.ws-task-item-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ws-task-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+/* ── Status badges ── */
+
+.ws-task-status {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.ws-task-status-queued {
+  background: var(--accent-subtle-bg);
+  color: var(--accent);
+}
+.ws-task-status-running {
+  background: var(--accent-subtle-bg);
+  color: var(--accent);
+}
+.ws-task-status-waiting_decision {
+  background: var(--warning-subtle-bg);
+  color: var(--warning);
+}
+.ws-task-status-todo {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+.ws-task-status-done {
+  background: var(--success-subtle-bg);
+  color: var(--success);
+}
+.ws-task-status-failed {
+  background: var(--error-subtle-bg);
+  color: var(--error);
+}
+
+.ws-task-spinner {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: ws-spin 0.6s linear infinite;
+  margin-right: 2px;
+  vertical-align: middle;
+}
+
+@keyframes ws-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Priority badges ── */
+
+.ws-task-priority {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.ws-priority-urgent {
+  color: var(--error);
+}
+.ws-priority-high {
+  color: var(--warning);
+}
+.ws-priority-medium {
+  color: var(--accent);
+}
+.ws-priority-low {
+  color: var(--text-muted);
+}
+
+.ws-task-source {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Mode bar (Execute / Edit toggle) ── */
+
+.ws-mode-bar {
+  display: flex;
+  gap: 0;
+  padding: 6px 10px 0;
+  flex-shrink: 0;
+}
+
+.ws-mode-btn {
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  margin-right: 2px;
+}
+.ws-mode-btn.active {
+  background: var(--bg-secondary);
+  color: var(--accent);
+}
+.ws-mode-btn:not(.active):hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}

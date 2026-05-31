@@ -1,0 +1,320 @@
+/* WorkflowEditor — drag-and-drop workflow editor styles */
+
+.wfe-root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  overflow: hidden;
+}
+
+/* ── Toolbar ── */
+
+.wfe-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.wfe-toolbar-left,
+.wfe-toolbar-center,
+.wfe-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wfe-name-input {
+  width: 180px;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+.wfe-name-input:focus {
+  border-color: var(--accent);
+  background: var(--input-bg);
+}
+.wfe-name-input:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.wfe-tb-btn {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.wfe-toggle-group {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.wfe-toggle-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.wfe-toggle-btn.active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+.wfe-toggle-btn:not(.active):hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* ── Palette ── */
+
+.wfe-palette {
+  position: absolute;
+  top: 46px;
+  left: 8px;
+  z-index: 10;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--shadow-md);
+  min-width: 130px;
+}
+
+.wfe-palette-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  padding: 0 4px;
+}
+
+.wfe-palette-item {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  cursor: grab;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  user-select: none;
+}
+.wfe-palette-item:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+}
+.wfe-palette-item:active {
+  cursor: grabbing;
+}
+
+/* ── Flow wrapper ── */
+
+.wfe-flow-wrapper {
+  flex: 1;
+  position: relative;
+}
+
+/* ── Properties panel ── */
+
+.wfe-props-overlay {
+  position: absolute;
+  right: 8px;
+  top: 46px;
+  z-index: 10;
+  min-width: 220px;
+  max-width: 260px;
+}
+
+.wfe-props {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+}
+
+.wfe-props-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.wfe-props-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.wfe-props-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.wfe-props-body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wfe-props-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.wfe-props-value {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+}
+
+.wfe-props-input {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  outline: none;
+  box-sizing: border-box;
+}
+.wfe-props-input:focus {
+  border-color: var(--accent);
+}
+
+.wfe-props-textarea {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  outline: none;
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.wfe-props-textarea:focus {
+  border-color: var(--accent);
+}
+
+.wfe-props-footer {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ── Modal ── */
+
+.wfe-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.wfe-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 600px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+}
+
+.wfe-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.wfe-modal-textarea {
+  flex: 1;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  border: none;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  resize: vertical;
+  outline: none;
+  min-height: 300px;
+}
+
+.wfe-modal-error {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--error);
+  background: var(--error-subtle-bg);
+  flex-shrink: 0;
+}
+
+.wfe-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}

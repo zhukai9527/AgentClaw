@@ -29,6 +29,8 @@ export type {
   ToolResult,
   ToolCategory,
   ToolExecutionContext,
+  PresentOption,
+  PresentOptionsResult,
   ToolHooks,
   ToolPolicy,
   OnIterationHook,
@@ -107,6 +109,14 @@ export type {
 export type { Skill, SkillMatch, SkillRegistry } from "./skill.js";
 
 export type {
+  TaskStatus,
+  TaskPriority,
+  Task,
+  TaskProvider,
+  TaskProviderRegistry,
+} from "./task.js";
+
+export type {
   SubAgentStatus,
   SubAgentInfo,
   SubAgentSpawnOptions,
@@ -114,3 +124,14 @@ export type {
   SubAgentProgressCallback,
   SubAgentManager,
 } from "./subagent.js";
+
+export type {
+  StepType,
+  StepStatus,
+  SkillSource,
+  WorkflowStep,
+  WorkflowEdge,
+  WorkflowDefinition,
+  StepRuntimeState,
+  WorkflowRegistry,
+} from "./workflow.js";

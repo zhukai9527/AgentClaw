@@ -63,3 +63,4 @@ searxng/uwsgi.ini
 # Confidential docs
 docs/HIVE.md
 docs/从零到一造Agent/
+.codex/

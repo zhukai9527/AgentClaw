@@ -37,6 +37,7 @@ import {
 import { useSessionWebSocket } from "../hooks/useSessionWebSocket";
 import { useStreamingState } from "../hooks/useStreamingState";
 import { BrailleSpinner } from "../components/BrailleSpinner";
+import { InteractiveSelect } from "../components/InteractiveSelect";
 import { CodeBlock } from "../components/CodeBlock";
 import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism";
 import {
@@ -1367,6 +1368,11 @@ export function ChatPage() {
   const [editingMsgKey, setEditingMsgKey] = useState<string | null>(null);
   const [editMsgValue, setEditMsgValue] = useState("");
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const [interactiveState, setInteractiveState] = useState<{
+    prompt: string;
+    options: Array<{ label: string; value: string; description?: string }>;
+    multiple: boolean;
+  } | null>(null);
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
@@ -1858,6 +1864,15 @@ export function ChatPage() {
             });
             return updated;
           });
+          break;
+        }
+        case "present_options": {
+          setInteractiveState({
+            prompt: msg.prompt ?? "",
+            options: msg.options ?? [],
+            multiple: !!msg.multiple,
+          });
+          setActiveToolName(null);
           break;
         }
         case "broadcast": {
@@ -3385,6 +3400,36 @@ export function ChatPage() {
                 <PendingFilesList
                   files={pendingFiles}
                   onRemove={removePendingFile}
+                />
+              )}
+
+              {/* InteractiveSelect — present_options UI */}
+              {interactiveState && (
+                <InteractiveSelect
+                  prompt={interactiveState.prompt}
+                  options={interactiveState.options}
+                  multiple={interactiveState.multiple}
+                  onSubmit={(selected) => {
+                    wsRef.current?.interactiveReply(selected);
+                    setInteractiveState(null);
+                    setMessages((prev) => [
+                      ...prev,
+                      {
+                        key: nextKey(),
+                        role: "user",
+                        content: Array.isArray(selected)
+                          ? selected.join(", ")
+                          : selected,
+                        createdAt: new Date().toISOString(),
+                        streaming: false,
+                        toolCalls: [],
+                      },
+                    ]);
+                  }}
+                  onDismiss={() => {
+                    wsRef.current?.interactiveReply("");
+                    setInteractiveState(null);
+                  }}
                 />
               )}
 

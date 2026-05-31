@@ -7,6 +7,7 @@ import { TasksPage } from "./pages/TasksPage";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { AutomationsPage } from "./pages/AutomationsPage";
 import { AgentDetailPage } from "./pages/AgentDetailPage";
+import { WorkspacePage } from "./pages/WorkspacePage";
 import { LoginPage } from "./pages/LoginPage";
 import { AuthProvider, useAuth } from "./auth";
 import { ThemeProvider } from "./components/ThemeProvider";
@@ -48,6 +49,7 @@ function AppRoutes() {
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
           <Route path="/agents/:id" element={<AgentDetailPage />} />
           <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/workspace" element={<WorkspacePage />} />
           <Route path="/automations" element={<AutomationsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/:tab" element={<SettingsPage />} />

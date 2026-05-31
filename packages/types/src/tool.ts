@@ -23,7 +23,12 @@ export interface ToolParameterSchema {
       description?: string;
       enum?: string[];
       default?: unknown;
-      items?: { type: string };
+      items?: {
+        type: string;
+        properties?: Record<string, { type: string; description?: string }>;
+        required?: string[];
+        description?: string;
+      };
     }
   >;
   required?: string[];
@@ -69,10 +74,26 @@ export interface ToolResult {
 /** Tool categories */
 export type ToolCategory = "builtin" | "external" | "mcp";
 
+export interface PresentOption {
+  label: string;
+  value: string;
+  description?: string;
+}
+
+export type PresentOptionsResult = {
+  selected: string | string[];
+};
+
 /** Execution context passed through the call chain to tools */
 export interface ToolExecutionContext {
   /** Ask the user a question and wait for their answer (implemented by gateway) */
   promptUser?: (question: string) => Promise<string>;
+  /** Present structured options to the user and wait for selection */
+  presentOptions?: (
+    prompt: string,
+    options: PresentOption[],
+    multiple?: boolean,
+  ) => Promise<PresentOptionsResult>;
   /** Send a notification to the user (fire-and-forget, for reminders etc.) */
   notifyUser?: (message: string) => Promise<void>;
   /** Stream a text chunk directly into the user's chat bubble (bypasses outer LLM) */

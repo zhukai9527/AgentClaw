@@ -1,5 +1,8 @@
 {
   "name": "AgentClaw",
   "description": "Default all-purpose assistant",
-  "avatar": ""
+  "avatar": "🤖",
+  "model": "minimaxai/minimax-m2.7",
+  "showInChat": true,
+  "allowHandoff": false
 }
