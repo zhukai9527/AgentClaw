@@ -79,11 +79,14 @@ function defToFlow(def: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
         const deps = incomingEdges.get(s.id) || [];
         return { id: s.id, name: s.name, skill: s.skill, type: s.type, runMode: s.runMode, exitGate: s.exitGate, dependsOn: deps, dependsOnNames: deps.map((d: string) => stepNameMap.get(d) || d) };
       });
+      const nameLen = (ph.name || "").length;
+      const estimatedW = Math.max(320, nameLen * 14 + 40);
       return {
         id: `phase-${ph.id}`,
         type: "phaseNode",
         position: { x: idx * 520, y: 0 },
-        data: { phaseId: ph.id, phaseName: ph.name, phaseIdx: idx, entryGate: ph.entry_gate, exitGate: ph.exit_gate, innerSteps },
+        width: estimatedW,
+        data: { phaseId: ph.id, phaseName: ph.name, phaseIdx: idx, entryGate: ph.entry_gate, exitGate: ph.exit_gate, innerSteps, _nodeWidth: estimatedW },
       };
     });
     const phaseEdges: Edge[] = [];

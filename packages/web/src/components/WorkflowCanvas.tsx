@@ -186,13 +186,14 @@ function InnerStepCard({
         boxSizing: "border-box" as const,
       }}
     >
-      <div style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: 2, fontSize: 12, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>
+      <div title={name} style={{ fontWeight: 600, color: "var(--text-primary)", marginBottom: 2, fontSize: 12, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>
         {name}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 2 }}>
         {skills.map((s, i) => (
           <span
             key={i}
+            title={s}
             style={{
               fontSize: 10,
               padding: "1px 6px",
@@ -201,6 +202,9 @@ function InnerStepCard({
               color: phaseColor,
               border: `1px solid ${phaseColor}30`,
               whiteSpace: "nowrap" as const,
+              maxWidth: 160,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
             }}
           >
             {s}
@@ -211,7 +215,7 @@ function InnerStepCard({
         <div style={{ fontSize: 10, color: "var(--warning)", marginTop: 2 }}>Condition</div>
       )}
       {exitGate && (
-        <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 2, lineHeight: 1.2, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div title={exitGate} style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 2, lineHeight: 1.2, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>
           🚪 {exitGate.length > 40 ? exitGate.slice(0, 40) + "…" : exitGate}
         </div>
       )}
