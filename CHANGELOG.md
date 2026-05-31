@@ -1,6 +1,9 @@
 # 更新日志
 
-## [1.5.45] - 2026-05-31
+## [1.5.46] - 2026-05-31
+
+### Fixed
+- **PHASE_COLORS 未导出**: WorkflowCanvas 中导出 `PHASE_COLORS`，WorkflowEditor 中正确导入，消除构建报错。(`WorkflowCanvas.tsx`, `WorkflowEditor.tsx`)
 
 ### Changed
 - **间距收紧**: H_SPACING 240→180, V_SPACING 100→70，节点分布更紧凑均匀。(`WorkflowCanvas.tsx`)
