@@ -1,5 +1,13 @@
 # 更新日志
 
+## [1.5.42] - 2026-05-31
+
+### Added
+- **Codex 工作区 SKILL.md 加载**: `SkillRegistryImpl.loadCodexSkills()` 从 `.codex/skills/<name>/SKILL.md` 加载工作区技能，不覆盖已有内置技能。Gateway workspace 路由在导入/切换/列出工作流时自动调用，重启后也可通过工作流列表页恢复加载。
+
+### Changed
+- **workspace.ts**: `_ctx` 改为 `ctx` 以访问 `skillRegistry`，新增 `loadCodexSkillsForWorkspace()` 辅助函数。
+
 ## [1.5.41] - 2026-05-31
 
 ### Added

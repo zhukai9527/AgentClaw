@@ -22,9 +22,18 @@ async function readdirSafe(dirPath: string): Promise<string[]> {
 
 const WORKSPACES_DIR = resolve(process.cwd(), "data", "workspaces");
 
+/** Load Codex-style skills from a workspace's .codex/skills/ directory */
+async function loadCodexSkillsForWorkspace(
+  ctx: AppContext,
+  workspacePath: string,
+): Promise<void> {
+  const codexSkillsDir = join(workspacePath, ".codex", "skills");
+  await ctx.skillRegistry.loadCodexSkills(codexSkillsDir);
+}
+
 export function registerWorkspaceRoutes(
   app: FastifyInstance,
-  _ctx: AppContext,
+  ctx: AppContext,
 ): void {
   // GET /api/workspace/status — current workspace state
   app.get("/api/workspace/status", async (_req, reply) => {
@@ -96,15 +105,25 @@ export function registerWorkspaceRoutes(
     if (!state.activeWorkspacePath) {
       return reply.send({ workflows: [], poolEntries: [] });
     }
-    const workflowsDir = join(state.activeWorkspacePath, "workflows");
     const registry = new WorkflowRegistryImpl();
-    await registry.scanDirectory(workflowsDir);
 
-    // Also scan Codex-style indexes/ directory if present
-    const codexSkillsDir = join(state.activeWorkspacePath, ".codex", "skills");
-    for (const skillDir of await readdirSafe(codexSkillsDir)) {
-      const indexesDir = join(codexSkillsDir, skillDir, "workflow", "indexes");
-      await registry.scanIndexDirectory(indexesDir);
+    try {
+      // Load Codex skills from workspace (idempotent — skips existing skills)
+      await loadCodexSkillsForWorkspace(ctx, state.activeWorkspacePath);
+
+      // Scan top-level workflows/ directory (legacy flat format)
+      const workflowsDir = join(state.activeWorkspacePath, "workflows");
+      await registry.scanDirectory(workflowsDir);
+
+      // Scan Codex-style indexes/ directory if present
+      const codexSkillsDir = join(state.activeWorkspacePath, ".codex", "skills");
+      const entries = await readdirSafe(codexSkillsDir);
+      for (const entry of entries) {
+        const indexesDir = join(codexSkillsDir, entry, "workflow", "indexes");
+        await registry.scanIndexDirectory(indexesDir);
+      }
+    } catch (err) {
+      console.error("[workspace] Error scanning workflows:", err);
     }
 
     return reply.send({
@@ -231,6 +250,7 @@ export function registerWorkspaceRoutes(
     const targetPath = join(WORKSPACES_DIR, dirName);
     if (existsSync(targetPath)) {
       setActiveWorkspace(targetPath);
+      await loadCodexSkillsForWorkspace(ctx, targetPath);
       return reply.send({
         ok: true,
         name: dirName,
@@ -261,6 +281,7 @@ export function registerWorkspaceRoutes(
     }
 
     setActiveWorkspace(targetPath);
+    await loadCodexSkillsForWorkspace(ctx, targetPath);
     return reply.send({
       ok: true,
       name: dirName,
@@ -306,6 +327,7 @@ export function registerWorkspaceRoutes(
       return reply.status(404).send({ error: `Workspace not found: ${path}` });
     }
     setActiveWorkspace(path);
+    await loadCodexSkillsForWorkspace(ctx, path);
     return reply.send({ ok: true, path });
   });
 }

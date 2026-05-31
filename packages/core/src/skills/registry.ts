@@ -69,6 +69,39 @@ export class SkillRegistryImpl implements SkillRegistry {
   }
 
   /**
+   * Load skills from a Codex-style workspace skills directory.
+   *
+   * Scans .codex/skills/<name>/SKILL.md files and registers them.
+   * Only registers skills that don't already have a SKILL.md file loaded,
+   * so built-in skills take precedence over workspace skills.
+   *
+   * Unlike loadFromDirectory, this does NOT start a file watcher.
+   */
+  async loadCodexSkills(codexSkillsDir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(codexSkillsDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (this.skills.has(entry.name)) continue; // built-in takes precedence
+      const skillFilePath = path.join(codexSkillsDir, entry.name, "SKILL.md");
+      if (!existsSync(skillFilePath)) continue;
+      try {
+        const content = await readFile(skillFilePath, "utf-8");
+        const skill = parseSkillFile(skillFilePath, content);
+        // Use the directory name as the skill ID to avoid collisions
+        skill.id = entry.name;
+        this.register(skill);
+      } catch {
+        // skip invalid files
+      }
+    }
+  }
+
+  /**
    * Load skills from a Codex-style skill-pool.yaml file.
    * This creates lightweight Skill entries from the pool's key-value pairs.
    * Only registers skills that don't already have a SKILL.md file loaded.
