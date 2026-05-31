@@ -35,6 +35,80 @@ export interface CanvasEdge {
   label?: string;
 }
 
+export interface LayoutPos {
+  x: number;
+  y: number;
+}
+
+/**
+ * Compute a ranked DAG layout (left-to-right hierarchy).
+ * Nodes connected by edges are assigned ranks based on longest path from root.
+ * Within each rank, nodes are evenly spaced vertically.
+ */
+export function computeLayout(
+  stepIds: string[],
+  edges: CanvasEdge[],
+): Map<string, LayoutPos> {
+  const predecessors = new Map<string, string[]>();
+  const allNodes = new Set(stepIds);
+
+  for (const e of edges) {
+    if (e.from) allNodes.add(e.from);
+    if (e.to) allNodes.add(e.to);
+  }
+
+  const nodeList = Array.from(allNodes);
+  for (const id of nodeList) predecessors.set(id, []);
+
+  for (const e of edges) {
+    if (e.from && e.to) {
+      const preds = predecessors.get(e.to);
+      if (preds) preds.push(e.from);
+    }
+  }
+
+  const ranks = new Map<string, number>();
+
+  function getRank(id: string): number {
+    const cached = ranks.get(id);
+    if (cached !== undefined) return cached;
+    const preds = predecessors.get(id) || [];
+    if (preds.length === 0) {
+      ranks.set(id, 0);
+      return 0;
+    }
+    let maxRank = -1;
+    for (const p of preds) maxRank = Math.max(maxRank, getRank(p));
+    ranks.set(id, maxRank + 1);
+    return maxRank + 1;
+  }
+
+  for (const id of nodeList) getRank(id);
+
+  const rankGroups = new Map<number, string[]>();
+  for (const [id, rank] of ranks) {
+    if (!rankGroups.has(rank)) rankGroups.set(rank, []);
+    rankGroups.get(rank)!.push(id);
+  }
+
+  const H_SPACING = 240;
+  const V_SPACING = 100;
+
+  const positions = new Map<string, LayoutPos>();
+  const sortedRanks = Array.from(rankGroups.keys()).sort((a, b) => a - b);
+
+  for (const rank of sortedRanks) {
+    const ids = rankGroups.get(rank)!;
+    const totalHeight = (ids.length - 1) * V_SPACING;
+    const startY = -totalHeight / 2;
+    ids.forEach((id, i) => {
+      positions.set(id, { x: rank * H_SPACING, y: startY + i * V_SPACING });
+    });
+  }
+
+  return positions;
+}
+
 interface WorkflowCanvasProps {
   steps: CanvasStep[];
   edges: CanvasEdge[];
@@ -112,18 +186,26 @@ export const nodeTypes = { stepNode: StepNode };
 
 export function WorkflowCanvas({ steps, edges, fitView = true }: WorkflowCanvasProps) {
   const { nodes, flowEdges } = useMemo(() => {
-    const nodes: Node[] = steps.map((step, i) => ({
-      id: step.id,
-      type: "stepNode",
-      position: { x: i * 220, y: 0 },
-      data: {
-        name: step.name,
-        type: step.type,
-        status: step.status,
-        skill: step.skill,
-        skillSource: step.skillSource,
-      },
-    }));
+    const positions = computeLayout(
+      steps.map((s) => s.id),
+      edges,
+    );
+
+    const nodes: Node[] = steps.map((step) => {
+      const pos = positions.get(step.id) || { x: 0, y: 0 };
+      return {
+        id: step.id,
+        type: "stepNode",
+        position: pos,
+        data: {
+          name: step.name,
+          type: step.type,
+          status: step.status,
+          skill: step.skill,
+          skillSource: step.skillSource,
+        },
+      };
+    });
 
     const flowEdges: Edge[] = edges
       .filter((e) => e.to)

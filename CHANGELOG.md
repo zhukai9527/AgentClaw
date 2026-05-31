@@ -1,5 +1,10 @@
 # 更新日志
 
+## [1.5.44] - 2026-05-31
+
+### Changed
+- **DAG 分层布局**: 新增 `computeLayout()` 函数，基于前驱最长路径计算节点层级（rank），同层节点垂直居中排列，不再强制水平单行。WorkflowCanvas 只读视图和 WorkflowEditor 编辑视图均使用该布局。(`packages/web/src/components/WorkflowCanvas.tsx`, `WorkflowEditor.tsx`)
+
 ## [1.5.43] - 2026-05-31
 
 ### Fixed

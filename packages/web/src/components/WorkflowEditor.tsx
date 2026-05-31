@@ -21,7 +21,7 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { StepNode, type CanvasStep, type CanvasEdge } from "./WorkflowCanvas";
+import { StepNode, computeLayout, type CanvasStep, type CanvasEdge } from "./WorkflowCanvas";
 import "./WorkflowEditor.css";
 
 /* ------------------------------------------------------------------ */
@@ -56,10 +56,14 @@ function nextId(prefix = "step"): string {
 }
 
 function defToFlow(def: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
-  const nodes: Node[] = def.steps.map((s, i) => ({
+  const positions = computeLayout(
+    def.steps.map((s) => s.id),
+    def.edges,
+  );
+  const nodes: Node[] = def.steps.map((s) => ({
     id: s.id,
     type: "stepNode",
-      position: { x: i * 220, y: 0 },
+    position: positions.get(s.id) || { x: 0, y: 0 },
     data: {
       name: s.name,
       type: s.type,
