@@ -531,6 +531,7 @@ export function WorkflowCanvas({ steps, edges, phases, fitView }: WorkflowCanvas
         });
       }
 
+      console.log("[WorkflowCanvas] phase nodes:", phaseNodes.map(n => ({ id: n.id, pos: n.position, w: n.width })));
       return { nodes: phaseNodes, flowEdges: phaseEdges };
     }
 
@@ -605,6 +606,7 @@ export function WorkflowCanvas({ steps, edges, phases, fitView }: WorkflowCanvas
       };
     });
 
+    console.log("[WorkflowCanvas] flat nodes:", nodes.map(n => ({ id: n.id, pos: n.position, w: n.style?.width || n.data?.width })));
     return { nodes, flowEdges };
   }, [steps, edges, phases]);
 
