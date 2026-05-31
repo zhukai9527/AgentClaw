@@ -1,5 +1,11 @@
 # 更新日志
 
+## [1.5.43] - 2026-05-31
+
+### Fixed
+- **New Task 弹窗无间距**: 移除 `.ws-new-task-modal` 的 `padding: 0`，恢复继承基础模态框的 28px 内边距。(`packages/web/src/pages/WorkspacePage.css`)
+- **工作流画布无连线 / 连线不美观**: `selectWorkflow` 修复 steps 字段映射（`label` → `name`）和 edges 字段映射（`source`/`target` → `from`/`to`），确保连线数据正确传递到 React Flow。布局从垂直堆叠改为从左到右水平排列，Handle 位置从 Top/Bottom 改为 Left/Right。(`packages/web/src/pages/WorkspacePage.tsx`, `WorkflowCanvas.tsx`, `WorkflowEditor.tsx`)
+
 ## [1.5.42] - 2026-05-31
 
 ### Added

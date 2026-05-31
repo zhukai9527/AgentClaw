@@ -943,9 +943,6 @@
 
 /* ── New Task Modal ── */
 
-.ws-new-task-modal {
-  padding: 0;
-}
 .ws-new-task-form {
   display: flex;
   flex-direction: column;

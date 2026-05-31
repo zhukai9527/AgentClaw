@@ -59,7 +59,7 @@ function defToFlow(def: WorkflowDef): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = def.steps.map((s, i) => ({
     id: s.id,
     type: "stepNode",
-    position: { x: 0, y: i * 120 },
+      position: { x: i * 220, y: 0 },
     data: {
       name: s.name,
       type: s.type,
@@ -514,7 +514,7 @@ function EditorFlow({
   const addStep = useCallback(
     (type: "task" | "condition") => {
       if (!editMode) return;
-      const position = { x: 40, y: 40 + _idCounter * 30 };
+      const position = { x: 40 + _idCounter * 220, y: 40 };
       const newId = nextId();
       const newNode: Node = {
         id: newId,

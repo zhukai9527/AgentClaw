@@ -67,7 +67,7 @@ export function StepNode({ data }: NodeProps) {
         position: "relative",
       }}
     >
-      <Handle type="target" position={Position.Top} />
+      <Handle type="target" position={Position.Left} />
       {hasPhase && (
         <div style={{ fontSize: 10, color: "var(--accent)", marginBottom: 4, fontWeight: 500 }}>
           {data.phaseName || data.phaseId}
@@ -103,7 +103,7 @@ export function StepNode({ data }: NodeProps) {
       {data.entryGate && (
         <div style={{ fontSize: 10, color: "var(--warning)", marginTop: 2 }}>⛩ {data.entryGate}</div>
       )}
-      <Handle type="source" position={Position.Bottom} />
+      <Handle type="source" position={Position.Right} />
     </div>
   );
 }
@@ -115,7 +115,7 @@ export function WorkflowCanvas({ steps, edges, fitView = true }: WorkflowCanvasP
     const nodes: Node[] = steps.map((step, i) => ({
       id: step.id,
       type: "stepNode",
-      position: { x: 0, y: i * 120 },
+      position: { x: i * 220, y: 0 },
       data: {
         name: step.name,
         type: step.type,

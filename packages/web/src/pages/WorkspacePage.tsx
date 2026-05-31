@@ -158,18 +158,17 @@ export function WorkspacePage() {
     setActiveWorkflow(wf);
     setActiveTask(null);
     setViewMode("execute");
-    const steps = (wf.steps || []).map((s: any, i: number) => ({
-      id: s.name || `step-${i}`,
-      label: s.name || `Step ${i + 1}`,
+    const steps: CanvasStep[] = (wf.steps || []).map((s: any, i: number) => ({
+      id: s.id || `step-${i}`,
+      name: s.name || `Step ${i + 1}`,
       type: s.type || "task",
-      status: undefined as string | undefined,
+      status: undefined,
       skill: s.skill,
       skillSource: s.skillSource,
     }));
-    const edges = (wf.edges || []).map((e: any, i: number) => ({
-      id: e.id || `edge-${i}`,
-      source: e.source,
-      target: e.target,
+    const edges: CanvasEdge[] = (wf.edges || []).map((e: any) => ({
+      from: e.from || "",
+      to: e.to || null,
       label: e.label || e.condition,
     }));
     setWorkflowDef({ name: wf.name, steps, edges });
