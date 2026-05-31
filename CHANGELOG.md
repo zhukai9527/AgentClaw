@@ -1,6 +1,10 @@
 # 更新日志
 
-## [1.5.47] - 2026-05-31
+## [1.5.48] - 2026-05-31
+
+### Added
+- **StepNode 双区布局**: 节点重构为 header（step 元信息）+ content（skill 链）双区。单 skill 显示为卡片，多 skill 显示为带 ↓ 箭头的串行链。底部 footer 显示前置依赖步骤。阶段色条从左边框改为顶部 4px 横条。(`WorkflowCanvas.tsx`)
+- **owner_skill 支持数组**: `WorkflowPhaseStep.owner_skill` / `WorkflowStep.skill` 现在接受 `string | string[]`。编辑器 PropertiesPanel 支持逗号分隔输入多 skill，单值时保持向后兼容。(`workflow.ts`, `WorkflowEditor.tsx`)
 
 ### Fixed
 - **阶段元数据被丢弃**: `selectWorkflow` 现在传递全部字段（phaseId, phaseName, runMode, entryGate, exitGate, fallbackStep, fallbackPhase），Canvas 恢复阶段颜色、标签和布局分组。(`WorkspacePage.tsx`)
