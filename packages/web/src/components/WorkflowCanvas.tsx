@@ -229,20 +229,11 @@ export function PhaseNode({ data }: NodeProps) {
   const entryGate = data.entryGate as string | undefined;
   const exitGate = data.exitGate as string | undefined;
 
-  // Linearize: place steps in depends_on order (topological)
-  // For serial chains, just use array order; render arrows between connected steps
+  // Group inner steps by depends_on chains
   const stepIds = new Set(innerSteps.map((s) => s.id));
   const dependsOn = new Map<string, string[]>();
   for (const s of innerSteps) {
     dependsOn.set(s.id, (s.dependsOn as string[] || []).filter((d: string) => stepIds.has(d)));
-  }
-
-  // Determine chain connections: for each step, find which step depends on it
-  const nextStep = new Map<string, string>();
-  for (const s of innerSteps) {
-    for (const dep of (s.dependsOn as string[] || [])) {
-      if (stepIds.has(dep)) nextStep.set(dep, s.id);
-    }
   }
 
   const contentW = STEP_CARD_W + 40;
@@ -302,7 +293,7 @@ export function PhaseNode({ data }: NodeProps) {
       >
         {innerSteps.map((step, i) => (
           <Fragment key={step.id}>
-            {i > 0 && nextStep.get(innerSteps[i - 1].id) === step.id && (
+            {i > 0 && (step.dependsOn as string[] || []).includes(innerSteps[i - 1].id) && (
               <div
                 style={{
                   flexShrink: 0,
@@ -324,7 +315,7 @@ export function PhaseNode({ data }: NodeProps) {
                 </svg>
               </div>
             )}
-            {i > 0 && nextStep.get(innerSteps[i - 1].id) !== step.id && (
+            {i > 0 && !(step.dependsOn as string[] || []).includes(innerSteps[i - 1].id) && (
               <div style={{ flexShrink: 0, height: STEP_GAP }} />
             )}
             <InnerStepCard
@@ -536,8 +527,6 @@ export function WorkflowCanvas({ steps, edges, phases, fitView }: WorkflowCanvas
         });
       }
 
-      console.log("[WorkflowCanvas] phase nodes:", phaseNodes.map(n => ({ id: n.id, pos: n.position, w: n.width })));
-      console.log("[WorkflowCanvas] phase nodes:", phaseNodes.map(n => ({ id: n.id, pos: n.position, w: n.width, estimatedW: (n.data as any)?._nodeWidth, innerSteps: ((n.data as any)?.innerSteps || []).length })));
       return { nodes: phaseNodes, flowEdges: phaseEdges };
     }
 
@@ -612,7 +601,6 @@ export function WorkflowCanvas({ steps, edges, phases, fitView }: WorkflowCanvas
       };
     });
 
-    console.log("[WorkflowCanvas] flat nodes:", nodes.map(n => ({ id: n.id, pos: n.position, w: n.style?.width || n.data?.width })));
     return { nodes, flowEdges };
   }, [steps, edges, phases]);
 
