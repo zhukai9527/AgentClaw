@@ -1,5 +1,11 @@
 # 更新日志
 
+## [1.5.45] - 2026-05-31
+
+### Changed
+- **间距收紧**: H_SPACING 240→180, V_SPACING 100→70，节点分布更紧凑均匀。(`WorkflowCanvas.tsx`)
+- **默认 1:1 缩放**: `fitView` 默认关闭，设置 `defaultViewport={{ x:20, y:20, zoom:1 }}` 和 `minZoom=0.3, maxZoom=2`。Canvas 和 Editor 均不再自动缩放。(`WorkflowCanvas.tsx`, `WorkflowEditor.tsx`)
+
 ## [1.5.44] - 2026-05-31
 
 ### Changed

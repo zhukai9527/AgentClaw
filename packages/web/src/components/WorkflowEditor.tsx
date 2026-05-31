@@ -642,7 +642,7 @@ function EditorFlow({
           onNodeDoubleClick={onNodeDoubleClick}
           onPaneClick={onPaneClick}
           nodeTypes={{ stepNode: StepNode }}
-          fitView
+          defaultViewport={{ x: 20, y: 20, zoom: 1 }}
           attributionPosition="bottom-left"
           nodesDraggable={editMode}
           nodesConnectable={editMode}

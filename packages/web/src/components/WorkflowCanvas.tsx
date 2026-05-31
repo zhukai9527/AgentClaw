@@ -91,8 +91,8 @@ export function computeLayout(
     rankGroups.get(rank)!.push(id);
   }
 
-  const H_SPACING = 240;
-  const V_SPACING = 100;
+  const H_SPACING = 180;
+  const V_SPACING = 70;
 
   const positions = new Map<string, LayoutPos>();
   const sortedRanks = Array.from(rankGroups.keys()).sort((a, b) => a - b);
@@ -184,7 +184,7 @@ export function StepNode({ data }: NodeProps) {
 
 export const nodeTypes = { stepNode: StepNode };
 
-export function WorkflowCanvas({ steps, edges, fitView = true }: WorkflowCanvasProps) {
+export function WorkflowCanvas({ steps, edges, fitView }: WorkflowCanvasProps) {
   const { nodes, flowEdges } = useMemo(() => {
     const positions = computeLayout(
       steps.map((s) => s.id),
@@ -229,11 +229,14 @@ export function WorkflowCanvas({ steps, edges, fitView = true }: WorkflowCanvasP
         edges={flowEdges}
         nodeTypes={nodeTypes}
         fitView={fitView}
+        defaultViewport={{ x: 20, y: 20, zoom: 1 }}
         attributionPosition="bottom-left"
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
         panOnDrag
+        minZoom={0.3}
+        maxZoom={2}
       >
         <Background color="var(--border)" gap={20} />
         <Controls showInteractive={false} />
