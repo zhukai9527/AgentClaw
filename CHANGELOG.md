@@ -1,5 +1,13 @@
 # 更新日志
 
+## [1.5.50] - 2026-05-31
+
+### Added
+- **WorkflowEditor Phase 模式**: `defToFlow` 检测 `def.phases` 后使用 PhaseNode 渲染，编辑模式与预览模式视觉一致：Phase 大节点从左到右排列，内部 steps 从上到下串行。导出 `PhaseNode` 组件供编辑器复用。(`WorkflowEditor.tsx`, `WorkflowCanvas.tsx`)
+
+### Changed
+- **Step 内部布局改为垂直**: PhaseNode 内部 steps 从水平排列改为从上到下（竖直）布局，SVG 箭头指向下方。content 宽固定为卡片宽度，高根据 step 数量动态计算。(`WorkflowCanvas.tsx`)
+
 ## [1.5.49] - 2026-05-31
 
 ### Added
